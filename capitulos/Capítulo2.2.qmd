@@ -1,0 +1,545 @@
+# Medidas de Asociación
+
+Las **medidas de asociación** son estadísticos que describen la **relación entre una exposición (o factor) y un desenlace**. Se utilizan principalmente en estudios epidemiológicos y clínicos para cuantificar cuánto influye una exposición en la probabilidad de desarrollar una enfermedad o un evento de salud.
+
+## Razón de Prevalencias (RP)
+
+Definición: Es una medida que compara la prevalencia de una enfermedad entre expuestos y no expuestos.
+
+$\text{RP} = \frac{P_{\text{expuestos}}}{P_{\text{no expuestos}}}$
+
+*Ejemplo con formato PICO:*
+
+¿El uso de aspirina podrá reducir la prevalencia de infarto agudo de miocardio en los astronautas que viajaron a Marte durante 2020?
+
+P: astronautas que viajaron a Marte durante 2020
+
+I: Uso de aspirina (cualquier uso? cualquier dosis? por cualquier tiempo?)
+
+C: No uso de aspirina (uso de placebo?)
+
+O: Infarto de miocardio
+
+::: callout-warning
+## Warning!
+
+-   Para que podamos comprender mejor la relacion causal entre 2 variables es importante que conozcamos todos los detalles sobre la intervención (supuesto de consistencia), este punto se aboradará en un proximo capítulo.
+
+-   Con respecto a los desenlaces, siempre es preferible la evaluación de todos lo potenciales efectos (beneficios y daños), ya que solo así se podrá tener un panorama más competo para recomendar o no una intervención.
+:::
+
+```{r, echo=FALSE, message=F, warning=F, fig.width=8, fig.height=6}
+# Cargar librerías
+library(ggplot2)
+library(tidyverse)
+
+# Crear datos
+# Crear datos
+datos <- data.frame(
+  ID = factor(paste0("P", 1:10), levels = paste0("P", 10:1)),  # Orden invertido
+  Grupo = c("Aspirina","Aspirina","Aspirina",
+            "Aspirina","Aspirina","Placebo",
+            "Placebo","Placebo","Placebo","Placebo"),
+  inicio = c(2, 3, 4, 4, 1, 3, 5, 3, 2, 6),  # Mes de inicio
+  duracion = c(4, 7, 4, 5, 4, 6, 5, 4, 6, 3),  # Duración en meses
+  evento = c(6, NA, 8, NA, 3, NA, 6, NA, NA, NA),  # Mes del evento
+  evento2 = c(NA, NA, 7, NA, NA, NA, NA, NA, NA, NA)  # Mes del evento
+)
+
+# Crear gráfico
+ggplot(datos, aes(y = ID)) +
+  geom_segment(aes(x = 5.6, yend = "P1"), color = "gray70", size = 1) +
+  geom_segment(aes(x = 6.4, yend = "P1"), color = "gray70", size = 1) +
+  geom_segment(aes(x = inicio, xend = inicio + duracion, yend = ID, color = Grupo), size = 1.5) +
+  geom_point(aes(x = evento, color = Grupo), size = 5, na.rm = TRUE) +
+  geom_point(aes(x = evento2, color = Grupo), size = 5, na.rm = TRUE) +
+
+  annotate("point", x = 9, y = "P4", color = "black", size = 4, shape = 17) +
+  annotate("point", x = 5, y = "P5", color = "black", size = 4, shape = 17) +
+  annotate("point", x = 10, y = "P7", color = "black", size = 4, shape = 17) +
+
+  geom_text(aes(x = inicio + duracion / 2, label = duracion), color = "red", vjust = -1, na.rm = TRUE) +
+
+  scale_x_continuous(
+    breaks = 1:10, 
+    labels = c("2015", "2016", "2017", "2018", "2019", "2020", "2021", "2022", "2023", "2024")
+  ) +
+
+  labs(x = "", y = "", title = " ", caption = "🔴 Evento de interés") +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 14),
+    axis.text.x = element_text(size = 14),
+    panel.grid.major.x = element_line(color = "gray85"),
+    panel.grid.minor = element_blank()
+  )
+```
+
+En 2020 la prevalencia de IM entre aquellos que tomaron aspirina fue de ${1/4} = \text{25%}$, mientras que la prevalencia en aquellos que no tomaron la aspirina fue de ${1/5} = \text{20%}$
+
+Entonces, la razón de prevalencia será $\text{25% / 20%} = 1.25$
+
+**Interpretación**
+
+-   RP = 1 → No hay asociación.
+
+-   RP \> 1 → Mayor prevalencia en el grupo expuesto
+
+-   RP \< 1 → Mayor prevalencia en el grupo no expuesto
+
+En los astronautas evaluados, la prevalencia de tener el antecedente de infarto de miocardio fue 25% mayor (1.25 - 1) entre los que usaron aspirina, con respecto al grupo que no la usaron.
+
+Dado que las RP provienen de estudios trasversales (donde en la mayoría de casos no se tiene certeza sobre si la exposición fue antes o despues al desenlace), no podemos hablar de una relación causal. Además, los datos podrían mostrar resultados que no son coherentes con el resto de literatura por limitar la evaluación a un momento dado (veremos que en estudios que tienen en cuenta el tiempo, estudios retro o prospectivos, pueden mejorar nuestro entendimiento de las relaciones)
+
+Interpretación de RP = 1
+
+En los astronautas evaluados, la prevalencia de tener el antecedente de infarto de miocardio fue igual entre los que usaron aspirina y los que no la usaron.
+
+Interpretación de RP = 0.64
+
+En los astronautas evaluados, la prevalencia de tener el antecedente de infarto de miocardio fue 36% menor (0.64 - 1) entre los que usaron aspirina, con respecto al grupo que no la usaron.
+
+## Riesgo Relativo (RR)
+
+Definición: Relación entre el riesgo de enfermar en expuestos y no expuestos.
+
+$\text{RR} = \frac{\text{riesgo en expuestos}}{\text{riesgo en no expuestos}}$
+
+::: callout-note
+## ¡Atención!
+
+La palabra "riesgo" hace referencia a que se conoce que en un momento dado no se presenta el evento, pero tiene posibilidad de desarrollar dicho evento. Es por ello, que se prefiere reservar dicho termino en estudios que conocen de la temporalidad.
+:::
+
+*Ejemplo con formato PICO:*
+
+¿El uso de curcumina (sustancia obetenida de la curcuma) podrá reducir la incidencia de infarto agudo de miocardio en los astronautas que viajaron a Marte?
+
+P: astronautas que viajaron a Marte entre 2015 y 2024
+
+I: Inicio del uso de curcumina a 4 gr/día por lo menos durante 3 meses (ahora si sabemos que todas las lineas rojas indican que cumplieron con este criterio)
+
+C: Inicio del uso de placebo
+
+O: Infarto de miocardio
+
+```{r, echo=FALSE, message=F, warning=F, fig.width=8, fig.height=6}
+# Cargar librerías
+library(ggplot2)
+
+# Crear datos
+# Crear datos
+datos <- data.frame(
+  ID = factor(paste0("P", 1:10), levels = paste0("P", 10:1)),  # Orden invertido
+  Grupo = c("Curcumina","Curcumina","Curcumina",
+            "Curcumina","Curcumina","Placebo",
+            "Placebo","Placebo","Placebo","Placebo"),
+  inicio = c(2, 3, 4, 4, 1, 3, 5, 3, 2, 6),  # Mes de inicio
+  duracion = c(4, 7, 4, 5, 4, 6, 5, 4, 6, 3),  # Duración en meses
+  evento = c(6, NA, 8, NA, 3, NA, 8, NA, NA, NA),  # Mes del evento
+  evento2 = c(NA, NA, 7, NA, NA, NA, NA, NA, NA, NA)  # Mes del evento
+)
+
+# Crear gráfico
+ggplot(datos, aes(y = ID)) +
+  geom_segment(aes(x = inicio, xend = inicio + duracion, yend = ID, color = Grupo), size = 1.5) +
+  geom_point(aes(x = evento, color = Grupo), size = 5, na.rm = TRUE) +
+  geom_point(aes(x = evento2, color = Grupo), size = 5, na.rm = TRUE) +
+
+  annotate("point", x = 9, y = "P4", color = "black", size = 4, shape = 17) +
+  annotate("point", x = 5, y = "P5", color = "black", size = 4, shape = 17) +
+  annotate("point", x = 10, y = "P7", color = "black", size = 4, shape = 17) +
+
+  geom_text(aes(x = inicio + duracion / 2, label = duracion), color = "red", vjust = -1, na.rm = TRUE) +
+
+  scale_x_continuous(
+    breaks = 1:10, 
+    labels = c("2015", "2016", "2017", "2018", "2019", "2020", "2021", "2022", "2023", "2024")
+  ) +
+
+  labs(x = "", y = "", title = " ", caption = "🔴 Evento de interés") +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 14),
+    axis.text.x = element_text(size = 14),
+    panel.grid.major.x = element_line(color = "gray85"),
+    panel.grid.minor = element_blank()
+  )
+```
+
+Entre 2015 y 2024 la incidencia de IM entre aquellos que tomaron curcumina fue de ${3/5} = \text{60%}$, mientras que la incidencia en aquellos que no tomaron la curcumina fue de ${1/5} = \text{20%}$
+
+Entonces, el riesgo relativo será $\text{60% / 20%} = 3.00$
+
+**Interpretación**
+
+-   RR = 1 → No hay asociación.
+
+-   RR \> 1 → Mayor incidencia en el grupo expuesto (si es observacional) o grupo de intervención (si es un ensayo clinico)
+
+-   RR \< 1 → Mayor incidencia en el grupo no expuesto
+
+Opción A: En los astronautas evaluados, la incidencia de desarrollar un infarto de miocardio fue 200% mayor (3 - 1) entre los que usaron curcumina, con respecto al grupo que no la usaron.
+
+Opción B: En los astronautas evaluados, la incidencia de desarrollar un infarto de miocardio entre los que usaron curcumina fue 3 **veces** mayor con respecto al grupo que no la usaron.
+
+Interpretación de RR = 1
+
+En los astronautas evaluados, la incidencia de infarto de miocardio fue igual entre los que usaron curcumina y los que no la usaron.
+
+Interpretación de RR = 0.84
+
+En los astronautas evaluados, la incidencia de infarto de miocardio fue 16% menor (0.84 - 1) entre los que usaron curcumina, con respecto al grupo que no la usaron.
+
+## Razón de tasa de incidencia (RTI)
+
+La RTI se define como la razón entre dos tasas de incidencia.
+
+$\text{RTI} = \frac{\text{TI en expuestos}}{\text{TI en no expuestos}}$
+
+*Ejemplo con formato PICO:*
+
+¿El uso de curcumina (sustancia obetenida de la curcuma) podrá reducir la velocidad de aparición (tasa de incidencia) de infarto agudo de miocardio en los astronautas que viajaron a Marte?
+
+P: astronautas que viajaron a Marte entre 2015 a 2024
+
+I: Inicio del uso de curcumina a 4 gr/día por lo menos durante 3 meses (ahora si sabemos que todas las lineas rojas indican que cumplieron con este criterio)
+
+C: Inicio del uso de placebo
+
+O: Infarto de miocardio
+
+```{r, echo=FALSE, message=F, warning=F, fig.width=8, fig.height=6}
+# Cargar librerías
+library(ggplot2)
+
+# Crear datos
+# Crear datos
+datos <- data.frame(
+  ID = factor(paste0("P", 1:10), levels = paste0("P", 10:1)),  # Orden invertido
+  Grupo = c("Curcumina","Curcumina","Curcumina",
+            "Curcumina","Curcumina","Placebo",
+            "Placebo","Placebo","Placebo","Placebo"),
+  inicio = c(2, 3, 4, 4, 1, 3, 5, 3, 2, 6),  # Mes de inicio
+  duracion = c(4, 7, 4, 5, 4, 6, 5, 4, 6, 3),  # Duración en meses
+  evento = c(6, NA, 8, NA, 3, NA, 8, NA, NA, NA),  # Mes del evento
+  evento2 = c(NA, NA, 7, NA, NA, NA, NA, NA, NA, NA)  # Mes del evento
+)
+
+# Crear gráfico
+ggplot(datos, aes(y = ID)) +
+  geom_segment(aes(x = inicio, xend = inicio + duracion, yend = ID, color = Grupo), size = 1.5) +
+  geom_point(aes(x = evento, color = Grupo), size = 5, na.rm = TRUE) +
+  geom_point(aes(x = evento2, color = Grupo), size = 5, na.rm = TRUE) +
+
+  annotate("point", x = 9, y = "P4", color = "black", size = 4, shape = 17) +
+  annotate("point", x = 5, y = "P5", color = "black", size = 4, shape = 17) +
+  annotate("point", x = 10, y = "P7", color = "black", size = 4, shape = 17) +
+
+  geom_text(aes(x = inicio + duracion / 2, label = duracion), color = "red", vjust = -1, na.rm = TRUE) +
+
+  scale_x_continuous(
+    breaks = 1:10, 
+    labels = c("2015", "2016", "2017", "2018", "2019", "2020", "2021", "2022", "2023", "2024")
+  ) +
+
+  labs(x = "", y = "", title = " ", caption = "🔴 Evento de interés") +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 14),
+    axis.text.x = element_text(size = 14),
+    panel.grid.major.x = element_line(color = "gray85"),
+    panel.grid.minor = element_blank()
+  )
+```
+
+Entre 2015 y 2024 la velocidad de desarrollo (tasa de incidencia) de IM entre aquellos que tomaron curcumina fue de $\text{3 eventos / 21 personas-año} = \text{14.3 eventos por 100 personas-año de seguimiento}$, mientras que la velocidad de desarrollo en aquellos que no tomaron la curcumina fue de $\text{1 eventos / 22 personas-año} = \text{4.5 eventos por 100 personas-año de seguimiento}$
+
+Entonces, el RTI será $\text{14.3 / 4.5} = 3.18$
+
+**Interpretación**
+
+-   RTI = 1 → No hay asociación.
+
+-   RTI \> 1 → Mayor velocidad de aparición en el grupo expuesto (si es observacional) o grupo de intervención (si es un ensayo clinico)
+
+-   RTI \< 1 → Mayor velocidad de aparición en el grupo no expuesto
+
+Opción A: En los astronautas evaluados, la tasa de incidencia de infarto de miocardio en el grupo que usó curcumina fue 218% mayor (3.18 - 1) con respecto al grupo que no la usó.
+
+Opción B: En los astronautas evaluados, la tasa de incidencia de infarto de miocardio en el grupo que usó curcumina fue 3.18 **veces** mayor con respecto al grupo que no la usó.
+
+Interpretación de RR = 1
+
+En los astronautas evaluados, la tasa de incidencia de infarto de miocardio fue igual entre los que usaron curcumina y los que no la usaron.
+
+Interpretación de RR = 0.84
+
+En los astronautas evaluados, la tasa de incidencia de infarto de miocardio fue 16% menor (0.84 - 1) entre los que usaron curcumina, con respecto al grupo que no la usaron.
+
+### 🔍 ¿Cuándo el **RTI** ≈ **RR**?
+
+La **RTI será aproximadamente igual al RR** **cuando se cumplen estas condiciones**:
+
+1.  **El tiempo de seguimiento es el mismo para todos los individuos** (o muy similar entre grupos).
+
+2.  **El evento es raro** (baja incidencia), lo que hace que la probabilidad y la tasa se comporten de forma parecida.
+
+3.  **Pérdida mínima de seguimiento o censura** (es decir, la mayoría de los individuos completan el periodo de observación).
+
+4.  El riesgo no varía mucho con el tiempo (es decir, la incidencia es constante).
+
+### ⚠️ Diferencias clave
+
+| Medida  | ¿Qué mide?                                                                 | Requiere tiempo-persona | Útil cuando hay…               |
+|-------------|---------------------------------|-------------|-------------|
+| **RR**  | Proporción de personas que desarrollan el evento en un periodo determinado | ❌ No                   | Riesgos acumulados             |
+| **RTI** | Velocidad a la que ocurren los eventos por unidad de tiempo                | ✅ Sí                   | Seguimiento desigual o censura |
+
+## Odds Ratio (OR)
+
+La OR se define como la razón entre las **odds** entre los casos (grupo eexpuesto) y los controles (grupo no expuesto). Se usa frecuentemente en estudios de **casos y controles**.
+
+$\text{OR} = \frac{\text{odds en expuestos}}{\text{odds en no expuestos}}$
+
+Un odds (o momio) es la razón entre la probabilidad de que ocurra un evento y la probabilidad de que no ocurra.
+
+$$odds = \frac{𝑝} {1 − 𝑝}$$
+
+Por ejemplo, si la probabilidad de ganar un juego es 0.2 (20%), entonces el odds de ganar es:
+
+$$odds = \frac{0.2} {1 − 0.2} = \frac{0.2} {0.8} = 0.25$$
+
+Esto significa que hay 1 oportunidad de ganar por cada 4 de perder.
+
+::: callout-note
+## ¡Atención!
+
+-   La OR **no es un riesgo** y puede **sobreestimar la asociación** cuando los eventos son comunes (prevalencia o incidencia \> 10%). Es una **buena aproximación del RR** solo cuando la prevalencia del evento es baja (\<10%).
+
+-   Es por ello, que es preferible usar RP o RR en lugar del OR
+:::
+
+![https://www.bmj.com/content/348/bmj.f7450](fig/Articulo_cap2_2.png){width="600" height="550"} Nota que el valor el RR y OR solo coinciden cuando la prevalencia es baja (P0=0.1, linea azul)
+
+*Ejemplo con formato PICO:*
+
+¿El consumo de bebidas energizantes (con cafeína y taurina) se asocia con mayor ocurrencia de fibrilación auricular en pilotos de aviones comerciales?
+
+P: Pilotos de vuelos comerciales
+
+I: Consumo regular de bebidas energizantes
+
+C: No consumo de bebidas energizantes
+
+O: Fibrilación auricular
+
+```{r, echo=FALSE, message=F, warning=F, fig.width=8, fig.height=6}
+# Crear tabla de 2x2
+tabla <- matrix(c(18, 6, 12, 24), nrow = 2,
+                dimnames = list(
+                  Evento = c("FA", "No FA"),
+                  Exposición = c("Energizantes", "No Energizantes")
+                ))
+
+# Mostrar tabla
+tabla
+```
+
+La odds de FA en expuestos = 18/12 = 1.5 La odds de FA en no expuestos = 6/24 = 0.25
+
+$\text{OR} = \frac{\text{1.5}}{\text{0.25}} = \text{6.0}$
+
+Interpretación
+
+OR = 1 → No hay asociación.
+
+OR \> 1 → Mayor odds del evento en el grupo expuesto.
+
+OR \< 1 → Menor odds del evento en el grupo expuesto.
+
+Opción A: En los pilotos evaluados, la odds de presentar fibrilación auricular fue 500% mayor entre quienes consumían bebidas energizantes.
+
+Opción B: En los pilotos evaluados, la odds de presentar fibrilación auricular fue 6 veces mayor entre quienes consumían bebidas energizantes.
+
+Interpretación de OR = 1: No hay diferencia en la odds de FA entre expuestos y no expuestos.
+
+Interpretación de OR = 0.6: La odds de FA fue 40% menor en los expuestos.
+
+## Hazard Ratio (HR)
+
+El HR compara la velocidad instantánea de ocurrencia del evento en dos grupos. Se usa principalmente en análisis de supervivencia.
+
+$\text{HR} = \frac{\text{tasa instantanea de evento en expuestos}}{\text{tasa instantanea de evento en no expuestos}}$
+
+::: callout-note
+## ¿Qué es un “hazard”?
+
+Es la probabilidad de que ocurra un evento en un instante específico, en quienes aún no lo han tenido. Es como un "riesgo en tiempo real".
+
+En cada instante de tiempo, el hazard es la probabilidad de que alguien que aún no ha tenido el evento lo tenga en ese instante.
+:::
+
+```{r, echo=FALSE, message=F, warning=F, fig.width=8, fig.height=6}
+library(ggplot2)
+
+# Crear datos
+personas <- data.frame(
+  ID = paste0("P", 1:10),
+  tiempo_evento = c(2, 3, 5, NA, 4, NA, 1, 6, NA, 3),
+  censurado = is.na(c(2, 3, 5, NA, 4, NA, 1, 6, NA, 3)),
+  tiempo_total = c(2, 3, 5, 6, 4, 6, 1, 6, 6, 3)
+)
+
+# Gráfico
+ggplot(personas, aes(y = reorder(ID, -tiempo_total))) +
+  geom_segment(aes(x = 0, xend = tiempo_total, yend = ID), color = "gray70", size = 1.2) +
+  geom_point(aes(x = tiempo_evento, color = censurado), size = 4, shape = 19) +
+  scale_color_manual(values = c("FALSE" = "red", "TRUE" = "black"),
+                     labels = c("Evento", "Sin evento"),
+                     name = "") +
+  labs(
+    title = "Visualización del concepto de Hazard (peligro instantáneo)",
+    subtitle = "Cada línea es una persona: el punto rojo indica cuándo ocurrió el evento",
+    x = "Meses de seguimiento",
+    y = "",
+    caption = "El hazard es la probabilidad de que ocurra el evento en cada instante,\nsolo entre quienes aún no lo han tenido."
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+```
+
+👉 Por ejemplo, en el mes 2, hay 8 personas aún en seguimiento (P1 no se cuenta porque ya tiene el evento). Si 2 de ellas presenta el evento durante el siguiente mes, el hazard en ese instante (mes 3) es 2/8.
+
+**Ejemplo con formato PICO:**
+
+¿El uso diario de vitamina D retrasa la aparición de depresión clínica en adultos mayores?
+
+P: Adultos mayores de 65 años sin depresión al inicio
+
+I: Suplementación diaria con vitamina D
+
+C: No suplementación
+
+O: Aparición de depresión clínica (diagnóstico confirmado)
+
+```{r, echo=FALSE, message=F, warning=F, fig.width=8, fig.height=6}
+# Librerías
+library(survival)
+library(survminer)
+
+# Simular datos
+set.seed(42)
+n <- 80
+grupo <- rep(c("Vitamina D", "Sin suplemento"), each = n/2)
+tiempo <- rexp(n, rate = ifelse(grupo == "Vitamina D", 0.03, 0.06))  # grupo 1 con menor tasa
+evento <- rbinom(n, 1, 0.9)  # mayoría tienen el evento
+
+datos <- data.frame(grupo, tiempo, evento)
+
+# Modelo de supervivencia
+ajuste <- survfit(Surv(tiempo, evento) ~ grupo, data = datos)
+
+# Gráfico
+ggsurvplot(
+  ajuste,
+  data = datos,
+  pval = TRUE,
+  conf.int = TRUE,
+  risk.table = TRUE,
+  legend.title = "Grupo",
+  legend.labs = c("Vitamina D", "Sin suplemento"),
+  xlab = "Meses de seguimiento",
+  ylab = "Probabilidad de NO tener depresión",
+  title = "¿Vitamina D retrasa aparición de depresión?",
+  palette = c("#1b9e77", "#d95f02")
+)
+
+```
+
+Interpretación
+
+HR = 1 → No hay diferencia entre grupos.
+
+HR \> 1 → El evento ocurre más rápido en el grupo expuesto.
+
+HR \< 1 → El evento ocurre más lento en el grupo expuesto.
+
+Opción A: El uso de vitamina D redujo en 50% el hazard (riesgo instantáneo) de desarrollar depresión durante el seguimiento.
+
+Opción B: En cada momento del estudio, el grupo con vitamina D tenía en promedio la mitad del riesgo de desarrollar depresión comparado con el grupo sin suplemento.
+
+**Nota**: si aún no te queda claro el concepto de HR, este será desarrollado a más detale en el capítulo de "Análisis de supervivencia"
+
+## 📊 Inferencia clásica vs. inferencia bayesiana
+
+Cuando los investigadores analizan datos, su objetivo no es solo describir lo que ven, sino inferir conclusiones más allá de la muestra, hacia una población más amplia. Este proceso se llama inferencia estadística, y existen distintos enfoques para llevarlo a cabo.
+
+A lo largo del siglo XX, el enfoque más común fue el frecuentista, basado en conceptos como el valor p y los intervalos de confianza. Sin embargo, en las últimas décadas, ha ganado terreno el enfoque bayesiano, que introduce una lógica más flexible al permitir incorporar información previa y actualizarla con los datos observados.
+
+Ambos enfoques responden preguntas diferentes, tienen ventajas particulares y limitaciones importantes. Entender sus diferencias no solo mejora la interpretación de los resultados, sino que también permite elegir la herramienta más adecuada según el contexto clínico o científico.
+
+En esta sección, compararemos estos dos paradigmas para ayudarte a comprender cómo se construyen y se interpretan las pruebas estadísticas más allá de los números.
+
+### ✅ **Enfoque clásico (frecuentista) – Valor *p***
+
+Cuando usamos medidas de asociación como el riesgo relativo (RR), la razón de tasas de incidencia (RTI), el odds ratio (OR) o el hazard ratio (HR), no solo nos interesa conocer su valor puntual. También queremos saber si esa asociación es estadísticamente significativa y con qué precisión fue estimada. Para eso usamos:
+
+-   El valor *p* (o *p-value*)
+
+-   El intervalo de confianza al 95% (IC 95%)
+
+#### Valor *p*
+
+El valor *p* nos indica la probabilidad de obtener un resultado tan extremo (o más) como el observado, si la hipótesis nula fuera cierta.
+
+-   Hipótesis nula (H₀): No hay asociación (por ejemplo, RR = 1, OR = 1, HR = 1).
+
+-   Un valor *p* pequeño sugiere que los resultados serían poco probables si no hubiera asociación → evidencia contra H₀.
+
+::: callout-note
+#### ⚠️ ¡Importante!
+
+-   El valor *p* NO dice cuán grande o importante es la asociación.
+
+-   El valor *p* NO indica la probabilidad de que la hipótesis nula sea verdadera.
+:::
+
+**Regla general**:
+
+-   Si **p \< 0.05** → se considera que hay evidencia estadísticamente significativa de asociación.
+
+#### Intervalo de confianza al 95% (IC 95%)
+
+El IC 95% es un rango de valores plausibles para la medida de asociación. Nos dice:
+
+> “Si repitiéramos el estudio muchas veces, en el 95% de los casos el IC incluiría el valor verdadero del parámetro”.
+
+![](fig/Articulo_cap2_4.png){width="600" height="450"}
+
+
+
+##### ¿Cómo se interpreta?
+
+-   Si el IC incluye el valor nulo (por ejemplo, 1 en RR, OR, HR) → no hay significancia estadística.
+
+-   Si el IC no incluye el valor nulo → hay evidencia estadísticamente significativa.
+
+#### 📌 Ejemplo
+
+Supongamos que encontramos:
+
+-   HR = 1.85; IC 95%: 1.15 a 2.96; Valor *p* = 0.011
+
+##### Interpretación:
+
+> El hazard de presentar el evento fue **1.85 veces mayor** en el grupo tratado comparado con el control. Esta asociación fue estadísticamente significativa (*p* \< 0.05), y el intervalo de confianza sugiere que el valor verdadero del HR podría estar entre **1.15 y 2.96** con un 95% de confianza.
+
+## Referencias
+
+1.  Zafra-Tanaka JH, Taype-Rondan A, Fernandez-Guzman D. Cómo entender las medidas de efecto en la investigación clínica: Interpretación práctica y aplicación. Revista del Cuerpo Medico Hospital Nacional Almanzor Aguinaga Asenjo. 2023;16. Disponible en: <https://cmhnaaa.org.pe/ojs/index.php/rcmhnaaa/article/view/1935>
+
+## Disclaimer
+
+-   Esta sección fue editada usando ChatGPT.
