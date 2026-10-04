@@ -1,0 +1,124 @@
+# Sesgo de selección y colisionadores
+
+## La idea
+
+Cuando **la inclusión en el estudio** (o en el análisis) depende de **dos variables**, esas variables pueden aparecer **asociadas entre sí** aunque en la población general **no tengan relación**. En el lenguaje de los DAG, condicionar en un **colisionador** (una variable causada por ambas) abre un camino que estaba cerrado (Cap. 3).
+
+En nefrología, el caso típico es **restringir el análisis a pacientes hospitalizados** o a **quienes asisten a una clínica especializada**.
+
+## Ejemplo: ¿la ERC "protege" contra la insuficiencia cardiaca?
+
+Simulamos una población de 200 000 adultos donde la **ERC** (15 %) y la **insuficiencia cardiaca** (IC, 10 %) son **independientes**: la verdad es que **no hay ninguna asociación**. Ambas condiciones aumentan la probabilidad de **hospitalizarse**. Un investigador estudia solo a los hospitalizados.
+
+```{r}
+#| label: setup-101
+library(tidyverse)
+source("R/funciones_epi.R")
+
+set.seed(10)
+n <- 200000
+pob <- tibble(
+  erc = rbinom(n, 1, 0.15),
+  ic  = rbinom(n, 1, 0.10)                              # independiente de la ERC
+) |>
+  mutate(hosp = rbinom(n, 1, plogis(-4 + 2.2 * erc + 2.2 * ic)))   # ambas aumentan la hospitalización
+
+mean(pob$hosp)          # fracción hospitalizada
+```
+
+```{r}
+#| label: dag-hosp
+#| fig-width: 7
+#| fig-height: 2.8
+dibujar_dag(
+  tribble(~nombre, ~x, ~y, ~etiqueta, ~rol,
+          "E", 1, 1.6, "ERC", "exposicion",
+          "I", 1, 0.4, "Insuficiencia\ncardiaca", "desenlace",
+          "H", 2, 1.0, "Hospitalización", "colisionador"),
+  tribble(~de, ~a, "E", "H", "I", "H"),
+  tam_texto = 3.4, expandir = c(0.25, 0.25)
+)
+```
+
+No hay flecha entre ERC e IC: son independientes. Pero ambas apuntan a la hospitalización. Compara el *odds ratio* en la población y entre los hospitalizados:
+
+```{r}
+#| label: or-hosp
+or_erc_ic <- function(d) {
+  m <- glm(ic ~ erc, data = d, family = binomial)
+  c(OR = unname(exp(coef(m)[2])), exp(confint.default(m)[2, ]))
+}
+bind_rows(
+  `Población general` = or_erc_ic(pob),
+  `Solo hospitalizados` = or_erc_ic(filter(pob, hosp == 1)),
+  .id = "grupo"
+) |> mutate(across(where(is.numeric), \(x) round(x, 2)))
+
+pob |> filter(hosp == 1) |> count(erc, ic) |>
+  group_by(erc) |> mutate(`% con IC` = round(100 * n / sum(n), 1))
+```
+
+En la población el OR es ~1 (sin asociación). Entre los hospitalizados es **claramente < 1**: parece que la ERC "protege" contra la insuficiencia cardiaca. La razón: un paciente hospitalizado **sin ERC** necesita **otra causa** para estar ahí, y esa causa es la IC.
+
+::: {.callout-warning}
+## ⚠️ No es un error del modelo estadístico
+
+Ningún ajuste por edad, sexo o TFGe lo corrige. El sesgo está en **a quién se incluyó**. Aumentar el tamaño de muestra solo lo vuelve más "significativo".
+:::
+
+## Variantes que debes reconocer
+
+| Situación | Colisionador | Efecto |
+|---|---|---|
+| Estudio en **hospitalizados** | Hospitalización | Asociaciones falsas, a menudo **negativas** (sesgo de Berkson) |
+| Estudio en **clínica de referencia** | Derivación | Efectos atenuados o invertidos (ver 6.4) |
+| **"Paradoja de la obesidad"** en diálisis | Sobrevivir hasta ser prevalente | Mayor IMC parece protector |
+| **Ajustar por una complicación** posterior a la exposición | Complicación (p. ej., LRA postoperatoria) | Abre caminos espurios |
+| **Voluntarios** o respondedores | Participación | Selección por salud y conducta |
+| Ajustar por **un resultado intermedio** común | Biomarcador de ambos | **M-bias** |
+
+::: {.callout-tip}
+## 💡 Cómo prevenir el sesgo de selección
+
+-   **Define la población objetivo antes** de elegir la fuente de datos; pregunta: *"¿qué hace que un paciente entre al estudio?"*.
+-   **Dibuja el DAG** incluyendo la **inclusión (S)** como nodo; si hay flechas hacia S desde la exposición y el desenlace (o causas de ambos), hay sesgo.
+-   Prefiere **cohortes poblacionales** o **registros** sobre muestras de hospital.
+-   **No ajustes por variables posteriores a la exposición** sin justificarlo (ver 3.3).
+-   Si es inevitable, **pondera por la probabilidad inversa de selección** (Cap. 12 y 19) o haz **análisis de sensibilidad** (10.6).
+:::
+
+## El mismo sesgo con un ajuste: "controlar por un colisionador"
+
+También ocurre dentro de una población completa si **ajustas** por un colisionador. Supongamos que quieres estudiar el efecto de la diabetes sobre la ERC y ajustas por **"tomar fármacos nefroprotectores"**, que es **efecto de ambas** (se les prescribe a quienes tienen diabetes **y** a quienes tienen ERC):
+
+```{r}
+#| label: ajuste-colisionador
+set.seed(11)
+n <- 100000
+d <- tibble(dm = rbinom(n, 1, 0.3)) |>
+  mutate(erc = rbinom(n, 1, plogis(-2 + 0.7 * dm)),                       # verdad: OR = e^0.7 ≈ 2.01
+         nefroprot = rbinom(n, 1, plogis(-2 + 2 * dm + 2 * erc)))
+
+verdad_or <- exp(0.7)
+sin_ajuste <- exp(coef(glm(erc ~ dm, data = d, family = binomial))["dm"])
+ajustado   <- exp(coef(glm(erc ~ dm + nefroprot, data = d, family = binomial))["dm"])
+
+c(Verdad = verdad_or, `Sin ajustar` = unname(sin_ajuste), `Ajustando por el colisionador` = unname(ajustado)) |> round(2)
+```
+
+Ajustar por una variable **que no es confusora sino colisionadora** convierte una estimación correcta (≈ 2.0) en una **incorrecta (≈ 0.86): ¡hasta invierte el sentido de la asociación!**
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   Condicionar (por diseño o por análisis) en una variable **causada por la exposición y el desenlace** crea **asociaciones falsas**.
+-   El ejemplo clásico es **restringir a hospitalizados**: dos causas independientes de hospitalización se vuelven negativamente asociadas.
+-   **Ninguna covariable medida lo corrige**; se resuelve con el **diseño** (cómo se seleccionó) o ponderando por la probabilidad de selección.
+-   Dibuja un DAG con el nodo **"inclusión en el estudio"**.
+:::
+
+## Ejercicio
+
+1.  Cambia el modelo de hospitalización para que **solo la IC** (y no la ERC) la cause. ¿Aparece el sesgo?
+2.  Repite el OR entre hospitalizados **ajustando por edad**, simulando una edad que cause tanto ERC como IC. ¿Se reduce el sesgo?
+3.  Simula "tomar nefroprotectores" como un **mediador** (diabetes → nefroprotectores → ERC) y compara la estimación ajustada con la verdad.

@@ -4205,6 +4205,444 @@
     ]
   },
   {
+    "objectID": "capitulos/Capítulo10.html",
+    "href": "capitulos/Capítulo10.html",
+    "title": "Capítulo 10: ¡¡¡No todo es confusión!!!",
+    "section": "",
+    "text": "Referencias\nComo en capítulos anteriores, usamos datos simulados para que el lector vea el sesgo, lo cuantifique y compruebe cuándo se corrige. En cada sección:\nAl finalizar este capítulo podrás:\nPrerrequisitos: Caps. 3, 6, 8 y 9. Prepara: Caps. 11, 12 y 19.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.html#referencias",
+    "href": "capitulos/Capítulo10.html#referencias",
+    "title": "Capítulo 10: ¡¡¡No todo es confusión!!!",
+    "section": "",
+    "text": "Hernán MA, Hernández-Díaz S, Robins JM. A structural approach to selection bias. Epidemiology. 2004;15:615-625.\nSuissa S. Immortal time bias in pharmacoepidemiology. Am J Epidemiol. 2008;167:492-499.\nLash TL, Fox MP, Fink AK. Applying Quantitative Bias Analysis to Epidemiologic Data. Springer; 2009.\nRay WA. Evaluating medication effects outside of clinical trials: new-user designs. Am J Epidemiol. 2003;158:915-920.\nVanderWeele TJ, Ding P. Sensitivity analysis in observational research: introducing the E-value. Ann Intern Med. 2017;167:268-274.\nHernán MA, Robins JM. Causal Inference: What If. Caps. 7-9.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.1.html",
+    "href": "capitulos/Capítulo10.1.html",
+    "title": "Sesgo de selección y colisionadores",
+    "section": "",
+    "text": "La idea\nCuando la inclusión en el estudio (o en el análisis) depende de dos variables, esas variables pueden aparecer asociadas entre sí aunque en la población general no tengan relación. En el lenguaje de los DAG, condicionar en un colisionador (una variable causada por ambas) abre un camino que estaba cerrado (Cap. 3).\nEn nefrología, el caso típico es restringir el análisis a pacientes hospitalizados o a quienes asisten a una clínica especializada.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>48</span>  <span class='chapter-title'>Sesgo de selección y colisionadores</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.1.html#ejemplo-la-erc-protege-contra-la-insuficiencia-cardiaca",
+    "href": "capitulos/Capítulo10.1.html#ejemplo-la-erc-protege-contra-la-insuficiencia-cardiaca",
+    "title": "Sesgo de selección y colisionadores",
+    "section": "Ejemplo: ¿la ERC “protege” contra la insuficiencia cardiaca?",
+    "text": "Ejemplo: ¿la ERC “protege” contra la insuficiencia cardiaca?\nSimulamos una población de 200 000 adultos donde la ERC (15 %) y la insuficiencia cardiaca (IC, 10 %) son independientes: la verdad es que no hay ninguna asociación. Ambas condiciones aumentan la probabilidad de hospitalizarse. Un investigador estudia solo a los hospitalizados.\n\nlibrary(tidyverse)\nsource(\"R/funciones_epi.R\")\n\nset.seed(10)\nn &lt;- 200000\npob &lt;- tibble(\n  erc = rbinom(n, 1, 0.15),\n  ic  = rbinom(n, 1, 0.10)                              # independiente de la ERC\n) |&gt;\n  mutate(hosp = rbinom(n, 1, plogis(-4 + 2.2 * erc + 2.2 * ic)))   # ambas aumentan la hospitalización\n\nmean(pob$hosp)          # fracción hospitalizada\n\n[1] 0.05373\n\n\n\ndibujar_dag(\n  tribble(~nombre, ~x, ~y, ~etiqueta, ~rol,\n          \"E\", 1, 1.6, \"ERC\", \"exposicion\",\n          \"I\", 1, 0.4, \"Insuficiencia\\ncardiaca\", \"desenlace\",\n          \"H\", 2, 1.0, \"Hospitalización\", \"colisionador\"),\n  tribble(~de, ~a, \"E\", \"H\", \"I\", \"H\"),\n  tam_texto = 3.4, expandir = c(0.25, 0.25)\n)\n\n\n\n\n\n\n\nNo hay flecha entre ERC e IC: son independientes. Pero ambas apuntan a la hospitalización. Compara el odds ratio en la población y entre los hospitalizados:\n\nor_erc_ic &lt;- function(d) {\n  m &lt;- glm(ic ~ erc, data = d, family = binomial)\n  c(OR = unname(exp(coef(m)[2])), exp(confint.default(m)[2, ]))\n}\nbind_rows(\n  `Población general` = or_erc_ic(pob),\n  `Solo hospitalizados` = or_erc_ic(filter(pob, hosp == 1)),\n  .id = \"grupo\"\n) |&gt; mutate(across(where(is.numeric), \\(x) round(x, 2)))\n\n# A tibble: 2 × 4\n  grupo                  OR `2.5 %` `97.5 %`\n  &lt;chr&gt;               &lt;dbl&gt;   &lt;dbl&gt;    &lt;dbl&gt;\n1 Población general    1       0.96     1.04\n2 Solo hospitalizados  0.51    0.48     0.56\n\npob |&gt; filter(hosp == 1) |&gt; count(erc, ic) |&gt;\n  group_by(erc) |&gt; mutate(`% con IC` = round(100 * n / sum(n), 1))\n\n# A tibble: 4 × 4\n# Groups:   erc [2]\n    erc    ic     n `% con IC`\n  &lt;int&gt; &lt;int&gt; &lt;int&gt;      &lt;dbl&gt;\n1     0     0  2769       52.8\n2     0     1  2476       47.2\n3     1     0  3768       68.5\n4     1     1  1733       31.5\n\n\nEn la población el OR es ~1 (sin asociación). Entre los hospitalizados es claramente &lt; 1: parece que la ERC “protege” contra la insuficiencia cardiaca. La razón: un paciente hospitalizado sin ERC necesita otra causa para estar ahí, y esa causa es la IC.\n\n\n\n\n\n\nAdvertencia⚠️ No es un error del modelo estadístico\n\n\n\nNingún ajuste por edad, sexo o TFGe lo corrige. El sesgo está en a quién se incluyó. Aumentar el tamaño de muestra solo lo vuelve más “significativo”.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>48</span>  <span class='chapter-title'>Sesgo de selección y colisionadores</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.1.html#variantes-que-debes-reconocer",
+    "href": "capitulos/Capítulo10.1.html#variantes-que-debes-reconocer",
+    "title": "Sesgo de selección y colisionadores",
+    "section": "Variantes que debes reconocer",
+    "text": "Variantes que debes reconocer\n\n\n\n\n\n\n\nSituación\nColisionador\nEfecto\n\n\n\nEstudio en hospitalizados\n\nHospitalización\nAsociaciones falsas, a menudo negativas (sesgo de Berkson)\n\n\nEstudio en clínica de referencia\n\nDerivación\nEfectos atenuados o invertidos (ver 6.4)\n\n\n\n“Paradoja de la obesidad” en diálisis\nSobrevivir hasta ser prevalente\nMayor IMC parece protector\n\n\n\nAjustar por una complicación posterior a la exposición\nComplicación (p. ej., LRA postoperatoria)\nAbre caminos espurios\n\n\n\nVoluntarios o respondedores\nParticipación\nSelección por salud y conducta\n\n\nAjustar por un resultado intermedio común\nBiomarcador de ambos\nM-bias\n\n\n\n\n\n\n\n\n\nTip💡 Cómo prevenir el sesgo de selección\n\n\n\n\n\nDefine la población objetivo antes de elegir la fuente de datos; pregunta: “¿qué hace que un paciente entre al estudio?”.\n\nDibuja el DAG incluyendo la inclusión (S) como nodo; si hay flechas hacia S desde la exposición y el desenlace (o causas de ambos), hay sesgo.\nPrefiere cohortes poblacionales o registros sobre muestras de hospital.\n\nNo ajustes por variables posteriores a la exposición sin justificarlo (ver 3.3).\nSi es inevitable, pondera por la probabilidad inversa de selección (Cap. 12 y 19) o haz análisis de sensibilidad (10.6).",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>48</span>  <span class='chapter-title'>Sesgo de selección y colisionadores</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.1.html#el-mismo-sesgo-con-un-ajuste-controlar-por-un-colisionador",
+    "href": "capitulos/Capítulo10.1.html#el-mismo-sesgo-con-un-ajuste-controlar-por-un-colisionador",
+    "title": "Sesgo de selección y colisionadores",
+    "section": "El mismo sesgo con un ajuste: “controlar por un colisionador”",
+    "text": "El mismo sesgo con un ajuste: “controlar por un colisionador”\nTambién ocurre dentro de una población completa si ajustas por un colisionador. Supongamos que quieres estudiar el efecto de la diabetes sobre la ERC y ajustas por “tomar fármacos nefroprotectores”, que es efecto de ambas (se les prescribe a quienes tienen diabetes y a quienes tienen ERC):\n\nset.seed(11)\nn &lt;- 100000\nd &lt;- tibble(dm = rbinom(n, 1, 0.3)) |&gt;\n  mutate(erc = rbinom(n, 1, plogis(-2 + 0.7 * dm)),                       # verdad: OR = e^0.7 ≈ 2.01\n         nefroprot = rbinom(n, 1, plogis(-2 + 2 * dm + 2 * erc)))\n\nverdad_or &lt;- exp(0.7)\nsin_ajuste &lt;- exp(coef(glm(erc ~ dm, data = d, family = binomial))[\"dm\"])\najustado   &lt;- exp(coef(glm(erc ~ dm + nefroprot, data = d, family = binomial))[\"dm\"])\n\nc(Verdad = verdad_or, `Sin ajustar` = unname(sin_ajuste), `Ajustando por el colisionador` = unname(ajustado)) |&gt; round(2)\n\n                       Verdad                   Sin ajustar \n                         2.01                          2.03 \nAjustando por el colisionador \n                         0.86 \n\n\nAjustar por una variable que no es confusora sino colisionadora convierte una estimación correcta (≈ 2.0) en una incorrecta (≈ 0.86): ¡hasta invierte el sentido de la asociación!\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nCondicionar (por diseño o por análisis) en una variable causada por la exposición y el desenlace crea asociaciones falsas.\nEl ejemplo clásico es restringir a hospitalizados: dos causas independientes de hospitalización se vuelven negativamente asociadas.\n\nNinguna covariable medida lo corrige; se resuelve con el diseño (cómo se seleccionó) o ponderando por la probabilidad de selección.\nDibuja un DAG con el nodo “inclusión en el estudio”.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>48</span>  <span class='chapter-title'>Sesgo de selección y colisionadores</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.1.html#ejercicio",
+    "href": "capitulos/Capítulo10.1.html#ejercicio",
+    "title": "Sesgo de selección y colisionadores",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nCambia el modelo de hospitalización para que solo la IC (y no la ERC) la cause. ¿Aparece el sesgo?\nRepite el OR entre hospitalizados ajustando por edad, simulando una edad que cause tanto ERC como IC. ¿Se reduce el sesgo?\nSimula “tomar nefroprotectores” como un mediador (diabetes → nefroprotectores → ERC) y compara la estimación ajustada con la verdad.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>48</span>  <span class='chapter-title'>Sesgo de selección y colisionadores</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.2.html",
+    "href": "capitulos/Capítulo10.2.html",
+    "title": "Sesgo de tiempo inmortal",
+    "section": "",
+    "text": "El error\nEl sesgo de tiempo inmortal aparece cuando a un grupo se le atribuye un periodo de seguimiento durante el cual, por cómo se definió, no podía haber tenido el evento.\nEl caso típico: se compara a quienes “recibieron iSGLT2 en algún momento” con quienes nunca lo recibieron, contando el seguimiento de los tratados desde el ingreso a la cohorte. Pero para estar en el grupo “tratado” el paciente tuvo que sobrevivir hasta recibir la primera prescripción. Ese tiempo previo es inmortal: si hubiera muerto antes, habría quedado clasificado como “no tratado”.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>49</span>  <span class='chapter-title'>Sesgo de tiempo inmortal</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.2.html#el-error",
+    "href": "capitulos/Capítulo10.2.html#el-error",
+    "title": "Sesgo de tiempo inmortal",
+    "section": "",
+    "text": "Nota🩺 Ejemplo clínico\n\n\n\nUna cohorte de pacientes con ERC avanzada se sigue desde su primera consulta. Algunos reciben un fármaco a los 3, 8 o 15 meses. El estudio clasifica como “usuario” a cualquiera que alguna vez recibió el fármaco y compara mortalidad con los “no usuarios”. Aunque el fármaco no haga nada, los usuarios tendrán menos mortalidad aparente.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>49</span>  <span class='chapter-title'>Sesgo de tiempo inmortal</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.2.html#cómo-se-ve-en-una-línea-de-tiempo",
+    "href": "capitulos/Capítulo10.2.html#cómo-se-ve-en-una-línea-de-tiempo",
+    "title": "Sesgo de tiempo inmortal",
+    "section": "Cómo se ve en una línea de tiempo",
+    "text": "Cómo se ve en una línea de tiempo\n\nlibrary(tidyverse)\nlibrary(survival)\n\nset.seed(21)\nlinea &lt;- tibble(\n  id = factor(1:8),\n  inicio_tto = c(NA, 8, NA, 15, 5, NA, 12, NA),\n  fin = c(6, 40, 10, 38, 33, 25, 45, 14),\n  muere = c(1, 0, 1, 1, 0, 1, 0, 1)\n) |&gt;\n  mutate(tratado = !is.na(inicio_tto))\n\nggplot(linea) +\n  geom_segment(aes(x = 0, xend = ifelse(tratado, inicio_tto, fin), y = id, yend = id,\n                   color = ifelse(tratado, \"Tiempo 'inmortal' (sin tratar)\", \"No tratado\")), linewidth = 3) +\n  geom_segment(data = filter(linea, tratado), aes(x = inicio_tto, xend = fin, y = id, yend = id, color = \"Tratado\"),\n               linewidth = 3) +\n  geom_point(data = filter(linea, muere == 1), aes(x = fin, y = id), shape = 4, size = 3, stroke = 1.3) +\n  scale_color_manual(values = c(\"No tratado\" = \"#999999\", \"Tratado\" = \"#0072B2\",\n                                \"Tiempo 'inmortal' (sin tratar)\" = \"#E69F00\"), name = NULL) +\n  labs(x = \"Meses desde el ingreso a la cohorte\", y = \"Paciente\",\n       caption = \"✕ = muerte. Datos simulados con fines didácticos.\") +\n  theme_minimal(base_size = 11) + theme(legend.position = \"bottom\")\n\n\n\n\n\n\n\nLos pacientes tratados (2, 4, 5 y 7) tienen una barra amarilla: el tramo inicial donde estaban vivos pero sin tratamiento. Un análisis “ingenuo” lo cuenta como tiempo de tratamiento; ese tiempo no puede contener muertes porque quien muriera antes habría sido clasificado como no tratado.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>49</span>  <span class='chapter-title'>Sesgo de tiempo inmortal</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.2.html#simulación-un-fármaco-sin-efecto-que-reduce-80-la-mortalidad",
+    "href": "capitulos/Capítulo10.2.html#simulación-un-fármaco-sin-efecto-que-reduce-80-la-mortalidad",
+    "title": "Sesgo de tiempo inmortal",
+    "section": "Simulación: un fármaco sin efecto que “reduce 80 % la mortalidad”",
+    "text": "Simulación: un fármaco sin efecto que “reduce 80 % la mortalidad”\nSimulamos 20 000 pacientes. La verdad: el fármaco no tiene ningún efecto (HR = 1). Cada paciente tiene un tiempo hasta la muerte y un momento en que recibiría el fármaco, pero solo lo recibe si sigue vivo en ese momento.\n\nset.seed(10)\nn &lt;- 20000\nT_muerte &lt;- rexp(n, rate = 0.02)         # meses hasta la muerte (mediana ~35); sin efecto del fármaco\nS_inicio &lt;- rexp(n, rate = 0.05)         # momento en que se prescribiría el fármaco\n\ndatos &lt;- tibble(id = 1:n, T_muerte, S_inicio) |&gt;\n  mutate(\n    seguimiento = pmin(T_muerte, 60),\n    muerte = as.integer(T_muerte &lt;= 60),\n    tratado = as.integer(S_inicio &lt; T_muerte & S_inicio &lt; 60)    # solo si está vivo cuando se prescribe\n  )\n\ntable(datos$tratado)\n\n\n    0     1 \n 5867 14133 \n\n\nAnálisis ingenuo: “alguna vez” vs. “nunca”\n\nnaive &lt;- coxph(Surv(seguimiento, muerte) ~ tratado, data = datos)\nexp(c(HR = coef(naive), confint(naive)))\n\nHR.tratado                       \n 0.2089929  0.2017007  0.2165486 \n\n\nEl HR es ~0.2: 80 % menos de mortalidad para un fármaco que no hace nada. La explicación: el 100 % de los “tratados” sobrevivió al menos hasta recibir el fármaco.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>49</span>  <span class='chapter-title'>Sesgo de tiempo inmortal</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.2.html#cómo-corregirlo",
+    "href": "capitulos/Capítulo10.2.html#cómo-corregirlo",
+    "title": "Sesgo de tiempo inmortal",
+    "section": "Cómo corregirlo",
+    "text": "Cómo corregirlo\nOpción 1: exposición como variable dependiente del tiempo\nCada paciente aporta tiempo no expuesto hasta su primera prescripción y tiempo expuesto después. Se logra con tmerge():\n\nd_base &lt;- datos |&gt; transmute(id, seguimiento, muerte, inicio = ifelse(tratado == 1, S_inicio, NA))\n\nd_tv &lt;- tmerge(d_base, d_base, id = id, evento = event(seguimiento, muerte))\nd_tv &lt;- tmerge(d_tv, d_base, id = id, expuesto = tdc(inicio))\nd_tv$expuesto[is.na(d_tv$expuesto)] &lt;- 0\n\nhead(d_tv |&gt; select(id, tstart, tstop, evento, expuesto), 6)\n\n  id   tstart      tstop evento expuesto\n1  1  0.00000  0.7478203      1        0\n2  2  0.00000 38.1588810      0        0\n3  2 38.15888 46.0110602      1        1\n4  3  0.00000 33.6182493      0        0\n5  3 33.61825 37.6079469      1        1\n6  4  0.00000  7.1382163      0        0\n\ntv &lt;- coxph(Surv(tstart, tstop, evento) ~ expuesto, data = d_tv)\nexp(c(HR = coef(tv), confint(tv)))\n\nHR.expuesto                         \n  1.0209600   0.9799348   1.0637027 \n\n\nEl HR ahora es ~1.0 (la verdad). El tiempo previo a la prescripción se asigna al grupo “no expuesto”, donde sí puede morir.\nOpción 2: análisis de landmark\n\nSe fija un punto de corte (por ejemplo, 6 meses). Solo se incluyen los pacientes vivos a los 6 meses y se clasifica la exposición según lo ocurrido hasta ese momento. El seguimiento empieza a los 6 meses:\n\nlm6 &lt;- datos |&gt;\n  filter(seguimiento &gt; 6) |&gt;\n  mutate(trat_6m = as.integer(S_inicio &lt;= 6 & tratado == 1), t = seguimiento - 6)\n\nlm_fit &lt;- coxph(Surv(t, muerte) ~ trat_6m, data = lm6)\nexp(c(HR = coef(lm_fit), confint(lm_fit)))\n\nHR.trat_6m                       \n  1.043200   1.001105   1.087065 \n\n\nTambién ≈ 1.0. El landmark es simple y fácil de explicar, pero pierde a quienes empiezan después del corte y depende de la fecha elegida.\nOpción 3 (la mejor): alinear el tiempo cero con el inicio del tratamiento\nEn el diseño de ensayo objetivo (target trial) (Cap. 12), el tiempo cero es el momento en que el paciente cumple los criterios y se asigna a una estrategia (empezar o no empezar). Los tratados empiezan el seguimiento cuando inician el tratamiento; los no tratados se les asigna un tiempo cero comparable (por ejemplo, mediante emparejamiento en el tiempo). El tiempo inmortal desaparece por diseño.\n\n\n\n\n\n\nAdvertencia⚠️ Señales de alerta en un artículo\n\n\n\n\nLa exposición se define como “uso en algún momento del seguimiento” o “uso durante el estudio”.\nEl tiempo cero del seguimiento es la entrada a la cohorte (diagnóstico, alta) y no el inicio del tratamiento.\nEfectos demasiado buenos (HR 0.2-0.5 con fármacos de beneficio modesto).\nLos autores no describen cómo clasificaron a quienes murieron antes de recibir el tratamiento.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>49</span>  <span class='chapter-title'>Sesgo de tiempo inmortal</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.2.html#también-afecta-a-las-estrategias-de-cumplimiento",
+    "href": "capitulos/Capítulo10.2.html#también-afecta-a-las-estrategias-de-cumplimiento",
+    "title": "Sesgo de tiempo inmortal",
+    "section": "También afecta a las estrategias de “cumplimiento”",
+    "text": "También afecta a las estrategias de “cumplimiento”\nEl mismo error aparece cuando se compara a quienes cumplieron un protocolo (asistencia a diálisis, adherencia al tratamiento): para “cumplir hasta el final” hay que sobrevivir hasta el final. Se resuelve con métodos que tratan la adherencia como variable dependiente del tiempo (Cap. 19).\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nEl tiempo inmortal es un periodo en que, por cómo se definió el grupo, no puede haber evento: hace parecer protectora una exposición sin efecto.\nSe evita alineando el tiempo cero con el inicio del tratamiento, tratando la exposición como dependiente del tiempo (tmerge) o con un análisis de landmark.\nEn un HR “demasiado bueno”, sospecha primero de sesgo de tiempo inmortal.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>49</span>  <span class='chapter-title'>Sesgo de tiempo inmortal</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.2.html#ejercicio",
+    "href": "capitulos/Capítulo10.2.html#ejercicio",
+    "title": "Sesgo de tiempo inmortal",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nAumenta la velocidad de prescripción (rate = 0.15) en la simulación. ¿El sesgo ingenuo aumenta o disminuye? ¿Por qué?\nEn el análisis de landmark, prueba cortes a 3, 6 y 12 meses. ¿Cambia el HR? ¿Qué pierdes con un corte tardío?\nDibuja la línea de tiempo de 8 pacientes reales de tu servicio: ¿dónde está el tiempo cero de cada uno?",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>49</span>  <span class='chapter-title'>Sesgo de tiempo inmortal</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.3.html",
+    "href": "capitulos/Capítulo10.3.html",
+    "title": "Sesgo de información y error de medición",
+    "section": "",
+    "text": "Medir mal también sesga\nEl sesgo de información aparece cuando la exposición, el desenlace o un confusor se miden con error. En nefrología es muy frecuente: la TFGe se estima con una fórmula, la albuminuria varía de un día a otro, las comorbilidades se toman de códigos administrativos, y la adherencia se informa de memoria.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>50</span>  <span class='chapter-title'>Sesgo de información y error de medición</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.3.html#medir-mal-también-sesga",
+    "href": "capitulos/Capítulo10.3.html#medir-mal-también-sesga",
+    "title": "Sesgo de información y error de medición",
+    "section": "",
+    "text": "Error\nQué pasa\nEfecto sobre un OR/RR/HR\n\n\n\n\nNo diferencial (igual en casos y no casos, o en expuestos y no expuestos)\nMezcla de grupos al azar\nTiende a atenuar hacia el nulo (con una exposición binaria)\n\n\n\nDiferencial (depende del desenlace o de la exposición)\nClasificación sesgada\n\nCualquier dirección: acentúa, atenúa o invierte\n\n\nError en un confusor\nAjuste incompleto\nConfusión residual\n\n\nRegresión a la media\nValores extremos se acercan al promedio\n\nMejoría aparente sin tratamiento",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>50</span>  <span class='chapter-title'>Sesgo de información y error de medición</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.3.html#error-de-clasificación-no-diferencial-de-una-exposición",
+    "href": "capitulos/Capítulo10.3.html#error-de-clasificación-no-diferencial-de-una-exposición",
+    "title": "Sesgo de información y error de medición",
+    "section": "Error de clasificación no diferencial de una exposición",
+    "text": "Error de clasificación no diferencial de una exposición\nSimulamos 100 000 pacientes; la verdad es que la albuminuria (≥ 30 mg/g) multiplica por 2.2 las odds de un evento renal (\\(\\beta = 0.8\\)). La albuminuria se mide con una sensibilidad del 80 % y una especificidad del 90 % (una tira reactiva o una sola muestra de orina).\n\nlibrary(tidyverse)\nsource(\"R/funciones_epi.R\")\n\nset.seed(10)\nn &lt;- 100000\nd &lt;- tibble(alb = rbinom(n, 1, 0.30)) |&gt;                       # albuminuria verdadera\n  mutate(evento = rbinom(n, 1, plogis(-2 + 0.8 * alb)))        # verdad: OR = exp(0.8) = 2.23\n\nsens &lt;- 0.80; esp &lt;- 0.90\nd &lt;- d |&gt; mutate(alb_medida = ifelse(alb == 1, rbinom(n, 1, sens), rbinom(n, 1, 1 - esp)))\n\nor &lt;- function(x, y) unname(exp(coef(glm(y ~ x, family = binomial))[2]))\nc(`OR verdadero` = exp(0.8), `OR con albuminuria verdadera` = or(d$alb, d$evento),\n  `OR con albuminuria medida` = or(d$alb_medida, d$evento)) |&gt; round(2)\n\n                OR verdadero OR con albuminuria verdadera \n                        2.23                         2.17 \n   OR con albuminuria medida \n                        1.76 \n\n\nCon un error no diferencial, el OR cae de 2.2 a ~1.8: atenuación hacia el nulo. Un estudio con una exposición mal medida tiende a subestimar asociaciones reales.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>50</span>  <span class='chapter-title'>Sesgo de información y error de medición</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.3.html#error-diferencial-el-peligro",
+    "href": "capitulos/Capítulo10.3.html#error-diferencial-el-peligro",
+    "title": "Sesgo de información y error de medición",
+    "section": "Error diferencial: el peligro",
+    "text": "Error diferencial: el peligro\nSi la forma de medir depende del desenlace (por ejemplo, a quienes ya tuvieron un evento se les pregunta o examina con más insistencia, o recuerdan mejor), el error es diferencial y el sesgo puede ir en cualquier dirección:\n\nd &lt;- d |&gt;\n  mutate(alb_dif = ifelse(alb == 1,\n                          rbinom(n, 1, ifelse(evento == 1, 0.95, 0.80)),      # los casos \"recuerdan/detectan\" más\n                          rbinom(n, 1, ifelse(evento == 1, 0.25, 0.10))))\n\nc(`OR con error diferencial` = or(d$alb_dif, d$evento)) |&gt; round(2)\n\nOR con error diferencial \n                     3.1 \n\n\nEl OR sube a ~3.1: sobrestima la asociación. No hay manera de saber la dirección del sesgo sin conocer cómo se midió.\n\n\n\n\n\n\nAdvertencia⚠️ “Error no diferencial = sesgo hacia el nulo” no siempre es cierto\n\n\n\nLa regla vale para una exposición binaria, con error independiente y en promedio. Con más de dos categorías, con errores correlacionados, o con confusores mal medidos, el sesgo puede ir en cualquier dirección. No uses la regla como excusa para ignorar el problema.\n\n\nCorregir el sesgo si conoces la sensibilidad y la especificidad\nSi se dispone de una submuestra de validación que permita estimar la sensibilidad y la especificidad, se corrigen los conteos observados:\n\\[\nA = \\frac{a - (1-Sp)\\,(a + c)}{Se + Sp - 1}\n\\]\n(donde \\(a\\) = expuestos medidos con evento; \\(A\\) = expuestos verdaderos con evento; y análogamente para los demás cuadros).\n\na &lt;- sum(d$alb_medida == 1 & d$evento == 1); b &lt;- sum(d$alb_medida == 1 & d$evento == 0)\nc_ &lt;- sum(d$alb_medida == 0 & d$evento == 1); d_ &lt;- sum(d$alb_medida == 0 & d$evento == 0)\n\ncorregir &lt;- function(expuestos, no_exp, se, sp) {      # devuelve los expuestos verdaderos\n  (expuestos - (1 - sp) * (expuestos + no_exp)) / (se + sp - 1)\n}\nA &lt;- corregir(a, c_, sens, esp); C &lt;- (a + c_) - A\nB &lt;- corregir(b, d_, sens, esp); D &lt;- (b + d_) - B\n\nc(`OR observado` = (a / c_) / (b / d_), `OR corregido` = (A / C) / (B / D), `OR verdadero` = exp(0.8)) |&gt; round(2)\n\nOR observado OR corregido OR verdadero \n        1.76         2.24         2.23 \n\n\nLa corrección recupera el OR verdadero (2.2). Lo que no se puede hacer es adivinar la sensibilidad y la especificidad: se necesitan datos de validación o valores plausibles de la literatura con análisis de sensibilidad (10.6).",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>50</span>  <span class='chapter-title'>Sesgo de información y error de medición</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.3.html#error-de-medición-en-un-confusor-confusión-residual",
+    "href": "capitulos/Capítulo10.3.html#error-de-medición-en-un-confusor-confusión-residual",
+    "title": "Sesgo de información y error de medición",
+    "section": "Error de medición en un confusor: confusión residual",
+    "text": "Error de medición en un confusor: confusión residual\nSi un confusor se mide con error, ajustar por él no basta. Veamos un ejemplo de gravedad clínica que influye en recibir un fármaco y en morir, donde el fármaco tiene un efecto protector real (HR = 0.86):\n\nset.seed(4)\nn &lt;- 20000\ngravedad &lt;- rnorm(n)                                              # confusor verdadero\nfarmaco  &lt;- rbinom(n, 1, plogis(-0.2 + 1.2 * gravedad))           # los más graves reciben más el fármaco\nriesgo   &lt;- 0.01 * exp(0.9 * gravedad - 0.15 * farmaco)           # verdad: HR del fármaco = exp(-0.15) = 0.86\nt_evento &lt;- rexp(n, riesgo)\nd2 &lt;- tibble(farmaco, gravedad,\n             gravedad_med = gravedad + rnorm(n, 0, 1),            # medida con ruido (fiabilidad ~0.5)\n             evento = as.integer(t_evento &lt;= 36), tiempo = pmin(t_evento, 36))\n\nlibrary(survival)\nhr &lt;- function(f) unname(exp(coef(coxph(f, data = d2))[1]))\nc(`Verdad` = exp(-0.15),\n  `Sin ajustar` = hr(Surv(tiempo, evento) ~ farmaco),\n  `Ajustando por la gravedad verdadera` = hr(Surv(tiempo, evento) ~ farmaco + gravedad),\n  `Ajustando por la gravedad medida con error` = hr(Surv(tiempo, evento) ~ farmaco + gravedad_med)) |&gt; round(2)\n\n                                    Verdad \n                                      0.86 \n                               Sin ajustar \n                                      1.90 \n       Ajustando por la gravedad verdadera \n                                      0.91 \nAjustando por la gravedad medida con error \n                                      1.38 \n\n\n\n\nSin ajustar: el fármaco parece dañino (HR ≈ 1.9) por sesgo de indicación: se da más a los más graves.\n\nAjustando por la variable verdadera: se recupera casi el efecto (≈ 0.9; el resto es azar de muestreo y no colapsabilidad del HR).\n\nAjustando por la medida con ruido: el HR sigue en ≈ 1.4: confusión residual. Se corrigió solo una parte.\n\n\n\n\n\n\n\nTip💡 Qué hacer con un confusor mal medido\n\n\n\n\nUsa la mejor medida disponible, o combina varias (promedio de 2-3 mediciones de TFGe/albuminuria).\nMide el error (repetición, submuestra de validación) y aplica calibración de la regresión o SIMEX (métodos de corrección).\nDeclara la confusión residual como limitación y cuantifícala (10.6).\nSi tu confusor son diagnósticos administrativos, es probable que tengan baja sensibilidad: úsalos con cautela.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>50</span>  <span class='chapter-title'>Sesgo de información y error de medición</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.3.html#regresión-a-la-media",
+    "href": "capitulos/Capítulo10.3.html#regresión-a-la-media",
+    "title": "Sesgo de información y error de medición",
+    "section": "Regresión a la media",
+    "text": "Regresión a la media\nUn fenómeno que enamora a los clínicos: seleccionar pacientes por tener un valor extremo en una variable medida con variabilidad y ver que mejoran sin hacer nada.\nSimulamos 20 000 pacientes cuya TFGe verdadera estable se distribuye con media 50 y DE 10. Cada medición tiene un error de ±6 (variabilidad biológica y analítica). Seleccionamos a quienes tuvieron una primera TFGe &lt; 35 (candidatos a “derivación urgente”) y los volvemos a medir:\n\nset.seed(3)\nm &lt;- 20000\ntfg_real &lt;- rnorm(m, 50, 10)\ne1 &lt;- tfg_real + rnorm(m, 0, 6)       # primera medición\ne2 &lt;- tfg_real + rnorm(m, 0, 6)       # segunda medición (sin ninguna intervención)\n\nsel &lt;- e1 &lt; 35\nc(pacientes_seleccionados = sum(sel),\n  TFGe_primera_medicion = mean(e1[sel]),\n  TFGe_segunda_medicion = mean(e2[sel]),\n  mejoria_aparente = mean(e2[sel]) - mean(e1[sel])) |&gt; round(1)\n\npacientes_seleccionados   TFGe_primera_medicion   TFGe_segunda_medicion \n                 2028.0                    29.5                    34.8 \n       mejoria_aparente \n                    5.3 \n\n\nLos pacientes “mejoran” ~5 unidades sin ningún tratamiento: algunos tenían un valor bajo por azar y en la segunda medición regresan hacia su verdadero nivel.\n\n\n\n\n\n\nAdvertencia⚠️ Dónde acecha la regresión a la media\n\n\n\n\nSeleccionar pacientes por una medición alta o baja (creatinina &gt; 2, PAS &gt; 180, hemoglobina &lt; 9) y concluir que una intervención “funcionó”.\nEstudios antes-después sin grupo control.\n\nEstratificar por el valor basal y comparar cambios (los extremos cambian más).\n\nSolución: grupo de comparación seleccionado igual (otro grupo que cumplió el mismo criterio sin intervención), ECA, o ajustar por el valor basal (ANCOVA, Cap. 11).\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nEl error de medición no diferencial de una exposición binaria suele atenuar el efecto; el diferencial puede ir en cualquier dirección.\nEl error en un confusor deja confusión residual: ajustar por una variable mal medida no basta.\nCon sensibilidad y especificidad conocidas, se pueden corregir los conteos.\nLa regresión a la media crea “mejoría” en quienes se seleccionan por valores extremos: necesitas un control.\nLa TFGe y la albuminuria tienen alta variabilidad intraindividual: confirma con dos mediciones (como exigen las definiciones de ERC).",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>50</span>  <span class='chapter-title'>Sesgo de información y error de medición</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.3.html#ejercicio",
+    "href": "capitulos/Capítulo10.3.html#ejercicio",
+    "title": "Sesgo de información y error de medición",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nCambia la sensibilidad a 60 % y la especificidad a 95 %. ¿Cómo varía el OR observado?\nRepite la regresión a la media seleccionando a quienes tienen TFGe &lt; 45 en la primera medición. ¿La mejoría aparente es mayor o menor?\nReduce el error de medición del confusor (rnorm(n, 0, 0.3)). ¿Cuánto mejora el ajuste?",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>50</span>  <span class='chapter-title'>Sesgo de información y error de medición</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.4.html",
+    "href": "capitulos/Capítulo10.4.html",
+    "title": "Causalidad inversa y sesgo de indicación",
+    "section": "",
+    "text": "Dos sesgos hermanos\nAmbos hacen que una exposición inocua parezca dañina o que una protectora parezca inútil.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>51</span>  <span class='chapter-title'>Causalidad inversa y sesgo de indicación</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.4.html#dos-sesgos-hermanos",
+    "href": "capitulos/Capítulo10.4.html#dos-sesgos-hermanos",
+    "title": "Causalidad inversa y sesgo de indicación",
+    "section": "",
+    "text": "Causalidad inversa: lo que parece la causa es en realidad una consecuencia (o un marcador) de la enfermedad que se quiere estudiar.\n\nSesgo de indicación (confounding by indication): el fármaco se prescribe a quienes ya tienen mayor o menor riesgo, de modo que la indicación misma confunde la comparación.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>51</span>  <span class='chapter-title'>Causalidad inversa y sesgo de indicación</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.4.html#causalidad-inversa-la-paradoja-del-peso-en-diálisis",
+    "href": "capitulos/Capítulo10.4.html#causalidad-inversa-la-paradoja-del-peso-en-diálisis",
+    "title": "Causalidad inversa y sesgo de indicación",
+    "section": "Causalidad inversa: la “paradoja del peso” en diálisis",
+    "text": "Causalidad inversa: la “paradoja del peso” en diálisis\nEn pacientes en hemodiálisis, un IMC más alto se asocia con menor mortalidad (la “paradoja de la obesidad”). Una explicación es la causalidad inversa: los pacientes con enfermedad grave o subclínica pierden peso (caquexia, inflamación) y además mueren antes. El bajo peso no causa la muerte: la precede.\nSimulamos que el IMC no tiene ningún efecto sobre la mortalidad, pero la enfermedad subclínica (no observada) baja el IMC y multiplica por 10 el riesgo de morir durante el primer año:\n\nlibrary(tidyverse)\nlibrary(survival)\nsource(\"R/funciones_epi.R\")\n\nset.seed(12)\nn &lt;- 20000\nd &lt;- tibble(\n  enf_subclinica = rbinom(n, 1, 0.25),\n  imc = rnorm(n, 27 - 3.5 * enf_subclinica, 4),                 # la enfermedad baja el IMC\n  edad = rnorm(n, 62, 10)\n) |&gt;\n  mutate(\n    base = 0.004 * exp(0.03 * (edad - 62)),                                # el IMC NO influye\n    t1 = rexp(n, base * ifelse(enf_subclinica == 1, 10, 1)),               # riesgo muy alto el primer año si hay enfermedad\n    t_muerte = ifelse(t1 &lt;= 12, t1, 12 + rexp(n, base)),\n    muerte = as.integer(t_muerte &lt;= 36), tiempo = pmin(t_muerte, 36)\n  )\n\n\ndibujar_dag(\n  tribble(~nombre, ~x, ~y, ~etiqueta, ~rol,\n          \"I\", 1, 1.0, \"IMC bajo\", \"exposicion\",\n          \"E\", 2, 1.7, \"Enfermedad\\nsubclínica\", \"no medido\",\n          \"M\", 3, 1.0, \"Muerte\", \"desenlace\"),\n  tribble(~de, ~a, \"E\", \"I\", \"E\", \"M\"),\n  tam_texto = 3.3, expandir = c(0.25, 0.25)\n)\n\n\n\n\n\n\n\n\n## IMC por cada 5 unidades más\ning &lt;- coxph(Surv(tiempo, muerte) ~ I(imc / 5) + I(edad / 10), data = d)\nexp(c(HR = coef(ing)[1], confint(ing)[1, ])) |&gt; round(2)\n\nHR.I(imc/5)       2.5 %      97.5 % \n       0.73        0.70        0.75 \n\n\nEl HR de ~0.7 por cada 5 unidades de IMC sugiere que engordar protege, cuando la verdad es sin efecto (HR = 1). Es confusión por una variable no medida (la enfermedad subclínica) en un DAG donde ésta es causa común del IMC y de la muerte.\nEstrategias frente a la causalidad inversa\n\n\n\n\n\n\nEstrategia\nIdea\n\n\n\nAnálisis con retardo (lag)\nExcluir los eventos (o el tiempo) de los primeros meses o años tras medir la exposición: los pacientes con enfermedad subclínica que mueren pronto se retiran\n\n\nExposición antes de la enfermedad\nUsar el peso previo al diagnóstico o a la entrada a diálisis\n\n\n\nCambio de peso en lugar de peso actual\nDistinguir pérdida involuntaria (enfermedad) de estabilidad\n\n\n\nAjustar por marcadores de enfermedad (albúmina, inflamación)\nReduce, pero no elimina (¿están bien medidos?)\n\n\n\n\n## Excluir las muertes de los primeros 12 meses y empezar el seguimiento a los 12 meses\nd_lag &lt;- d |&gt; filter(tiempo &gt; 12) |&gt; mutate(tiempo2 = tiempo - 12)\nlag &lt;- coxph(Surv(tiempo2, muerte) ~ I(imc / 5) + I(edad / 10), data = d_lag)\nexp(c(HR = coef(lag)[1], confint(lag)[1, ])) |&gt; round(2)\n\nHR.I(imc/5)       2.5 %      97.5 % \n       0.99        0.93        1.05 \n\n\nCon un retardo de 12 meses el HR vuelve a ≈ 1.0 (la verdad): se eliminaron los pacientes cuya enfermedad subclínica ya los llevaba a la muerte. Con un retardo más corto, el sesgo persiste (con 6 meses el HR sigue en ~0.8):\n\nd_lag6 &lt;- d |&gt; filter(tiempo &gt; 6) |&gt; mutate(tiempo2 = tiempo - 6)\nexp(coef(coxph(Surv(tiempo2, muerte) ~ I(imc / 5) + I(edad / 10), data = d_lag6))[1]) |&gt; round(2)\n\nI(imc/5) \n     0.8 \n\n\nElige el retardo según el tiempo de latencia clínica de la enfermedad (aquí, 12 meses). Si el efecto confusor es permanente y no solo temprano, el retardo no basta y hace falta medir o ajustar la enfermedad.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>51</span>  <span class='chapter-title'>Causalidad inversa y sesgo de indicación</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.4.html#sesgo-de-indicación-los-más-graves-reciben-el-fármaco",
+    "href": "capitulos/Capítulo10.4.html#sesgo-de-indicación-los-más-graves-reciben-el-fármaco",
+    "title": "Causalidad inversa y sesgo de indicación",
+    "section": "Sesgo de indicación: los más graves reciben el fármaco",
+    "text": "Sesgo de indicación: los más graves reciben el fármaco\nEn la práctica clínica, un tratamiento se indica a quien lo necesita. Si lo que lo motiva (la gravedad) también influye en el desenlace, la comparación tratados vs. no tratados es injusta.\nEjemplo: agentes estimulantes de la eritropoyesis (AEE) en ERC. Los pacientes más graves (más inflamados, con peor anemia) reciben más AEE y también mueren más; el fármaco parece dañino aun si es neutro o ligeramente beneficioso.\n\nset.seed(5)\nn &lt;- 20000\ngravedad &lt;- rnorm(n)                                              # variable de gravedad\naee &lt;- rbinom(n, 1, plogis(-0.2 + 1.2 * gravedad))                # los más graves reciben más AEE\nh &lt;- 0.01 * exp(0.9 * gravedad - 0.15 * aee)                      # verdad: HR = exp(-0.15) = 0.86\nt_muerte &lt;- rexp(n, h)\nd3 &lt;- tibble(aee, gravedad, tiempo = pmin(t_muerte, 36), muerte = as.integer(t_muerte &lt;= 36))\n\nhr3 &lt;- function(f) unname(exp(coef(coxph(f, data = d3))[1]))\nc(`Verdad` = exp(-0.15),\n  `Sin ajustar (sesgo de indicación)` = hr3(Surv(tiempo, muerte) ~ aee),\n  `Ajustando por gravedad` = hr3(Surv(tiempo, muerte) ~ aee + gravedad)) |&gt; round(2)\n\n                           Verdad Sin ajustar (sesgo de indicación) \n                             0.86                              1.86 \n           Ajustando por gravedad \n                             0.85 \n\n\nEl HR crudo es 1.9 (el AEE “duplica la mortalidad”) frente a una verdad de 0.86. Con la gravedad bien medida se recupera el efecto.\nContrasta con el ejemplo del iSGLT2 de este libro (Cap. 3): allí los más sanos reciben el fármaco y el sesgo hace que parezca demasiado bueno. El sesgo de indicación puede ir en ambas direcciones, según quién recibe el tratamiento.\n\n\n\n\n\n\nTip💡 Cómo reducir el sesgo de indicación\n\n\n\n\n\nMide y ajusta por las variables de indicación (el motivo de la prescripción): gravedad, comorbilidad, laboratorios.\n\nComparador activo: compara el fármaco con otro fármaco para la misma indicación (iSGLT2 vs. iDPP4) y no con “ninguno”. Así ambos grupos tienen indicación similar.\n\nDiseño de nuevo usuario (new-user design): incluye solo a quienes inician el tratamiento durante el estudio, con tiempo cero en el inicio; excluye a los usuarios prevalentes (10.5).\n\nPuntaje de propensión (Cap. 12) para resumir y balancear la indicación.\n\nAnálisis de sensibilidad para confusión residual (10.6): E-value.\n\nControles negativos: un desenlace en el que no esperas efecto (p. ej., una vacuna antigripal contra fractura) y que debería salir nulo si el ajuste es adecuado.\n\n\n\n\n\n\n\n\n\nAdvertencia⚠️ “Ajustar por todo” tampoco es la solución\n\n\n\nAjustar por la gravedad funciona si la gravedad está bien medida y es todo lo que influye en la prescripción. En la práctica, parte de la decisión clínica es inobservable (impresión del médico, fragilidad, preferencias del paciente): ese es el sesgo por indicación residual.\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\n\nCausalidad inversa: la enfermedad (a veces subclínica) causa la “exposición” (bajo peso, baja albúmina), que parece causar el desenlace. Se mitiga con retardos y exposiciones medidas antes de la enfermedad.\n\nSesgo de indicación: el tratamiento se asigna según el pronóstico. Ajusta por la indicación, usa comparador activo y nuevos usuarios.\nPuede hacer que un fármaco protector parezca dañino (AEE) o que uno neutro parezca demasiado bueno (iSGLT2).\n\nNo todo es ajustable: cuantifica el sesgo residual con análisis de sensibilidad.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>51</span>  <span class='chapter-title'>Causalidad inversa y sesgo de indicación</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.4.html#ejercicio",
+    "href": "capitulos/Capítulo10.4.html#ejercicio",
+    "title": "Causalidad inversa y sesgo de indicación",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nModifica el retardo a 24 meses en el análisis del IMC. ¿Cuánto se acerca el HR a 1? ¿Qué se pierde?\nSimula que el AEE tiene efecto dañino real (HR 1.2) y que se asigna según la gravedad. ¿Puedes recuperar 1.2?\nPiensa en un fármaco que uses en tu servicio: ¿quién lo recibe? ¿Qué comparador activo sería razonable?",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>51</span>  <span class='chapter-title'>Causalidad inversa y sesgo de indicación</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.5.html",
+    "href": "capitulos/Capítulo10.5.html",
+    "title": "Sesgo de supervivencia y de pérdidas",
+    "section": "",
+    "text": "Quién está presente cuando miras\nLas personas que llegan a ser observadas en un estudio han tenido que sobrevivir (o permanecer en seguimiento) hasta ese momento. Si el tratamiento o la exposición cambia el riesgo con el tiempo, quienes están presentes después son una muestra seleccionada.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>52</span>  <span class='chapter-title'>Sesgo de supervivencia y de pérdidas</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.5.html#usuarios-prevalentes-el-sesgo-de-la-depleción-de-susceptibles",
+    "href": "capitulos/Capítulo10.5.html#usuarios-prevalentes-el-sesgo-de-la-depleción-de-susceptibles",
+    "title": "Sesgo de supervivencia y de pérdidas",
+    "section": "Usuarios prevalentes: el sesgo de la “depleción de susceptibles”",
+    "text": "Usuarios prevalentes: el sesgo de la “depleción de susceptibles”\nMuchos fármacos tienen riesgo alto al inicio (efectos adversos tempranos, cambios hemodinámicos al iniciar un bloqueo del SRAA o un iSGLT2 en ERC avanzada) y beneficio después. Quienes toleran el fármaco siguen tomándolo; quienes tienen un evento temprano lo suspenden o mueren. Si el estudio recluta a usuarios prevalentes (los que ya llevan tiempo con el fármaco), solo ve a los “sobrevivientes” y el fármaco parece mejor de lo que es.\n\n\n\n\n\n\nNota🩺 Ejemplo\n\n\n\nEn una cohorte de pacientes en hemodiálisis se compara la mortalidad de los que ya llevan 12 meses con un fármaco con la de los que no lo toman. Los que murieron o suspendieron en los primeros meses nunca entraron al análisis.\n\n\nSimulación\nSimulamos 40 000 pacientes con un fármaco cuyo riesgo instantáneo es el doble los primeros 6 meses (HR = 2.0) y protector después (HR = 0.7):\n\nlibrary(tidyverse)\nlibrary(survival)\nsource(\"R/funciones_epi.R\")\n\nset.seed(5)\nn &lt;- 40000\nfrail &lt;- rnorm(n)\ntrat &lt;- rbinom(n, 1, 0.5)\n\n## Riesgo por mes: 0-6 meses HR 2.0; después HR 0.7\nsim_tiempo &lt;- function(trat, frail) {\n  base &lt;- 0.012 * exp(0.5 * frail)\n  h1 &lt;- base * ifelse(trat == 1, 2.0, 1)\n  h2 &lt;- base * ifelse(trat == 1, 0.7, 1)\n  t1 &lt;- rexp(length(trat), h1)\n  ifelse(t1 &lt;= 6, t1, 6 + rexp(length(trat), h2))\n}\nt_muerte &lt;- sim_tiempo(trat, frail)\nd &lt;- tibble(trat, tiempo = pmin(t_muerte, 60), muerte = as.integer(t_muerte &lt;= 60))\n\n\n## (a) Todos desde el inicio (\"nuevos usuarios\")\ninc &lt;- coxph(Surv(tiempo, muerte) ~ trat, data = d)\n\n## (b) Solo los que siguen vivos a los 12 meses (\"usuarios prevalentes\")\nprev &lt;- d |&gt; filter(tiempo &gt; 12) |&gt; mutate(t2 = tiempo - 12)\nprv &lt;- coxph(Surv(t2, muerte) ~ trat, data = prev)\n\ntibble(\n  analisis = c(\"Nuevos usuarios (desde el inicio)\", \"Usuarios prevalentes (vivos a los 12 meses)\"),\n  n = c(nrow(d), nrow(prev)),\n  HR = c(exp(coef(inc)), exp(coef(prv))),\n  ic_inf = c(exp(confint(inc))[1], exp(confint(prv))[1]),\n  ic_sup = c(exp(confint(inc))[2], exp(confint(prv))[2])\n) |&gt; mutate(across(where(is.numeric), \\(x) round(x, 2)))\n\n# A tibble: 2 × 5\n  analisis                                        n    HR ic_inf ic_sup\n  &lt;chr&gt;                                       &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;\n1 Nuevos usuarios (desde el inicio)           40000  0.9    0.87   0.92\n2 Usuarios prevalentes (vivos a los 12 meses) 33214  0.73   0.7    0.75\n\n\n\nCon nuevos usuarios, el HR promedio (~0.9) mezcla el daño temprano y el beneficio tardío.\nCon usuarios prevalentes, el HR cae a ~0.73: el beneficio se sobrestima porque los pacientes que sufrieron el daño temprano ya no están. Un análisis de este tipo no puede ver el riesgo inicial.\n\n\nbind_rows(\n  `Nuevos usuarios` = d |&gt; transmute(trat, tiempo, muerte),\n  `Prevalentes (vivos a los 12 m)` = prev |&gt; transmute(trat, tiempo = t2, muerte),\n  .id = \"analisis\"\n) |&gt;\n  group_by(analisis) |&gt;\n  group_modify(\\(x, k) {\n    sf &lt;- survfit(Surv(tiempo, muerte) ~ trat, data = x)\n    tibble(tiempo = sf$time, S = sf$surv, trat = rep(c(\"Sin fármaco\", \"Con fármaco\"), sf$strata))\n  }) |&gt;\n  ggplot(aes(tiempo, S, color = trat)) +\n  geom_step(linewidth = 0.9) +\n  facet_wrap(~ analisis) +\n  scale_color_manual(values = c(`Sin fármaco` = \"#999999\", `Con fármaco` = \"#0072B2\"), name = NULL) +\n  labs(x = \"Meses de seguimiento\", y = \"Supervivencia\", caption = \"Datos simulados.\") +\n  theme_minimal(base_size = 11) + theme(legend.position = \"bottom\")\n\n\n\n\n\n\n\n\n\n\n\n\n\nTip💡 Cómo evitarlo: diseño de nuevo usuario\n\n\n\n\nIncluye solo a pacientes que inician el tratamiento durante el estudio (sin uso previo en una ventana de lavado, por ejemplo, 12 meses).\nFija el tiempo cero en el inicio del tratamiento; los comparadores inician otro tratamiento.\nAnaliza desde el inicio: así se capturan los eventos tempranos.\nSi tu base solo tiene prevalentes (muchos registros de diálisis), declara el sesgo y evita concluir sobre el efecto del fármaco.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>52</span>  <span class='chapter-title'>Sesgo de supervivencia y de pérdidas</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.5.html#pérdidas-durante-el-seguimiento-cuando-los-que-se-van-son-distintos",
+    "href": "capitulos/Capítulo10.5.html#pérdidas-durante-el-seguimiento-cuando-los-que-se-van-son-distintos",
+    "title": "Sesgo de supervivencia y de pérdidas",
+    "section": "Pérdidas durante el seguimiento: cuando los que se van son distintos",
+    "text": "Pérdidas durante el seguimiento: cuando los que se van son distintos\nLa pérdida de seguimiento sesga si quienes se pierden difieren de quienes siguen, en el desenlace. En ERC, quienes empeoran a menudo se trasladan, cambian de centro o rechazan controles.\nSimulamos 5 000 pacientes en un estudio de pendiente de TFGe a 12 meses. La verdad: el tratamiento mejora la pendiente en +1.0. Pero quienes empeoran más tienen más probabilidad de perderse, y se dispone de un biomarcador basal que se relaciona con la fragilidad:\n\nset.seed(8)\nn &lt;- 5000\ntrat &lt;- rbinom(n, 1, 0.5)\nfrag &lt;- rnorm(n)                                          # fragilidad (no medida)\nbio  &lt;- frag + rnorm(n, 0, 0.5)                           # biomarcador basal, correlacionado con la fragilidad\npend &lt;- -2 + 1.0 * trat - 0.8 * frag + rnorm(n, 0, 0.7)   # verdad: efecto = +1.0\n\n## Probabilidad de perderse: mayor con peor pendiente\np_perdida &lt;- plogis(-1.2 - 2.0 * (pend - mean(pend)))\nvisto &lt;- rbinom(n, 1, 1 - p_perdida)\nd_p &lt;- tibble(trat, bio, pend, visto)\n\nmean(1 - d_p$visto)                                       # fracción perdida\n\n[1] 0.3458\n\n\n\n## Efecto verdadero (con todos los datos, imposible en la vida real)\ncompleto &lt;- coef(lm(pend ~ trat, data = d_p))[\"trat\"]\n## Análisis de casos completos (solo los observados)\ncc &lt;- coef(lm(pend ~ trat, data = filter(d_p, visto == 1)))[\"trat\"]\n## Ponderación por el inverso de la probabilidad de seguimiento (IPCW) usando lo observado\np_obs &lt;- fitted(glm(visto ~ trat + bio, data = d_p, family = binomial))\nipcw &lt;- coef(lm(pend ~ trat, data = filter(d_p, visto == 1), weights = 1 / p_obs[d_p$visto == 1]))[\"trat\"]\n\nc(`Verdad (todos)` = 1.0, `Con todos los datos` = unname(completo), `Casos completos` = unname(cc), `Con ponderación (IPCW)` = unname(ipcw)) |&gt; round(2)\n\n        Verdad (todos)    Con todos los datos        Casos completos \n                  1.00                   1.04                   0.72 \nCon ponderación (IPCW) \n                  0.82 \n\n\n\n\nCasos completos: ~0.72 (vs. ≈ 1.0 con todos los datos; se pierde el 35 % de los pacientes): el efecto se subestima (los que más empeoraron en el grupo control se pierden más, y el contraste se achata).\n\nIPCW con el biomarcador: ~0.82, mejora pero no corrige todo, porque el biomarcador es una medida imperfecta de la fragilidad que causa la pérdida.\n\n\n\n\n\n\n\nAdvertencia⚠️ Lo que ninguna técnica corrige\n\n\n\nSi las pérdidas dependen de causas no medidas (el paciente se fue “porque se sentía peor” y no se registró), no hay corrección completa. Se previene reduciendo las pérdidas (seguimiento activo, confirmación de estado vital en registros), registrando los motivos y haciendo análisis de sensibilidad (por ejemplo, el “peor caso” para los perdidos).\n\n\nEstimación de supervivencia con censura informativa\nCuando la censura depende de covariables, se usan pesos inversos por censura (IPCW) o modelos de riesgos competitivos si el abandono es un evento. Se verán en el Cap. 19.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>52</span>  <span class='chapter-title'>Sesgo de supervivencia y de pérdidas</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.5.html#sesgo-de-supervivencia-y-paradojas-en-nefrología",
+    "href": "capitulos/Capítulo10.5.html#sesgo-de-supervivencia-y-paradojas-en-nefrología",
+    "title": "Sesgo de supervivencia y de pérdidas",
+    "section": "Sesgo de supervivencia y “paradojas” en nefrología",
+    "text": "Sesgo de supervivencia y “paradojas” en nefrología\nMuchas “paradojas” son sesgo de supervivencia o de selección:\n\n\n\n\n\n\nParadoja\nExplicación probable\n\n\n\nMayor IMC, PA o colesterol → menor mortalidad en diálisis\n\n\nCausalidad inversa + selección por supervivencia\n\n\n\nPacientes con ERC avanzada no tratados viven más que los tratados\n\nIndicación (ver 10.4)\n\n\nLos prevalentes en diálisis parecen estar mejor que los nuevos\nDepleción de susceptibles\n\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nQuienes están presentes al observar han sobrevivido o permanecido: si el riesgo cambia con el tiempo, ese grupo está seleccionado.\nLos usuarios prevalentes hacen parecer mejor un fármaco con riesgo temprano alto. Se evita con nuevos usuarios y tiempo cero en el inicio.\nLas pérdidas informativas sesgan el efecto; IPCW corrige lo medido, nada corrige lo que no se mide.\nRegistra motivos de pérdida y haz análisis de sensibilidad.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>52</span>  <span class='chapter-title'>Sesgo de supervivencia y de pérdidas</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.5.html#ejercicio",
+    "href": "capitulos/Capítulo10.5.html#ejercicio",
+    "title": "Sesgo de supervivencia y de pérdidas",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nEn la simulación de prevalentes, cambia el corte a 3 meses y a 24 meses. ¿Cómo cambia el HR?\nAumenta la fuerza de la pérdida (-2.0 * (pend - mean(pend)) → -3.0 * ...) y compara casos completos con IPCW.\nLee un estudio de tu especialidad con usuarios prevalentes: ¿qué sesgo esperas y en qué dirección?",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>52</span>  <span class='chapter-title'>Sesgo de supervivencia y de pérdidas</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.6.html",
+    "href": "capitulos/Capítulo10.6.html",
+    "title": "Cómo cuantificar un sesgo",
+    "section": "",
+    "text": "De “puede haber sesgo” a “¿cuánto?”\nToda discusión sobre limitaciones dice “posible confusión residual”. Eso informa poco. El análisis cuantitativo de sesgo pregunta: ¿qué tan grande tendría que ser el sesgo para cambiar la conclusión? y ¿qué conclusión alcanzaríamos con supuestos razonables sobre el sesgo?\nTrabajamos con el estimador del iSGLT2 de capítulos anteriores: la razón de tasas ajustada por lo medido, que sabemos que sufre confusión residual por la fragilidad (no medida).\nlibrary(tidyverse)\nsource(\"R/funciones_epi.R\")\n\no &lt;- read_csv(\"Bases/ckd_isglt2_oraculo.csv\") |&gt;\n  mutate(luacr = log(uacr), sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")))\n\nmodelo &lt;- glm(evento ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv +\n                offset(log(tiempo_meses)), data = o, family = poisson)\n\nrr_obs &lt;- unname(exp(coef(modelo)[\"isglt2\"]))\nic_obs &lt;- exp(confint.default(modelo)[\"isglt2\", ])\nc(RR_observado = rr_obs, ic_obs) |&gt; round(2)\n\nRR_observado        2.5 %       97.5 % \n        0.55         0.47         0.65\nRazón de tasas observada: 0.55 (IC 0.47-0.65). ¿Cuánto es efecto y cuánto sesgo por un confusor no medido?",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>53</span>  <span class='chapter-title'>Cómo cuantificar un sesgo</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.6.html#de-puede-haber-sesgo-a-cuánto",
+    "href": "capitulos/Capítulo10.6.html#de-puede-haber-sesgo-a-cuánto",
+    "title": "Cómo cuantificar un sesgo",
+    "section": "",
+    "text": "Tipo de análisis\nPregunta\n\n\n\nSimple\n¿Qué estimación corregida obtengo con un conjunto de supuestos?\n\n\nMultidimensional / tipping point\n¿Con qué valores de los parámetros del sesgo el efecto se anularía?\n\n\nProbabilístico\n¿Cuál es la distribución de estimaciones corregidas si doy una distribución a cada parámetro?\n\n\nE-value\n¿Qué fuerza mínima debe tener un confusor no medido para explicar todo el efecto?",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>53</span>  <span class='chapter-title'>Cómo cuantificar un sesgo</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.6.html#el-e-value",
+    "href": "capitulos/Capítulo10.6.html#el-e-value",
+    "title": "Cómo cuantificar un sesgo",
+    "section": "1. El E-value",
+    "text": "1. El E-value\nEl E-value (VanderWeele y Ding) es la intensidad de asociación mínima que un confusor no medido tendría que tener con tratamiento y desenlace (en razón de riesgos) para explicar por completo el efecto observado.\n\ne_value(rr_obs, lim = ic_obs[2])       # el IC \"más cercano a 1\" es el límite superior\n\n# A tibble: 1 × 2\n  e_value_punto e_value_ic\n          &lt;dbl&gt;      &lt;dbl&gt;\n1          3.04       2.47\n\n\n\nE-value del punto: ≈ 3.0. Un confusor no medido tendría que asociarse con un RR ≥ 3 tanto con el tratamiento como con el desenlace para “explicar” todo el efecto.\nE-value del límite del IC: ≈ 2.5, para llevar el IC hasta 1.\n\n¿Es plausible un RR de 2.5-3? En nuestro ejemplo, el confusor no medido (fragilidad) tiene un RR ~2 con el desenlace y una prevalencia distinta entre grupos: no basta para anular el efecto (sí para atenuarlo), consistente con la verdad (HR = 0.70 y un RR observado de 0.55).\n\n\n\n\n\n\nAdvertencia⚠️ Cómo interpretar un E-value\n\n\n\n\nEl E-value no dice si hay confusión; dice cuánta se necesitaría.\nCompáralo con la fuerza de los confusores conocidos (por ejemplo, el RR de la albuminuria o la TFGe, ya medidos): si ningún confusor medido llega a esa fuerza, es poco probable que uno no medido sí.\nNo sustituye al diseño: un E-value alto no arregla un sesgo de selección.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>53</span>  <span class='chapter-title'>Cómo cuantificar un sesgo</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.6.html#corrección-simple-de-un-confusor-no-medido",
+    "href": "capitulos/Capítulo10.6.html#corrección-simple-de-un-confusor-no-medido",
+    "title": "Cómo cuantificar un sesgo",
+    "section": "2. Corrección simple de un confusor no medido",
+    "text": "2. Corrección simple de un confusor no medido\nCon un confusor binario no medido \\(U\\) (por ejemplo, fragilidad alta), el sesgo en la razón de riesgos es:\n\\[\nB = \\frac{RR_{UD}\\,p_1 + (1 - p_1)}{RR_{UD}\\,p_0 + (1 - p_0)} \\qquad RR_{\\text{corregido}} = \\frac{RR_{\\text{observado}}}{B}\n\\]\ncon \\(RR_{UD}\\) = asociación de \\(U\\) con el desenlace, \\(p_1\\) y \\(p_0\\) = prevalencia de \\(U\\) en tratados y no tratados.\nElegimos parámetros plausibles que alguien podría proponer sin ver los datos: fragilidad alta en el 40 % de los no tratados y el 20 % de los tratados, con RR de 2 para el evento:\n\nfactor_sesgo &lt;- function(rr_ud, p1, p0) (rr_ud * p1 + 1 - p1) / (rr_ud * p0 + 1 - p0)\n\nB &lt;- factor_sesgo(rr_ud = 2, p1 = 0.20, p0 = 0.40)\nc(factor_de_sesgo = B, RR_corregido = rr_obs / B) |&gt; round(2)\n\nfactor_de_sesgo    RR_corregido \n           0.86            0.64 \n\n\nEl RR corregido ≈ 0.64 es cercano al efecto verdadero (el HR simulado es 0.70). Estos parámetros no los conocemos en la vida real: la fuerza del método está en que se explicitan y se discuten.\n¿Y si los parámetros fueran distintos? Análisis tipping point\n\n\nrejilla &lt;- expand_grid(rr_ud = seq(1, 3, 0.1), dif_prev = seq(0, 0.4, 0.02)) |&gt;\n  mutate(p0 = 0.40, p1 = pmax(p0 - dif_prev, 0),\n         rr_corregido = rr_obs / factor_sesgo(rr_ud, p1, p0))\n\nggplot(rejilla, aes(dif_prev, rr_ud, fill = rr_corregido)) +\n  geom_tile() +\n  geom_contour(aes(z = rr_corregido), breaks = 1, color = \"black\", linewidth = 1) +\n  scale_fill_gradient2(low = \"#0072B2\", mid = \"white\", high = \"#D55E00\", midpoint = 1, name = \"RR corregido\") +\n  labs(x = \"Diferencia de prevalencia del confusor (no tratados − tratados)\",\n       y = \"RR del confusor con el desenlace\",\n       caption = \"Línea negra: RR corregido = 1 (efecto anulado). RR observado = 0.55. Datos simulados.\") +\n  theme_minimal(base_size = 11)\n\n\n\n\n\n\n\nSolo en la esquina superior derecha (confusor muy fuerte y muy desbalanceado entre grupos) el efecto se anula. Para valores moderados, el RR corregido permanece claramente &lt; 1.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>53</span>  <span class='chapter-title'>Cómo cuantificar un sesgo</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.6.html#análisis-probabilístico-de-sesgo",
+    "href": "capitulos/Capítulo10.6.html#análisis-probabilístico-de-sesgo",
+    "title": "Cómo cuantificar un sesgo",
+    "section": "3. Análisis probabilístico de sesgo",
+    "text": "3. Análisis probabilístico de sesgo\nEn vez de un punto, se asigna una distribución a cada parámetro y se obtiene una distribución de estimaciones corregidas (Monte Carlo):\n\nset.seed(1)\nN &lt;- 20000\np0 &lt;- rbeta(N, 40, 60)                                  # ~40 % (rango plausible 30-50 %)\np1 &lt;- pmax(p0 - rnorm(N, 0.22, 0.05), 0.02)             # 15-25 puntos menos en tratados\nrr_ud &lt;- exp(rnorm(N, log(2), 0.2))                     # RR ~2 (IC ~1.4-3)\n\nrr_corr &lt;- rr_obs / factor_sesgo(rr_ud, p1, p0)\n\nquantile(rr_corr, c(0.025, 0.5, 0.975)) |&gt; round(2)\n\n 2.5%   50% 97.5% \n 0.58  0.65  0.77 \n\n\n\nggplot(tibble(rr = rr_corr), aes(rr)) +\n  geom_histogram(bins = 60, fill = \"#56B4E9\", color = \"white\") +\n  geom_vline(xintercept = c(rr_obs, 0.70), color = c(\"grey30\", \"#D55E00\"), linewidth = 1,\n             linetype = c(\"dashed\", \"solid\")) +\n  labs(x = \"Razón de tasas corregida\", y = \"Simulaciones\",\n       caption = \"Gris punteado: RR observado (0.55). Naranja: HR verdadero (0.70). Datos simulados.\") +\n  theme_minimal(base_size = 11)\n\n\n\n\n\n\n\nEl resultado: RR corregido mediano ≈ 0.65 (intervalo de simulación 0.58-0.77): un beneficio claro, menor que el observado (0.55), y compatible con la verdad (0.70).\n\n\n\n\n\n\nTip💡 Cómo elegir los parámetros del sesgo\n\n\n\n\n\nEstudios de validación (para sensibilidad y especificidad).\n\nLiteratura (asociación de la fragilidad, el IMC o el tabaquismo con el desenlace).\n\nDatos internos: la fuerza de un confusor medido similar da una referencia (benchmarking).\n\nOpinión de expertos, con rangos amplios.\n\nDeclara todo y publica el código: el valor está en la transparencia.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>53</span>  <span class='chapter-title'>Cómo cuantificar un sesgo</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.6.html#controles-negativos",
+    "href": "capitulos/Capítulo10.6.html#controles-negativos",
+    "title": "Cómo cuantificar un sesgo",
+    "section": "4. Controles negativos",
+    "text": "4. Controles negativos\nOtra estrategia complementaria: buscar un desenlace de control negativo que no debería estar afectado por el tratamiento pero sí compartir los mismos sesgos. Si el análisis ajustado “encuentra efecto” en el control negativo, hay sesgo residual. Ejemplo: el iSGLT2 y las fracturas por trauma o el cáncer de piel; si aparece “beneficio”, los grupos difieren en fragilidad o en salud general.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>53</span>  <span class='chapter-title'>Cómo cuantificar un sesgo</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.6.html#panel-de-herramientas",
+    "href": "capitulos/Capítulo10.6.html#panel-de-herramientas",
+    "title": "Cómo cuantificar un sesgo",
+    "section": "Panel de herramientas",
+    "text": "Panel de herramientas\n\n\n\n\n\n\n\nSesgo\nHerramienta\nDónde\n\n\n\nConfusión no medida\nE-value; corrección simple/probabilística; control negativo; controles de benchmarking\n10.6, 12.8\n\n\nError de clasificación\nCorrección con Se/Sp; análisis de sensibilidad\n10.3\n\n\nSelección\nPonderación por la probabilidad de selección; cotas (bounds)\n6.4, 12, 19\n\n\nPérdidas informativas\nIPCW; análisis del “peor caso”\n10.5, 19\n\n\nTiempo inmortal, indicación\nDiseño (nuevo usuario, tiempo cero alineado)\n10.2, 10.4, 12.1\n\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nCuantifica el sesgo: “¿cuánto tendría que ser?” y “¿qué resultado con supuestos razonables?”\n\nEl E-value resume la fuerza mínima de un confusor no medido que anularía el efecto.\nLa corrección simple usa tres parámetros (RR del confusor con el desenlace, prevalencia en cada grupo); el probabilístico les asigna distribuciones.\nUn gráfico de tipping point muestra qué combinaciones anulan el resultado.\n\nExplicita y publica los supuestos y el código: es el valor central del análisis de sesgo.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>53</span>  <span class='chapter-title'>Cómo cuantificar un sesgo</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.6.html#ejercicio",
+    "href": "capitulos/Capítulo10.6.html#ejercicio",
+    "title": "Cómo cuantificar un sesgo",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nUsa un RR del confusor de 3 y una diferencia de prevalencia de 30 puntos. ¿Qué RR corregido obtienes?\nCalcula el E-value (e_value()) de un RR observado de 1.5 (IC 1.2-1.9). ¿Cómo cambia si el RR fuera 0.5? (la función invierte los valores &lt; 1).\nElige un estudio publicado que uses y escribe, en una frase, qué confusor no medido podría explicar su resultado y qué parámetros supondrías.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>53</span>  <span class='chapter-title'>Cómo cuantificar un sesgo</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo10.6.html#nota-editorial",
+    "href": "capitulos/Capítulo10.6.html#nota-editorial",
+    "title": "Cómo cuantificar un sesgo",
+    "section": "Nota editorial",
+    "text": "Nota editorial\n\nCapítulo redactado con asistencia de IA y revisado por el autor. Todos los datos de este capítulo son simulados; las situaciones clínicas son ilustrativas y no representan estudios reales.",
+    "crumbs": [
+      "Capítulo 10: ¡¡¡No todo es confusión!!!",
+      "<span class='chapter-number'>53</span>  <span class='chapter-title'>Cómo cuantificar un sesgo</span>"
+    ]
+  },
+  {
     "objectID": "capitulos/Apéndice-resumen.html",
     "href": "capitulos/Apéndice-resumen.html",
     "title": "Apéndice: cuadros de resumen y plantillas",

@@ -1,0 +1,143 @@
+# Causalidad inversa y sesgo de indicación
+
+## Dos sesgos hermanos
+
+-   **Causalidad inversa**: lo que parece la **causa** es en realidad una **consecuencia** (o un marcador) de la enfermedad que se quiere estudiar.
+-   **Sesgo de indicación** (*confounding by indication*): el fármaco se **prescribe a quienes ya tienen mayor o menor riesgo**, de modo que la **indicación misma** confunde la comparación.
+
+Ambos hacen que una **exposición inocua parezca dañina** o que una **protectora parezca inútil**.
+
+## Causalidad inversa: la "paradoja del peso" en diálisis
+
+En pacientes en hemodiálisis, un **IMC más alto se asocia con menor mortalidad** (la "paradoja de la obesidad"). Una explicación es la **causalidad inversa**: los pacientes con enfermedad grave o subclínica **pierden peso** (caquexia, inflamación) y además **mueren antes**. El bajo peso no causa la muerte: **la precede**.
+
+Simulamos que el **IMC no tiene ningún efecto sobre la mortalidad**, pero la enfermedad subclínica (no observada) baja el IMC y multiplica por 10 el riesgo de morir **durante el primer año**:
+
+```{r}
+#| label: setup-104
+library(tidyverse)
+library(survival)
+source("R/funciones_epi.R")
+
+set.seed(12)
+n <- 20000
+d <- tibble(
+  enf_subclinica = rbinom(n, 1, 0.25),
+  imc = rnorm(n, 27 - 3.5 * enf_subclinica, 4),                 # la enfermedad baja el IMC
+  edad = rnorm(n, 62, 10)
+) |>
+  mutate(
+    base = 0.004 * exp(0.03 * (edad - 62)),                                # el IMC NO influye
+    t1 = rexp(n, base * ifelse(enf_subclinica == 1, 10, 1)),               # riesgo muy alto el primer año si hay enfermedad
+    t_muerte = ifelse(t1 <= 12, t1, 12 + rexp(n, base)),
+    muerte = as.integer(t_muerte <= 36), tiempo = pmin(t_muerte, 36)
+  )
+```
+
+```{r}
+#| label: dag-inversa
+#| fig-width: 7
+#| fig-height: 2.8
+dibujar_dag(
+  tribble(~nombre, ~x, ~y, ~etiqueta, ~rol,
+          "I", 1, 1.0, "IMC bajo", "exposicion",
+          "E", 2, 1.7, "Enfermedad\nsubclínica", "no medido",
+          "M", 3, 1.0, "Muerte", "desenlace"),
+  tribble(~de, ~a, "E", "I", "E", "M"),
+  tam_texto = 3.3, expandir = c(0.25, 0.25)
+)
+```
+
+```{r}
+#| label: imc-ingenuo
+## IMC por cada 5 unidades más
+ing <- coxph(Surv(tiempo, muerte) ~ I(imc / 5) + I(edad / 10), data = d)
+exp(c(HR = coef(ing)[1], confint(ing)[1, ])) |> round(2)
+```
+
+El HR de ~0.7 por cada 5 unidades de IMC sugiere que **engordar protege**, cuando la verdad es **sin efecto** (HR = 1). Es **confusión por una variable no medida** (la enfermedad subclínica) en un DAG donde ésta es causa común del IMC y de la muerte.
+
+### Estrategias frente a la causalidad inversa
+
+| Estrategia | Idea |
+|---|---|
+| **Análisis con retardo (*lag*)** | Excluir los eventos (o el tiempo) de los **primeros meses o años** tras medir la exposición: los pacientes con enfermedad subclínica que mueren pronto se retiran |
+| **Exposición antes de la enfermedad** | Usar el **peso previo** al diagnóstico o a la entrada a diálisis |
+| **Cambio de peso** en lugar de peso actual | Distinguir pérdida involuntaria (enfermedad) de estabilidad |
+| **Ajustar** por marcadores de enfermedad (albúmina, inflamación) | Reduce, pero no elimina (¿están bien medidos?) |
+
+```{r}
+#| label: lag
+## Excluir las muertes de los primeros 12 meses y empezar el seguimiento a los 12 meses
+d_lag <- d |> filter(tiempo > 12) |> mutate(tiempo2 = tiempo - 12)
+lag <- coxph(Surv(tiempo2, muerte) ~ I(imc / 5) + I(edad / 10), data = d_lag)
+exp(c(HR = coef(lag)[1], confint(lag)[1, ])) |> round(2)
+```
+
+Con un retardo de 12 meses el HR vuelve a ≈ 1.0 (la verdad): se eliminaron los pacientes cuya enfermedad subclínica ya los llevaba a la muerte. Con un retardo más corto, el sesgo **persiste** (con 6 meses el HR sigue en ~0.8):
+
+```{r}
+#| label: lag6
+d_lag6 <- d |> filter(tiempo > 6) |> mutate(tiempo2 = tiempo - 6)
+exp(coef(coxph(Surv(tiempo2, muerte) ~ I(imc / 5) + I(edad / 10), data = d_lag6))[1]) |> round(2)
+```
+
+Elige el retardo según el **tiempo de latencia clínica** de la enfermedad (aquí, 12 meses). Si el efecto confusor es **permanente** y no solo temprano, el retardo no basta y hace falta medir o ajustar la enfermedad.
+
+## Sesgo de indicación: los más graves reciben el fármaco
+
+En la práctica clínica, un tratamiento se **indica** a quien lo necesita. Si lo que lo motiva (la **gravedad**) también influye en el desenlace, la comparación **tratados vs. no tratados** es injusta.
+
+**Ejemplo**: agentes estimulantes de la eritropoyesis (AEE) en ERC. Los pacientes **más graves** (más inflamados, con peor anemia) reciben **más AEE** y también **mueren más**; el fármaco parece **dañino** aun si es neutro o ligeramente beneficioso.
+
+```{r}
+#| label: indicacion
+set.seed(5)
+n <- 20000
+gravedad <- rnorm(n)                                              # variable de gravedad
+aee <- rbinom(n, 1, plogis(-0.2 + 1.2 * gravedad))                # los más graves reciben más AEE
+h <- 0.01 * exp(0.9 * gravedad - 0.15 * aee)                      # verdad: HR = exp(-0.15) = 0.86
+t_muerte <- rexp(n, h)
+d3 <- tibble(aee, gravedad, tiempo = pmin(t_muerte, 36), muerte = as.integer(t_muerte <= 36))
+
+hr3 <- function(f) unname(exp(coef(coxph(f, data = d3))[1]))
+c(`Verdad` = exp(-0.15),
+  `Sin ajustar (sesgo de indicación)` = hr3(Surv(tiempo, muerte) ~ aee),
+  `Ajustando por gravedad` = hr3(Surv(tiempo, muerte) ~ aee + gravedad)) |> round(2)
+```
+
+El HR crudo es **1.9** (el AEE "duplica la mortalidad") frente a una verdad de **0.86**. Con la gravedad **bien medida** se recupera el efecto.
+
+Contrasta con el ejemplo del iSGLT2 de este libro (Cap. 3): allí los **más sanos** reciben el fármaco y el sesgo hace que parezca **demasiado bueno**. **El sesgo de indicación puede ir en ambas direcciones**, según quién recibe el tratamiento.
+
+::: {.callout-tip}
+## 💡 Cómo reducir el sesgo de indicación
+
+1.  **Mide y ajusta por las variables de indicación** (el motivo de la prescripción): gravedad, comorbilidad, laboratorios.
+2.  **Comparador activo**: compara el fármaco con **otro fármaco para la misma indicación** (iSGLT2 vs. iDPP4) y no con "ninguno". Así ambos grupos tienen **indicación similar**.
+3.  **Diseño de nuevo usuario** (*new-user design*): incluye solo a quienes **inician** el tratamiento durante el estudio, con tiempo cero en el inicio; excluye a los usuarios prevalentes (10.5).
+4.  **Puntaje de propensión** (Cap. 12) para resumir y balancear la indicación.
+5.  **Análisis de sensibilidad** para confusión residual (10.6): E-value.
+6.  **Controles negativos**: un desenlace en el que **no esperas efecto** (p. ej., una vacuna antigripal contra fractura) y que debería salir nulo si el ajuste es adecuado.
+:::
+
+::: {.callout-warning}
+## ⚠️ "Ajustar por todo" tampoco es la solución
+
+Ajustar por la **gravedad** funciona si la gravedad está **bien medida** y es **todo lo que influye en la prescripción**. En la práctica, parte de la decisión clínica es inobservable (impresión del médico, fragilidad, preferencias del paciente): ese es el **sesgo por indicación residual**.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   **Causalidad inversa**: la enfermedad (a veces subclínica) causa la "exposición" (bajo peso, baja albúmina), que **parece causar** el desenlace. Se mitiga con **retardos** y exposiciones medidas **antes** de la enfermedad.
+-   **Sesgo de indicación**: el tratamiento se asigna según el pronóstico. Ajusta por la indicación, usa **comparador activo** y **nuevos usuarios**.
+-   Puede hacer que un fármaco **protector parezca dañino** (AEE) o que uno neutro parezca **demasiado bueno** (iSGLT2).
+-   **No todo es ajustable**: cuantifica el sesgo residual con análisis de sensibilidad.
+:::
+
+## Ejercicio
+
+1.  Modifica el retardo a 24 meses en el análisis del IMC. ¿Cuánto se acerca el HR a 1? ¿Qué se pierde?
+2.  Simula que el AEE tiene efecto **dañino real** (HR 1.2) y que se asigna según la gravedad. ¿Puedes recuperar 1.2?
+3.  Piensa en un fármaco que uses en tu servicio: ¿quién lo recibe? ¿Qué **comparador activo** sería razonable?

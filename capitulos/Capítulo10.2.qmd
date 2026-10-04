@@ -1,0 +1,144 @@
+# Sesgo de tiempo inmortal
+
+## El error
+
+El **sesgo de tiempo inmortal** aparece cuando a un grupo se le atribuye un periodo de seguimiento **durante el cual, por cómo se definió, no podía haber tenido el evento**.
+
+El caso típico: se compara a quienes **"recibieron iSGLT2 en algún momento"** con quienes **nunca lo recibieron**, contando el seguimiento de los tratados **desde el ingreso a la cohorte**. Pero para estar en el grupo "tratado" el paciente **tuvo que sobrevivir hasta recibir la primera prescripción**. Ese tiempo previo es **inmortal**: si hubiera muerto antes, habría quedado clasificado como "no tratado".
+
+::: {.callout-note}
+## 🩺 Ejemplo clínico
+
+Una cohorte de pacientes con ERC avanzada se sigue desde su primera consulta. Algunos reciben un fármaco a los 3, 8 o 15 meses. El estudio clasifica como "usuario" a cualquiera que **alguna vez** recibió el fármaco y compara mortalidad con los "no usuarios". Aunque el fármaco **no haga nada**, los usuarios tendrán **menos mortalidad aparente**.
+:::
+
+## Cómo se ve en una línea de tiempo
+
+```{r}
+#| label: setup-102
+library(tidyverse)
+library(survival)
+
+set.seed(21)
+linea <- tibble(
+  id = factor(1:8),
+  inicio_tto = c(NA, 8, NA, 15, 5, NA, 12, NA),
+  fin = c(6, 40, 10, 38, 33, 25, 45, 14),
+  muere = c(1, 0, 1, 1, 0, 1, 0, 1)
+) |>
+  mutate(tratado = !is.na(inicio_tto))
+
+ggplot(linea) +
+  geom_segment(aes(x = 0, xend = ifelse(tratado, inicio_tto, fin), y = id, yend = id,
+                   color = ifelse(tratado, "Tiempo 'inmortal' (sin tratar)", "No tratado")), linewidth = 3) +
+  geom_segment(data = filter(linea, tratado), aes(x = inicio_tto, xend = fin, y = id, yend = id, color = "Tratado"),
+               linewidth = 3) +
+  geom_point(data = filter(linea, muere == 1), aes(x = fin, y = id), shape = 4, size = 3, stroke = 1.3) +
+  scale_color_manual(values = c("No tratado" = "#999999", "Tratado" = "#0072B2",
+                                "Tiempo 'inmortal' (sin tratar)" = "#E69F00"), name = NULL) +
+  labs(x = "Meses desde el ingreso a la cohorte", y = "Paciente",
+       caption = "✕ = muerte. Datos simulados con fines didácticos.") +
+  theme_minimal(base_size = 11) + theme(legend.position = "bottom")
+```
+
+Los pacientes tratados (2, 4, 5 y 7) tienen una barra **amarilla**: el tramo inicial donde estaban vivos pero **sin tratamiento**. Un análisis "ingenuo" lo cuenta como **tiempo de tratamiento**; ese tiempo no puede contener muertes porque quien muriera antes habría sido clasificado como no tratado.
+
+## Simulación: un fármaco sin efecto que "reduce 80 % la mortalidad"
+
+Simulamos 20 000 pacientes. **La verdad: el fármaco no tiene ningún efecto** (HR = 1). Cada paciente tiene un tiempo hasta la muerte y un momento en que **recibiría** el fármaco, pero solo lo recibe si **sigue vivo** en ese momento.
+
+```{r}
+#| label: sim-inmortal
+set.seed(10)
+n <- 20000
+T_muerte <- rexp(n, rate = 0.02)         # meses hasta la muerte (mediana ~35); sin efecto del fármaco
+S_inicio <- rexp(n, rate = 0.05)         # momento en que se prescribiría el fármaco
+
+datos <- tibble(id = 1:n, T_muerte, S_inicio) |>
+  mutate(
+    seguimiento = pmin(T_muerte, 60),
+    muerte = as.integer(T_muerte <= 60),
+    tratado = as.integer(S_inicio < T_muerte & S_inicio < 60)    # solo si está vivo cuando se prescribe
+  )
+
+table(datos$tratado)
+```
+
+### Análisis ingenuo: "alguna vez" vs. "nunca"
+
+```{r}
+#| label: ingenuo-inmortal
+naive <- coxph(Surv(seguimiento, muerte) ~ tratado, data = datos)
+exp(c(HR = coef(naive), confint(naive)))
+```
+
+El HR es ~0.2: **80 % menos de mortalidad** para un fármaco que no hace nada. La explicación: el 100 % de los "tratados" **sobrevivió** al menos hasta recibir el fármaco.
+
+## Cómo corregirlo
+
+### Opción 1: exposición como variable dependiente del tiempo
+
+Cada paciente aporta **tiempo no expuesto** hasta su primera prescripción y **tiempo expuesto** después. Se logra con `tmerge()`:
+
+```{r}
+#| label: tmerge
+d_base <- datos |> transmute(id, seguimiento, muerte, inicio = ifelse(tratado == 1, S_inicio, NA))
+
+d_tv <- tmerge(d_base, d_base, id = id, evento = event(seguimiento, muerte))
+d_tv <- tmerge(d_tv, d_base, id = id, expuesto = tdc(inicio))
+d_tv$expuesto[is.na(d_tv$expuesto)] <- 0
+
+head(d_tv |> select(id, tstart, tstop, evento, expuesto), 6)
+
+tv <- coxph(Surv(tstart, tstop, evento) ~ expuesto, data = d_tv)
+exp(c(HR = coef(tv), confint(tv)))
+```
+
+El HR ahora es **~1.0** (la verdad). El tiempo previo a la prescripción se asigna al grupo "no expuesto", donde **sí puede morir**.
+
+### Opción 2: análisis de *landmark*
+
+Se fija un **punto de corte** (por ejemplo, 6 meses). Solo se incluyen los pacientes **vivos a los 6 meses** y se clasifica la exposición **según lo ocurrido hasta ese momento**. El seguimiento empieza a los 6 meses:
+
+```{r}
+#| label: landmark
+lm6 <- datos |>
+  filter(seguimiento > 6) |>
+  mutate(trat_6m = as.integer(S_inicio <= 6 & tratado == 1), t = seguimiento - 6)
+
+lm_fit <- coxph(Surv(t, muerte) ~ trat_6m, data = lm6)
+exp(c(HR = coef(lm_fit), confint(lm_fit)))
+```
+
+También ≈ 1.0. El *landmark* es simple y fácil de explicar, pero pierde a quienes empiezan después del corte y depende de la fecha elegida.
+
+### Opción 3 (la mejor): alinear el tiempo cero con el inicio del tratamiento
+
+En el diseño de **ensayo objetivo (target trial)** (Cap. 12), el **tiempo cero** es el momento en que el paciente **cumple los criterios y se asigna a una estrategia** (empezar o no empezar). Los tratados empiezan el seguimiento **cuando inician el tratamiento**; los no tratados se les asigna un tiempo cero comparable (por ejemplo, mediante emparejamiento en el tiempo). El tiempo inmortal desaparece **por diseño**.
+
+::: {.callout-warning}
+## ⚠️ Señales de alerta en un artículo
+
+-   La exposición se define como **"uso en algún momento del seguimiento"** o **"uso durante el estudio"**.
+-   El tiempo cero del seguimiento es **la entrada a la cohorte** (diagnóstico, alta) y no el inicio del tratamiento.
+-   Efectos **demasiado buenos** (HR 0.2-0.5 con fármacos de beneficio modesto).
+-   Los autores no describen cómo clasificaron a quienes **murieron antes** de recibir el tratamiento.
+:::
+
+## También afecta a las estrategias de "cumplimiento"
+
+El mismo error aparece cuando se compara a quienes **cumplieron un protocolo** (asistencia a diálisis, adherencia al tratamiento): para "cumplir hasta el final" hay que sobrevivir hasta el final. Se resuelve con métodos que tratan la adherencia como variable dependiente del tiempo (Cap. 19).
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   El **tiempo inmortal** es un periodo en que, por cómo se definió el grupo, no puede haber evento: hace parecer **protectora** una exposición sin efecto.
+-   Se evita **alineando el tiempo cero** con el inicio del tratamiento, tratando la exposición como **dependiente del tiempo** (`tmerge`) o con un análisis de **landmark**.
+-   En un HR "demasiado bueno", sospecha primero de **sesgo de tiempo inmortal**.
+:::
+
+## Ejercicio
+
+1.  Aumenta la velocidad de prescripción (`rate = 0.15`) en la simulación. ¿El sesgo ingenuo aumenta o disminuye? ¿Por qué?
+2.  En el análisis de *landmark*, prueba cortes a **3, 6 y 12 meses**. ¿Cambia el HR? ¿Qué pierdes con un corte tardío?
+3.  Dibuja la línea de tiempo de 8 pacientes reales de tu servicio: ¿dónde está el tiempo cero de cada uno?
