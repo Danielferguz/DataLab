@@ -5915,6 +5915,510 @@
     ]
   },
   {
+    "objectID": "capitulos/Capítulo13.html",
+    "href": "capitulos/Capítulo13.html",
+    "title": "Capítulo 13: Datos faltantes",
+    "section": "",
+    "text": "Referencias\nEste capítulo usa ckd_faltantes: la base ckd_isglt2 a la que se borraron valores (simulados) con tres mecanismos distintos. Como conocemos los valores completos, podemos medir cuánto sesga cada manera de manejar los datos faltantes.\nAl finalizar este capítulo podrás:\nPrerrequisitos: Caps. 5, 8, 9, 12. Prepara: Caps. 17 y 19.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.html#referencias",
+    "href": "capitulos/Capítulo13.html#referencias",
+    "title": "Capítulo 13: Datos faltantes",
+    "section": "",
+    "text": "Rubin DB. Multiple Imputation for Nonresponse in Surveys. Wiley; 1987.\nvan Buuren S. Flexible Imputation of Missing Data (2e). CRC Press; 2018 (https://stefvanbuuren.name/fimd/).\nvan Buuren S, Groothuis-Oudshoorn K. mice: Multivariate imputation by chained equations in R. J Stat Softw. 2011;45(3).\nSterne JAC, et al. Multiple imputation for missing data in epidemiological and clinical research: potential and pitfalls. BMJ. 2009;338:b2393.\nWhite IR, Royston P. Imputing missing covariate values for the Cox model. Stat Med. 2009;28:1982-1998.\nLittle RJA, Rubin DB. Statistical Analysis with Missing Data (3e). Wiley; 2019.\nHernán MA, Robins JM. Causal Inference: What If. Cap. 8 (sesgo de selección y pérdidas).",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.1.html",
+    "href": "capitulos/Capítulo13.1.html",
+    "title": "Mecanismos: MCAR, MAR y MNAR",
+    "section": "",
+    "text": "La pregunta clave: ¿por qué falta el dato?\nPara cada variable con valores ausentes, la pregunta no es cuántos faltan sino por qué. Sea \\(R\\) el indicador de “dato observado” (\\(R=1\\)) o “falta” (\\(R=0\\)). Rubin (1976) definió tres mecanismos según de qué depende \\(R\\):\nlibrary(tidyverse)\nsource(\"R/funciones_epi.R\")\nsource(\"R/simular_faltantes.R\")\n\noraculo &lt;- read_csv(\"Bases/ckd_isglt2_oraculo.csv\")",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>70</span>  <span class='chapter-title'>Mecanismos: MCAR, MAR y MNAR</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.1.html#la-pregunta-clave-por-qué-falta-el-dato",
+    "href": "capitulos/Capítulo13.1.html#la-pregunta-clave-por-qué-falta-el-dato",
+    "title": "Mecanismos: MCAR, MAR y MNAR",
+    "section": "",
+    "text": "Mecanismo\nSignifica\nEjemplo con la UACR\n\n\n\n\nMCAR (missing completely at random)\n\n\\(R\\) no depende de nada\n\nSe perdieron muestras de orina por un fallo de laboratorio al azar\n\n\n\nMAR (missing at random)\n\n\\(R\\) depende solo de variables observadas\n\nFalta más UACR en pacientes mayores, con TFGe más baja o con peor evolución (variables que sí se observan)\n\n\n\nMNAR (missing not at random)\n\n\\(R\\) depende del propio valor que falta (o de algo no observado)\nNo se pide UACR a quien “se ve” sin albuminuria; o los que tienen albuminuria alta no regresan",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>70</span>  <span class='chapter-title'>Mecanismos: MCAR, MAR y MNAR</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.1.html#los-tres-mecanismos-como-dag",
+    "href": "capitulos/Capítulo13.1.html#los-tres-mecanismos-como-dag",
+    "title": "Mecanismos: MCAR, MAR y MNAR",
+    "section": "Los tres mecanismos como DAG",
+    "text": "Los tres mecanismos como DAG\nSe agrega al DAG el indicador de faltante \\(R\\) y se dibuja de qué depende. \\(X\\) es la variable parcialmente observada (UACR), \\(Y\\) el desenlace, \\(Z\\) una covariable siempre observada.\n\npanel &lt;- function(aristas, titulo) {\n  nodos &lt;- tribble(~nombre, ~x, ~y, ~etiqueta, ~rol,\n    \"Z\", 1, 1.6, \"Edad, TFGe\\n(observadas)\", \"otro\",\n    \"X\", 2, 1.6, \"UACR\\n(verdadera)\", \"exposicion\",\n    \"Y\", 3, 1.6, \"Desenlace\", \"desenlace\",\n    \"R\", 2, 0.4, \"¿Se midió\\nla UACR? (R)\", \"colisionador\")\n  dibujar_dag(nodos, aristas, tam_texto = 3, expandir = c(0.2, 0.3)) + labs(title = titulo) +\n    theme(legend.position = \"none\", plot.title = element_text(face = \"bold\", size = 11))\n}\nbase &lt;- tribble(~de, ~a, \"Z\", \"X\", \"X\", \"Y\", \"Z\", \"Y\")\nlibrary(patchwork)\npanel(base, \"MCAR: R no depende de nada\") +\n  panel(bind_rows(base, tribble(~de, ~a, \"Z\", \"R\", \"Y\", \"R\")), \"MAR: R depende de lo observado\") +\n  panel(bind_rows(base, tribble(~de, ~a, \"X\", \"R\")), \"MNAR: R depende de X (el dato que falta)\")\n\n\n\n\n\n\n\nEn MAR, \\(R\\) depende de \\(Z\\) e \\(Y\\) (observados): si ajustamos por ellos, se puede recuperar la información. En MNAR, \\(R\\) depende de \\(X\\) mismo: no hay forma de corregirlo con los datos observados solamente; hace falta un supuesto adicional (13.6).\n\n\n\n\n\n\nAdvertencia⚠️ MAR no significa “al azar”\n\n\n\nMAR significa que, dado lo que observas, la falta es “como al azar”. Que los mayores tengan más datos faltantes no viola MAR (si observas la edad); que los más graves falten más sí lo viola si la gravedad no se mide. Es un supuesto no verificable con los datos: se defiende con conocimiento del proceso que generó los faltantes.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>70</span>  <span class='chapter-title'>Mecanismos: MCAR, MAR y MNAR</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.1.html#consecuencias-simulación-con-los-tres-mecanismos",
+    "href": "capitulos/Capítulo13.1.html#consecuencias-simulación-con-los-tres-mecanismos",
+    "title": "Mecanismos: MCAR, MAR y MNAR",
+    "section": "Consecuencias: simulación con los tres mecanismos",
+    "text": "Consecuencias: simulación con los tres mecanismos\nAplicamos los tres mecanismos a la UACR (un 33 % de faltantes en cada uno) y comparamos el análisis de casos completos con los datos completos (la verdad):\n\nresumen_mecanismo &lt;- function(mec) {\n  d &lt;- generar_faltantes(oraculo, mec)\n  completo &lt;- !is.na(d$uacr)\n  m_cc &lt;- lm(pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + log(uacr) + ecv, data = d)\n  tibble(\n    mecanismo = mec,\n    `% falta UACR` = 100 * mean(!completo),\n    `ln(UACR) medio (observados)` = mean(log(d$uacr), na.rm = TRUE),\n    `Efecto iSGLT2 (casos completos)` = unname(coef(m_cc)[\"isglt2\"]),\n    `Coef. de ln(UACR) (casos completos)` = unname(coef(m_cc)[\"log(uacr)\"])\n  )\n}\nm_verdad &lt;- lm(pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + log(uacr) + ecv, data = oraculo)\n\nbind_rows(\n  tibble(mecanismo = \"Datos completos (verdad)\", `% falta UACR` = 0,\n         `ln(UACR) medio (observados)` = mean(log(oraculo$uacr)),\n         `Efecto iSGLT2 (casos completos)` = unname(coef(m_verdad)[\"isglt2\"]),\n         `Coef. de ln(UACR) (casos completos)` = unname(coef(m_verdad)[\"log(uacr)\"])),\n  map_dfr(c(\"MCAR\", \"MAR\", \"MNAR\"), resumen_mecanismo)\n) |&gt; mutate(across(where(is.numeric), \\(x) round(x, 2)))\n\n# A tibble: 4 × 5\n  mecanismo         `% falta UACR` ln(UACR) medio (obse…¹ Efecto iSGLT2 (casos…²\n  &lt;chr&gt;                      &lt;dbl&gt;                  &lt;dbl&gt;                  &lt;dbl&gt;\n1 Datos completos …            0                     4.79                   1.34\n2 MCAR                        32.6                   4.8                    1.3 \n3 MAR                         32.8                   4.72                   1.24\n4 MNAR                        32.7                   4.49                   1.16\n# ℹ abbreviated names: ¹​`ln(UACR) medio (observados)`,\n#   ²​`Efecto iSGLT2 (casos completos)`\n# ℹ 1 more variable: `Coef. de ln(UACR) (casos completos)` &lt;dbl&gt;\n\n\nLecciones:\n\n\nMCAR: sin sesgo (el promedio observado de ln(UACR) = 4.80 coincide con el real, 4.79; solo se pierde precisión por tener menos pacientes).\n\nMAR (depende de edad, TFGe, tratamiento y desenlace): el promedio observado queda sesgado (4.72) y el efecto del tratamiento en casos completos se desvía.\n\nMNAR (falta más cuando la UACR es alta): el promedio observado queda muy sesgado (4.49 vs. 4.79: se pierde a los de albuminuria alta) y el efecto estimado se desvía más.\n\n\n\n\n\n\n\nTip💡 Cómo pensar el mecanismo en tu estudio\n\n\n\n\n\n¿Quién decide si se mide? (el médico, el laboratorio, el paciente, el protocolo).\n\n¿Qué sabe esa persona al decidir? (si sabe el valor de la variable, hay MNAR; si solo sabe el contexto, MAR).\n\n¿Qué variables pueden predecir la falta? Inclúyelas en el análisis.\n\nPregunta al personal clínico y revisa el protocolo: es la mejor evidencia sobre el mecanismo.\n\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\n\nMCAR: sin sesgo, solo pierdes precisión. MAR: la falta depende de lo observado; se puede corregir ajustando o imputando. MNAR: depende del valor perdido; hace falta un supuesto externo y análisis de sensibilidad.\nMAR/MNAR no se pueden distinguir con los datos observados: se argumenta con conocimiento clínico.\nDibuja el indicador de faltante en el DAG: ¿qué flechas lo causan?\nLos datos faltantes no son solo un problema de tamaño de muestra: pueden sesgar.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>70</span>  <span class='chapter-title'>Mecanismos: MCAR, MAR y MNAR</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.1.html#ejercicio",
+    "href": "capitulos/Capítulo13.1.html#ejercicio",
+    "title": "Mecanismos: MCAR, MAR y MNAR",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nPiensa en tres variables de tu base real y clasifica su probable mecanismo (MCAR, MAR, MNAR) con una frase de justificación.\nDibuja el DAG de faltantes para la hemoglobina glicosilada en pacientes de tu servicio.\nCambia en generar_faltantes() la fuerza del mecanismo MNAR (de 0.9 a 1.5). ¿Cómo cambia el promedio observado de ln(UACR)?",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>70</span>  <span class='chapter-title'>Mecanismos: MCAR, MAR y MNAR</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.2.html",
+    "href": "capitulos/Capítulo13.2.html",
+    "title": "Explorar el patrón de faltantes",
+    "section": "",
+    "text": "Antes de decidir qué hacer: mirar\nUn buen análisis de datos faltantes empieza con tres preguntas descriptivas:\nlibrary(tidyverse)\nlibrary(mice)\nsource(\"R/funciones_epi.R\")\nsource(\"R/tabla1.R\")\n\nckd &lt;- read_csv(\"Bases/ckd_faltantes.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")),\n         trat = factor(isglt2, labels = c(\"Sin iSGLT2\", \"Con iSGLT2\")))",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>71</span>  <span class='chapter-title'>Explorar el patrón de faltantes</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.2.html#antes-de-decidir-qué-hacer-mirar",
+    "href": "capitulos/Capítulo13.2.html#antes-de-decidir-qué-hacer-mirar",
+    "title": "Explorar el patrón de faltantes",
+    "section": "",
+    "text": "¿Cuántos faltan, y en qué variables?\n\n¿Qué patrones hay (¿faltan juntos o por separado)?\n\n¿Quiénes son los que tienen datos incompletos (¿se parecen a los completos?)?",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>71</span>  <span class='chapter-title'>Explorar el patrón de faltantes</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.2.html#cuántos-faltan",
+    "href": "capitulos/Capítulo13.2.html#cuántos-faltan",
+    "title": "Explorar el patrón de faltantes",
+    "section": "1. ¿Cuántos faltan?",
+    "text": "1. ¿Cuántos faltan?\n\nresumen_falta &lt;- ckd |&gt;\n  summarise(across(everything(), \\(x) sum(is.na(x)))) |&gt;\n  pivot_longer(everything(), names_to = \"variable\", values_to = \"faltantes\") |&gt;\n  mutate(porcentaje = round(100 * faltantes / nrow(ckd), 1)) |&gt;\n  filter(faltantes &gt; 0) |&gt; arrange(desc(faltantes))\nresumen_falta\n\n# A tibble: 3 × 3\n  variable faltantes porcentaje\n  &lt;chr&gt;        &lt;int&gt;      &lt;dbl&gt;\n1 uacr          1640       32.8\n2 hba1c          379        7.6\n3 pas            210        4.2\n\n\n\nggplot(resumen_falta, aes(porcentaje, fct_reorder(variable, porcentaje))) +\n  geom_col(fill = \"#0072B2\") +\n  geom_text(aes(label = paste0(porcentaje, \" %\")), hjust = -0.1, size = 3.4) +\n  scale_x_continuous(limits = c(0, 40)) +\n  labs(x = \"% de datos faltantes\", y = NULL, caption = \"Datos simulados.\") +\n  theme_minimal(base_size = 11)\n\n\n\n\n\n\n\nLa UACR falta en el 33 %; la HbA1c, en el 8 %; la PAS, en el 6 %. Las demás variables (incluido el desenlace) están completas.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>71</span>  <span class='chapter-title'>Explorar el patrón de faltantes</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.2.html#patrones-de-faltantes",
+    "href": "capitulos/Capítulo13.2.html#patrones-de-faltantes",
+    "title": "Explorar el patrón de faltantes",
+    "section": "2. Patrones de faltantes",
+    "text": "2. Patrones de faltantes\nmice::md.pattern() cuenta cuántos pacientes tienen cada combinación de variables observadas (1) o faltantes (0):\n\nvars &lt;- c(\"pendiente_tfg\", \"isglt2\", \"edad\", \"tfg_basal\", \"ecv\", \"pas\", \"hba1c\", \"uacr\")\nmd.pattern(ckd[, vars], plot = FALSE)\n\n     pendiente_tfg isglt2 edad tfg_basal ecv pas hba1c uacr     \n2991             1      1    1         1   1   1     1    1    0\n1439             1      1    1         1   1   1     1    0    1\n230              1      1    1         1   1   1     0    1    1\n130              1      1    1         1   1   1     0    0    2\n126              1      1    1         1   1   0     1    1    1\n65               1      1    1         1   1   0     1    0    2\n13               1      1    1         1   1   0     0    1    2\n6                1      1    1         1   1   0     0    0    3\n                 0      0    0         0   0 210   379 1640 2229\n\n\n\n\n2 991 pacientes (60 %) tienen todos los datos.\nEl patrón más frecuente de falta es solo la UACR (1 439); luego solo HbA1c (230), solo PAS (126) y combinaciones.\nLos faltantes de UACR, HbA1c y PAS ocurren casi independientes: no hay un patrón monótono (como el de los abandonos en los ECA).",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>71</span>  <span class='chapter-title'>Explorar el patrón de faltantes</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.2.html#se-parecen-los-que-faltan-a-los-que-no",
+    "href": "capitulos/Capítulo13.2.html#se-parecen-los-que-faltan-a-los-que-no",
+    "title": "Explorar el patrón de faltantes",
+    "section": "3. ¿Se parecen los que faltan a los que no?",
+    "text": "3. ¿Se parecen los que faltan a los que no?\nSe crea un indicador de faltante y se compara a los pacientes con y sin dato en el resto de variables. Si difieren en lo observado, el mecanismo no es MCAR:\n\nckd &lt;- ckd |&gt; mutate(uacr_falta = factor(is.na(uacr), labels = c(\"UACR observada\", \"UACR faltante\")))\n\ntabla1(ckd, vars = c(\"edad\", \"sexo\", \"tfg_basal\", \"hba1c\", \"pas\", \"ecv\", \"isglt2\", \"pendiente_tfg\"),\n       grupo = \"uacr_falta\", binarias = c(\"ecv\", \"isglt2\"), valor_p = FALSE,\n       etiquetas = c(edad = \"Edad, años\", tfg_basal = \"TFGe basal\", pendiente_tfg = \"Pendiente de TFGe\", isglt2 = \"Recibe iSGLT2\")) |&gt;\n  knitr::kable()\n\n\n\n\n\n\n\n\n\n\n\nVariable\nUACR observada\nUACR faltante\nTotal\nFaltantes\nDEM\n\n\n\nn\n3360\n1640\n5000\n\n\n\n\nEdad, años, media (DE)\n61.7 (9.6)\n68.1 (9.5)\n63.8 (10.0)\n0\n0.67\n\n\nsexo, n (%)\n\n\n\n0\n\n\n\n   Mujer\n1523 (45.3%)\n735 (44.8%)\n2258 (45.2%)\n\n-0.01\n\n\n   Hombre\n1837 (54.7%)\n905 (55.2%)\n2742 (54.8%)\n\n0.01\n\n\nTFGe basal, media (DE)\n48.0 (9.1)\n41.7 (8.8)\n46.0 (9.5)\n0\n-0.70\n\n\nhba1c, media (DE)\n7.8 (1.1)\n7.9 (1.2)\n7.8 (1.2)\n379 (7.6%)\n0.14\n\n\npas, media (DE)\n133.8 (14.9)\n137.2 (15.3)\n134.9 (15.1)\n210 (4.2%)\n0.23\n\n\necv, n (%)\n819 (24.4%)\n548 (33.4%)\n1367 (27.3%)\n0\n0.20\n\n\nRecibe iSGLT2, n (%)\n1678 (49.9%)\n672 (41.0%)\n2350 (47.0%)\n0\n-0.18\n\n\nPendiente de TFGe, media (DE)\n-1.6 (1.5)\n-2.6 (1.6)\n-1.9 (1.6)\n0\n-0.69\n\n\n\n\n\nLos pacientes con UACR faltante son mucho mayores (DEM +0.67), tienen peor TFGe (−0.70), una pendiente de TFGe más negativa (−0.69), más ECV (+0.20) y reciben algo menos iSGLT2 (41 % vs. 50 %) que los que tienen UACR: el mecanismo claramente no es MCAR. Sugiere MAR (la falta depende de edad, TFGe, tratamiento y desenlace, todos observados) o MNAR.\nModelar la probabilidad de faltar\nUna regresión logística del indicador de falta permite cuantificar qué variables predicen la falta:\n\nlibrary(broom)\nm_falta &lt;- glm(is.na(uacr) ~ I(edad / 10) + sexo + tfg_basal + hba1c + pas + ecv + isglt2 + pendiente_tfg,\n               data = ckd, family = binomial)\ntidy(m_falta, exponentiate = TRUE, conf.int = TRUE) |&gt;\n  filter(term != \"(Intercept)\") |&gt;\n  select(term, OR = estimate, conf.low, conf.high, p.value) |&gt;\n  mutate(across(where(is.numeric), \\(x) round(x, 3)))\n\n# A tibble: 8 × 5\n  term             OR conf.low conf.high p.value\n  &lt;chr&gt;         &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;   &lt;dbl&gt;\n1 I(edad/10)    1.53     1.41      1.66    0    \n2 sexoHombre    1.05     0.912     1.21    0.5  \n3 tfg_basal     0.941    0.933     0.949   0    \n4 hba1c         1.01     0.952     1.08    0.674\n5 pas           1.00     0.998     1.01    0.198\n6 ecv           1.03     0.881     1.21    0.701\n7 isglt2        1.71     1.45      2.02    0    \n8 pendiente_tfg 0.729    0.686     0.773   0    \n\n\nLa falta de UACR se asocia con mayor edad (OR 1.5 por década), menor TFGe (OR 0.94 por unidad), peor pendiente (OR 0.73 por cada unidad más favorable) y, a igual pendiente y demás covariables, con recibir iSGLT2 (OR 1.7; el efecto crudo es el inverso porque los tratados tienen mejor pendiente). Todas son variables observadas, lo que apoya MAR.\n\n\n\n\n\n\nAdvertencia⚠️ Lo que este modelo no puede decirte\n\n\n\nQue el modelo de falta ajuste bien con variables observadas no descarta MNAR: siempre puede haber dependencia del propio valor de la UACR. El análisis solo muestra qué variables importan para la imputación (hay que incluirlas) y qué mecanismo es plausible, no cuál es cierto.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>71</span>  <span class='chapter-title'>Explorar el patrón de faltantes</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.2.html#visualizar-patrones-con-vim",
+    "href": "capitulos/Capítulo13.2.html#visualizar-patrones-con-vim",
+    "title": "Explorar el patrón de faltantes",
+    "section": "4. Visualizar patrones con VIM\n",
+    "text": "4. Visualizar patrones con VIM\n\nPara muchas variables, VIM::aggr() o naniar (si está disponible) muestran el patrón gráficamente:\n\nlibrary(VIM)\naggr(ckd[, c(\"uacr\", \"hba1c\", \"pas\")], col = c(\"#0072B2\", \"#D55E00\"), numbers = TRUE, sortVars = TRUE,\n     labels = c(\"UACR\", \"HbA1c\", \"PAS\"), cex.axis = 0.8, gap = 3, ylab = c(\"Proporción de faltantes\", \"Patrón\"))\n\n\n\n\n\n\n\n\n Variables sorted by number of missings: \n Variable  Count\n     UACR 0.3280\n    HbA1c 0.0758\n      PAS 0.0420",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>71</span>  <span class='chapter-title'>Explorar el patrón de faltantes</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.2.html#qué-documentar-en-un-artículo",
+    "href": "capitulos/Capítulo13.2.html#qué-documentar-en-un-artículo",
+    "title": "Explorar el patrón de faltantes",
+    "section": "Qué documentar en un artículo",
+    "text": "Qué documentar en un artículo\n\n\n\n\n\n\nTip💡 Lista de verificación (STROBE)\n\n\n\n\nNúmero y porcentaje de datos faltantes por variable (incluyendo el desenlace).\nComparación de pacientes con y sin datos completos.\nRazones para los datos faltantes (si se conocen).\nCómo se trataron (casos completos, imputación) y por qué.\nAnálisis de sensibilidad al supuesto sobre el mecanismo.\n\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nPrimero describe: cuántos faltan por variable, qué patrones hay y quiénes son los incompletos.\nCompara completos vs. incompletos con la Tabla 1 por indicador de falta, y modela la falta con una logística.\nSi la falta se asocia con variables observadas, no es MCAR; probablemente MAR.\nQue el modelo de falta ajuste bien no descarta MNAR.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>71</span>  <span class='chapter-title'>Explorar el patrón de faltantes</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.2.html#ejercicio",
+    "href": "capitulos/Capítulo13.2.html#ejercicio",
+    "title": "Explorar el patrón de faltantes",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nCalcula la proporción de pacientes con al menos un dato faltante y compara su pendiente de TFGe con la de los completos.\nHaz una Tabla 1 por el indicador de falta de HbA1c. ¿Se parece al mecanismo de la UACR?\nAjusta el modelo de falta de la PAS. ¿Qué variable es la que más predice la falta?",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>71</span>  <span class='chapter-title'>Explorar el patrón de faltantes</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.3.html",
+    "href": "capitulos/Capítulo13.3.html",
+    "title": "Análisis de casos completos: cuándo sirve",
+    "section": "",
+    "text": "La opción por defecto (y peligrosa)\nR, Stata y SPSS eliminan por defecto las filas con algún valor faltante en las variables del modelo (listwise deletion): ese es el análisis de casos completos (ACC). Es simple, pero no es neutro:",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>72</span>  <span class='chapter-title'>Análisis de casos completos: cuándo sirve</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.3.html#la-opción-por-defecto-y-peligrosa",
+    "href": "capitulos/Capítulo13.3.html#la-opción-por-defecto-y-peligrosa",
+    "title": "Análisis de casos completos: cuándo sirve",
+    "section": "",
+    "text": "Pierde precisión (menos pacientes).\nCon MAR o MNAR puede sesgar.\nCambia la población analizada (los completos no son una muestra aleatoria).",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>72</span>  <span class='chapter-title'>Análisis de casos completos: cuándo sirve</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.3.html#cuándo-da-resultados-válidos",
+    "href": "capitulos/Capítulo13.3.html#cuándo-da-resultados-válidos",
+    "title": "Análisis de casos completos: cuándo sirve",
+    "section": "¿Cuándo da resultados válidos?",
+    "text": "¿Cuándo da resultados válidos?\n\n\n\n\n\n\nSituación\n¿ACC válido?\n\n\n\nMCAR\n\nSí (sin sesgo; menos precisión)\n\n\nFaltan solo covariables, y la falta depende de covariables (no del desenlace)\n\nSí para los coeficientes de una regresión bien especificada\n\n\nFaltan solo covariables, y la falta depende del desenlace\n\nNo\n\n\nFalta el desenlace y depende de covariables observadas\nSí para la regresión del desenlace sobre esas covariables\n\n\n\nHay interacción (efecto heterogéneo) y se selecciona por el modificador\n\nNo (cambia la población y el efecto promedio)\n\n\nMNAR\nNo\n\n\n\n\nlibrary(tidyverse)\nlibrary(mice)\nlibrary(broom)\nsource(\"R/simular_faltantes.R\")\n\noraculo &lt;- read_csv(\"Bases/ckd_isglt2_oraculo.csv\")\nformula_mod &lt;- pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>72</span>  <span class='chapter-title'>Análisis de casos completos: cuándo sirve</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.3.html#demostración-con-muchas-repeticiones",
+    "href": "capitulos/Capítulo13.3.html#demostración-con-muchas-repeticiones",
+    "title": "Análisis de casos completos: cuándo sirve",
+    "section": "Demostración con muchas repeticiones",
+    "text": "Demostración con muchas repeticiones\nUn solo conjunto de datos puede engañar: el resultado de una muestra varía por azar. Repetimos el proceso 30 veces (nuevo patrón de faltantes cada vez) en cada mecanismo y comparamos el promedio de las estimaciones del efecto del iSGLT2 con el obtenido con datos completos (referencia):\n\nreferencia &lt;- coef(lm(formula_mod, data = mutate(oraculo, luacr = log(uacr))))[\"isglt2\"]\n\nuna_vez &lt;- function(semilla, mecanismo) {\n  d &lt;- generar_faltantes(oraculo, mecanismo, semilla = semilla) |&gt; mutate(luacr = log(uacr), sexo = factor(sexo))\n  cc &lt;- coef(lm(formula_mod, data = d))[\"isglt2\"]\n  d2 &lt;- d |&gt; select(pendiente_tfg, isglt2, edad, sexo, hba1c, pas, tfg_basal, luacr, ecv)\n  imp &lt;- mice(d2, m = 5, method = \"norm\", maxit = 5, printFlag = FALSE, seed = semilla)\n  mi &lt;- summary(pool(with(imp, lm(pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv))))\n  c(casos_completos = unname(cc), imputacion_multiple = mi$estimate[mi$term == \"isglt2\"])\n}\n\nset.seed(1)\nreps &lt;- map_dfr(c(\"MCAR\", \"MAR\", \"MNAR\"), \\(mec) {\n  m &lt;- t(sapply(1:30, \\(s) una_vez(s, mec)))\n  tibble(mecanismo = mec, casos_completos = m[, 1], imputacion_multiple = m[, 2])\n})\n\nreps |&gt; group_by(mecanismo) |&gt;\n  summarise(across(c(casos_completos, imputacion_multiple), list(media = mean, de = sd), .names = \"{.col}_{.fn}\")) |&gt;\n  mutate(referencia = referencia, across(where(is.numeric), \\(x) round(x, 3)))\n\n# A tibble: 3 × 6\n  mecanismo casos_completos_media casos_completos_de imputacion_multiple_media\n  &lt;chr&gt;                     &lt;dbl&gt;              &lt;dbl&gt;                     &lt;dbl&gt;\n1 MAR                        1.28              0.024                      1.33\n2 MCAR                       1.34              0.038                      1.34\n3 MNAR                       1.20              0.028                      1.33\n# ℹ 2 more variables: imputacion_multiple_de &lt;dbl&gt;, referencia &lt;dbl&gt;\n\n\n\nreps |&gt; pivot_longer(-mecanismo, names_to = \"metodo\", values_to = \"efecto\") |&gt;\n  mutate(metodo = recode(metodo, casos_completos = \"Casos completos\", imputacion_multiple = \"Imputación múltiple\")) |&gt;\n  ggplot(aes(mecanismo, efecto, fill = metodo)) +\n  geom_hline(yintercept = referencia, color = \"#D55E00\", linewidth = 1) +\n  geom_boxplot(alpha = 0.7) +\n  scale_fill_manual(values = c(\"Casos completos\" = \"#999999\", \"Imputación múltiple\" = \"#0072B2\"), name = NULL) +\n  labs(x = \"Mecanismo de falta de la UACR\", y = \"Efecto estimado del iSGLT2\",\n       caption = \"Línea naranja: estimación con datos completos. 30 repeticiones por celda. Datos simulados.\") +\n  theme_minimal(base_size = 11) + theme(legend.position = \"bottom\")\n\n\n\n\n\n\n\nLo que enseña:\n\n\nMCAR: ambos métodos centrados en la referencia; los casos completos solo con mayor variabilidad.\n\nMAR (con falta que depende del desenlace): los casos completos se desvían (~1.28 vs. 1.34); la imputación (que usa el desenlace para imputar) corrige.\n\nMNAR (falta depende de la propia UACR): los casos completos se desvían más (~1.20), porque quedan sobrerrepresentados los de UACR baja, donde el beneficio del iSGLT2 es menor: el ACC estima el efecto en otra población (efecto heterogéneo, 8.4).\n\n\n\n\n\n\n\nAdvertencia⚠️ El ACC cambia el estimando cuando el efecto es heterogéneo\n\n\n\nEl iSGLT2 beneficia más a quienes tienen albuminuria alta. Si los datos de albuminuria faltan más en esos pacientes, el ACC sobrerrepresenta a los de albuminuria baja y estima un efecto promedio menor, aunque el modelo “ajuste” por UACR. No es confusión: es selección (Cap. 10).",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>72</span>  <span class='chapter-title'>Análisis de casos completos: cuándo sirve</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.3.html#y-ajustar-solo-por-lo-disponible-la-trampa-del-indicador-de-falta",
+    "href": "capitulos/Capítulo13.3.html#y-ajustar-solo-por-lo-disponible-la-trampa-del-indicador-de-falta",
+    "title": "Análisis de casos completos: cuándo sirve",
+    "section": "¿Y ajustar solo por lo disponible? La trampa del “indicador de falta”",
+    "text": "¿Y ajustar solo por lo disponible? La trampa del “indicador de falta”\nOtra práctica común: reemplazar el valor faltante por un valor fijo (media, 0) y añadir un indicador de falta a la regresión. No se recomienda: produce estimaciones sesgadas incluso con MCAR en la mayoría de los modelos. Tampoco imputar con la media (reduce la variabilidad y atenúa las asociaciones).\n\nd &lt;- generar_faltantes(oraculo, \"MAR\") |&gt; mutate(luacr = log(uacr), sexo = factor(sexo))\nd_ind &lt;- d |&gt; mutate(falta_uacr = as.integer(is.na(luacr)), luacr = ifelse(is.na(luacr), mean(luacr, na.rm = TRUE), luacr))\nd_ind_cc &lt;- d_ind |&gt; filter(!is.na(hba1c), !is.na(pas))     # hba1c y pas siguen incompletos\n\nmedia_imp &lt;- coef(lm(update(formula_mod, . ~ . + falta_uacr), data = d_ind_cc))\nref &lt;- coef(lm(formula_mod, data = mutate(oraculo, luacr = log(uacr), sexo = factor(sexo))))\ntibble(coeficiente = c(\"ln(UACR)\", \"iSGLT2\"),\n       referencia = c(ref[\"luacr\"], ref[\"isglt2\"]),\n       con_media_e_indicador = c(media_imp[\"luacr\"], media_imp[\"isglt2\"])) |&gt;\n  mutate(across(where(is.numeric), \\(x) round(x, 3)))\n\n# A tibble: 2 × 3\n  coeficiente referencia con_media_e_indicador\n  &lt;chr&gt;            &lt;dbl&gt;                 &lt;dbl&gt;\n1 ln(UACR)        -0.225                -0.177\n2 iSGLT2           1.34                  1.29 \n\n\nEl coeficiente de la UACR queda atenuado (≈ −0.18 frente a −0.22) y el del tratamiento se desvía (≈ 1.28 frente a 1.34): la “imputación por la media” diluye la asociación del confusor y no ajusta bien, además de dar una falsa seguridad (los errores estándar ignoran que se inventaron datos).\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nEl ACC (el valor por defecto) es válido con MCAR o cuando la falta depende solo de covariables del modelo; con falta que depende del desenlace o del propio valor, sesga.\nAdemás cambia la población: con efectos heterogéneos, estima el efecto de otra población.\n\nImputar con la media o usar un indicador de falta no son soluciones: distorsionan las asociaciones.\nLa alternativa estándar: imputación múltiple (13.4).",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>72</span>  <span class='chapter-title'>Análisis de casos completos: cuándo sirve</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.3.html#ejercicio",
+    "href": "capitulos/Capítulo13.3.html#ejercicio",
+    "title": "Análisis de casos completos: cuándo sirve",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nRepite la simulación con 500 pacientes en vez de 5 000 (slice_sample): ¿qué método sufre más?\nCalcula cuántos pacientes se pierden por el ACC si solo faltaran HbA1c y PAS. ¿Cuánto cambia el IC del efecto?\nExplica con tus palabras por qué la imputación con la media atenúa la asociación.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>72</span>  <span class='chapter-title'>Análisis de casos completos: cuándo sirve</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.4.html",
+    "href": "capitulos/Capítulo13.4.html",
+    "title": "Imputación múltiple con mice",
+    "section": "",
+    "text": "La idea\nLa imputación múltiple (IM) reemplaza cada dato faltante no por un solo valor, sino por varios valores plausibles (por ejemplo, 20), creando 20 bases completas. Se analiza cada una igual y se combinan los resultados con las reglas de Rubin. La variabilidad entre las bases refleja la incertidumbre por los datos que faltan: un solo valor imputado la ignoraría.\nTres pasos:\nlibrary(tidyverse)\nlibrary(mice)\n\nckd &lt;- read_csv(\"Bases/ckd_faltantes.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")),\n         luacr = log(uacr)) |&gt;                        # imputar ln(UACR): distribución más simétrica\n  select(pendiente_tfg, isglt2, edad, sexo, hba1c, pas, tfg_basal, luacr, ecv)\n\noraculo &lt;- read_csv(\"Bases/ckd_isglt2_oraculo.csv\") |&gt;\n  mutate(luacr = log(uacr), sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")))\nformula_mod &lt;- pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv\nreferencia &lt;- coef(lm(formula_mod, data = oraculo))     # estimaciones con los datos completos (solo posible por la simulación)",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>73</span>  <span class='chapter-title'>Imputación múltiple con `mice`</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.4.html#la-idea",
+    "href": "capitulos/Capítulo13.4.html#la-idea",
+    "title": "Imputación múltiple con mice",
+    "section": "",
+    "text": "Imputar (mice()): crear m bases completas.\n\nAnalizar (with()): ajustar el modelo en cada una.\n\nCombinar (pool()): unir las estimaciones con las reglas de Rubin.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>73</span>  <span class='chapter-title'>Imputación múltiple con `mice`</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.4.html#paso-1-imputar",
+    "href": "capitulos/Capítulo13.4.html#paso-1-imputar",
+    "title": "Imputación múltiple con mice",
+    "section": "Paso 1: imputar",
+    "text": "Paso 1: imputar\nCada variable con faltantes se imputa con un modelo de regresión que usa todas las demás como predictores (ecuaciones encadenadas, FCS). La imputación se repite en ciclos (iteraciones) hasta que se estabiliza.\n\nset.seed(2025)\nimp &lt;- mice(ckd, m = 20, maxit = 10, method = \"pmm\", printFlag = FALSE, seed = 2025)\nimp\n\nClass: mids\nNumber of multiple imputations:  20 \nImputation methods:\npendiente_tfg        isglt2          edad          sexo         hba1c \n           \"\"            \"\"            \"\"            \"\"         \"pmm\" \n          pas     tfg_basal         luacr           ecv \n        \"pmm\"            \"\"         \"pmm\"            \"\" \nPredictorMatrix:\n              pendiente_tfg isglt2 edad sexo hba1c pas tfg_basal luacr ecv\npendiente_tfg             0      1    1    1     1   1         1     1   1\nisglt2                    1      0    1    1     1   1         1     1   1\nedad                      1      1    0    1     1   1         1     1   1\nsexo                      1      1    1    0     1   1         1     1   1\nhba1c                     1      1    1    1     0   1         1     1   1\npas                       1      1    1    1     1   0         1     1   1\n\n\n\n\nm = 20: 20 bases imputadas.\n\nmethod = \"pmm\": predictive mean matching: imputa tomando valores observados de pacientes con predicción parecida. Mantiene la forma de la distribución y evita valores imposibles. Es una buena opción por defecto para variables continuas. (Otros: norm para continuas normales, logreg para binarias, polyreg para categóricas.)\n\nmaxit = 10: iteraciones.\n\nReglas para especificar el modelo de imputación\n\n\n\n\n\n\nImportante🎯 Lo que debe incluir el modelo de imputación\n\n\n\n\n\nTodas las variables del modelo de análisis, incluido el desenlace (aquí, la pendiente de TFGe). Omitir el desenlace atenúa la asociación con el desenlace.\nLas interacciones y no linealidades que luego se usarán en el análisis (o imputar por separado en cada grupo).\n\nVariables auxiliares: predictores de la falta o de la variable imputada, aunque no estén en el modelo de análisis (mejoran la plausibilidad de MAR).\nVariables en la misma escala que se analizará (aquí luacr, no uacr).",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>73</span>  <span class='chapter-title'>Imputación múltiple con `mice`</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.4.html#revisar-la-imputación",
+    "href": "capitulos/Capítulo13.4.html#revisar-la-imputación",
+    "title": "Imputación múltiple con mice",
+    "section": "Revisar la imputación",
+    "text": "Revisar la imputación\nConvergencia\n\nplot(imp, c(\"luacr\", \"hba1c\", \"pas\"))\n\n\n\n\n\n\n\nLas líneas (una por imputación) deben mezclarse sin tendencia: ya es el caso.\nLos valores imputados, ¿son plausibles?\n\ndensityplot(imp, ~ luacr + hba1c + pas, layout = c(3, 1))\n\n\n\n\n\n\n\nLa línea azul (observados) y las rojas (imputados) deben ser parecidas salvo que haya razones para que difieran. Aquí los imputados de luacr tienen un promedio algo menor, porque quienes faltan son mayores y con mejor TFGe, que tienen menos albuminuria: es lo esperado bajo MAR.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>73</span>  <span class='chapter-title'>Imputación múltiple con `mice`</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.4.html#paso-2-y-3-analizar-y-combinar",
+    "href": "capitulos/Capítulo13.4.html#paso-2-y-3-analizar-y-combinar",
+    "title": "Imputación múltiple con mice",
+    "section": "Paso 2 y 3: analizar y combinar",
+    "text": "Paso 2 y 3: analizar y combinar\n\najustes &lt;- with(imp, lm(pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv))\ncombinado &lt;- pool(ajustes)\nresumen_pool &lt;- summary(combinado, conf.int = TRUE)\nresumen_pool |&gt; select(term, estimate, std.error, `2.5 %`, `97.5 %`) |&gt; mutate(across(where(is.numeric), \\(x) round(x, 3)))\n\n         term estimate std.error  2.5 % 97.5 %\n1 (Intercept)    5.347     0.253  4.851  5.843\n2      isglt2    1.317     0.039  1.241  1.392\n3  I(edad/10)   -0.454     0.019 -0.491 -0.417\n4  sexoHombre    0.016     0.034 -0.051  0.084\n5       hba1c   -0.266     0.016 -0.298 -0.234\n6         pas   -0.019     0.001 -0.021 -0.017\n7   tfg_basal    0.016     0.002  0.012  0.019\n8       luacr   -0.186     0.023 -0.232 -0.141\n9         ecv   -0.541     0.039 -0.618 -0.464\n\n\nComparar con casos completos y con los datos completos\n\ncc &lt;- lm(formula_mod, data = ckd)\ntibble(\n  analisis = c(\"Datos completos (referencia)\", \"Casos completos\", \"Imputación múltiple (m = 20)\"),\n  efecto_isglt2 = c(referencia[\"isglt2\"], coef(cc)[\"isglt2\"], resumen_pool$estimate[resumen_pool$term == \"isglt2\"]),\n  coef_luacr = c(referencia[\"luacr\"], coef(cc)[\"luacr\"], resumen_pool$estimate[resumen_pool$term == \"luacr\"]),\n  n_analisis = c(nrow(oraculo), nobs(cc), nrow(ckd))\n) |&gt; mutate(across(c(efecto_isglt2, coef_luacr), \\(x) round(x, 3)))\n\n# A tibble: 3 × 4\n  analisis                     efecto_isglt2 coef_luacr n_analisis\n  &lt;chr&gt;                                &lt;dbl&gt;      &lt;dbl&gt;      &lt;int&gt;\n1 Datos completos (referencia)          1.34     -0.225       5000\n2 Casos completos                       1.25     -0.182       2991\n3 Imputación múltiple (m = 20)          1.32     -0.186       5000\n\n\nLa IM usa a los 5 000 pacientes; el efecto del iSGLT2 (1.32) se aproxima más a la referencia (1.34) que el de casos completos (1.25). Para la UACR, ambos están por debajo de la referencia (−0.18 y −0.19 vs −0.22) pero dentro del intervalo, porque el coeficiente de una variable con 33 % de faltantes lleva mucha incertidumbre, que la IM reconoce con un error estándar mayor.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>73</span>  <span class='chapter-title'>Imputación múltiple con `mice`</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.4.html#las-reglas-de-rubin",
+    "href": "capitulos/Capítulo13.4.html#las-reglas-de-rubin",
+    "title": "Imputación múltiple con mice",
+    "section": "Las reglas de Rubin",
+    "text": "Las reglas de Rubin\nCon m imputaciones, cada una da una estimación \\(\\hat Q_j\\) y una varianza \\(U_j\\). Rubin combina:\n\\[\n\\bar Q = \\frac{1}{m}\\sum_{j=1}^m \\hat Q_j \\qquad\n\\bar U = \\frac{1}{m}\\sum_j U_j \\quad(\\text{dentro}) \\qquad\nB = \\frac{1}{m-1}\\sum_j (\\hat Q_j - \\bar Q)^2 \\quad(\\text{entre}) \\qquad\nT = \\bar U + \\left(1 + \\frac{1}{m}\\right)B\n\\]\nEl error estándar total es \\(\\sqrt{T}\\). La fracción de información perdida (\\(\\lambda\\)) mide cuánta incertidumbre se debe a los faltantes:\n\ncombinado$pooled |&gt; as_tibble() |&gt; select(term, estimate, riv, lambda, fmi) |&gt;\n  mutate(across(where(is.numeric), \\(x) round(x, 3)))\n\n# A tibble: 9 × 5\n  term        estimate   riv lambda   fmi\n  &lt;fct&gt;          &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt;\n1 (Intercept)    5.35  0.047  0.045 0.045\n2 isglt2         1.32  0.07   0.066 0.067\n3 I(edad/10)    -0.454 0.021  0.021 0.021\n4 sexoHombre     0.016 0.013  0.013 0.014\n5 hba1c         -0.266 0.171  0.146 0.148\n6 pas           -0.019 0.076  0.07  0.071\n7 tfg_basal      0.016 0.041  0.039 0.04 \n8 luacr         -0.186 0.77   0.435 0.446\n9 ecv           -0.541 0.023  0.022 0.022\n\n\nfmi (fraction of missing information): para luacr es alta (≈ 0.45), porque un tercio de sus valores se imputó; para isglt2 (sin faltantes) es baja. Con una fmi alta, se necesitan más imputaciones (regla práctica: m ≥ porcentaje de casos incompletos, aquí ≥ 40 %).",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>73</span>  <span class='chapter-title'>Imputación múltiple con `mice`</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.4.html#cuántas-imputaciones",
+    "href": "capitulos/Capítulo13.4.html#cuántas-imputaciones",
+    "title": "Imputación múltiple con mice",
+    "section": "Cuántas imputaciones",
+    "text": "Cuántas imputaciones\n\nHace unos años se usaban 5; hoy se recomiendan 20-100, porque es barato.\n\nRegla práctica: m ≥ al porcentaje de casos incompletos (aquí ~40 → 40).\nMás imputaciones reducen el error de Monte Carlo (resultados distintos con cada semilla).\n\n\nimp40 &lt;- mice(ckd, m = 40, maxit = 10, method = \"pmm\", printFlag = FALSE, seed = 1)",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>73</span>  <span class='chapter-title'>Imputación múltiple con `mice`</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.4.html#detalles-prácticos",
+    "href": "capitulos/Capítulo13.4.html#detalles-prácticos",
+    "title": "Imputación múltiple con mice",
+    "section": "Detalles prácticos",
+    "text": "Detalles prácticos\n\n\n\n\n\n\nTip💡 Tips para mice\n\n\n\n\n\nFija la semilla (seed) para reproducir.\n\nmethod por variable: meth &lt;- make.method(ckd); cambia el que quieras (meth[\"luacr\"] &lt;- \"norm\").\n\npredictorMatrix: qué variables predicen a cuál. quickpred(ckd, mincor = 0.1) la acorta si hay muchas.\n\nVariables derivadas (índice, TFGe calculada): impútalas pasivamente (~ I(...)) o imputa los componentes y recalcula; imputar una variable y su derivada por separado rompe la coherencia.\n\nCategóricas: asegúrate de que sean factor (para que use logreg o polyreg).\n\ncomplete(imp, 1) devuelve la base completada de la imputación 1; complete(imp, \"long\"), todas apiladas.\n\nNunca analices una sola base imputada y reportes sus errores estándar como si fueran de datos observados.\n\n\n\n\n\n\n\n\n\nAdvertencia⚠️ Cosas que la IM no hace\n\n\n\n\n\nNo crea información: si faltan muchísimos datos o no hay predictores, la imputación solo expresa incertidumbre.\n\nNo corrige MNAR (13.6).\nUn modelo de imputación más simple que el de análisis (sin el desenlace, sin la interacción) sesga hacia el nulo: debe ser al menos tan rico (compatibilidad).\n\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\n\nImputación múltiple: imputar m veces → analizar cada base → combinar con las reglas de Rubin (mice, with, pool).\nEl modelo de imputación debe incluir el desenlace, las variables del análisis (en su escala) e interacciones si las hay; añade auxiliares.\n\nPMM es una buena opción por defecto; verifica convergencia y la plausibilidad de lo imputado.\nUsa 20-100 imputaciones (≥ % de casos incompletos).\n\nRubin suma la varianza dentro y entre imputaciones; fmi dice cuánta información se perdió.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>73</span>  <span class='chapter-title'>Imputación múltiple con `mice`</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.4.html#ejercicio",
+    "href": "capitulos/Capítulo13.4.html#ejercicio",
+    "title": "Imputación múltiple con mice",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nImputa con method = \"norm\" en lugar de pmm y compara el coeficiente de isglt2 y de luacr.\n\nQuita el desenlace del modelo de imputación (predictorMatrix[\"luacr\", \"pendiente_tfg\"] &lt;- 0). ¿Cómo cambia el coeficiente de luacr?\nAumenta a m = 50. ¿Cuánto cambia el error estándar del efecto de isglt2?",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>73</span>  <span class='chapter-title'>Imputación múltiple con `mice`</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.5.html",
+    "href": "capitulos/Capítulo13.5.html",
+    "title": "Imputación en análisis causal y de supervivencia",
+    "section": "",
+    "text": "Tres reglas que cambian cuando el análisis es causal o de supervivencia\nLa imputación múltiple vista en 13.4 sirve para regresiones. En estudios causales y de supervivencia hay que cuidar tres cosas:\nlibrary(tidyverse)\nlibrary(mice)\nlibrary(survival)\nlibrary(sandwich)\n\nckd &lt;- read_csv(\"Bases/ckd_faltantes.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")), luacr = log(uacr))\noraculo &lt;- read_csv(\"Bases/ckd_isglt2_oraculo.csv\") |&gt;\n  mutate(luacr = log(uacr), sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")))",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>74</span>  <span class='chapter-title'>Imputación en análisis causal y de supervivencia</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.5.html#tres-reglas-que-cambian-cuando-el-análisis-es-causal-o-de-supervivencia",
+    "href": "capitulos/Capítulo13.5.html#tres-reglas-que-cambian-cuando-el-análisis-es-causal-o-de-supervivencia",
+    "title": "Imputación en análisis causal y de supervivencia",
+    "section": "",
+    "text": "Situación\nQué hay que hacer\n\n\n\nSupervivencia\nIncluir en el modelo de imputación el indicador de evento y el riesgo acumulado de Nelson-Aalen, no solo el tiempo\n\n\n\nEfecto causal (IPW, emparejamiento, AIPW)\nImputar antes y repetir todo el análisis causal en cada base imputada; combinar con Rubin\n\n\nInteracciones, no linealidades\nEl modelo de imputación debe contenerlas (o imputar por estratos)",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>74</span>  <span class='chapter-title'>Imputación en análisis causal y de supervivencia</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.5.html#supervivencia-imputar-con-el-evento-y-el-riesgo-acumulado",
+    "href": "capitulos/Capítulo13.5.html#supervivencia-imputar-con-el-evento-y-el-riesgo-acumulado",
+    "title": "Imputación en análisis causal y de supervivencia",
+    "section": "1. Supervivencia: imputar con el evento y el riesgo acumulado",
+    "text": "1. Supervivencia: imputar con el evento y el riesgo acumulado\nSi en la regresión de Cox faltan covariables (aquí, la UACR), el modelo de imputación debe contener el desenlace. En supervivencia, el desenlace tiene dos partes (tiempo y evento) y la forma correcta es incluir:\n\nel indicador de evento y\nel riesgo acumulado de Nelson-Aalen \\(H(t)\\) en el momento observado de cada paciente (aproxima la información conjunta del tiempo y el evento).\n\n(White y Royston, 2009). No basta con incluir solo el tiempo (la relación es no lineal) ni solo el evento.\n\nckd$H &lt;- nelsonaalen(ckd, tiempo_meses, evento)       # riesgo acumulado de Nelson-Aalen\n\nd &lt;- ckd |&gt; select(pendiente_tfg, evento, tiempo_meses, H, isglt2, edad, sexo, hba1c, pas, tfg_basal, luacr, ecv)\npm &lt;- make.predictorMatrix(d)\npm[, \"tiempo_meses\"] &lt;- 0                  # usar H y evento, no el tiempo bruto\n\nimp &lt;- mice(d, m = 20, maxit = 10, method = \"pmm\", predictorMatrix = pm, printFlag = FALSE, seed = 1)\n\ncox_mi &lt;- summary(pool(with(imp, coxph(Surv(tiempo_meses, evento) ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv))))\ncox_ref &lt;- coxph(Surv(tiempo_meses, evento) ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv, data = oraculo)\ncox_cc  &lt;- coxph(Surv(tiempo_meses, evento) ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv, data = d)\n\ntibble(analisis = c(\"Datos completos (referencia)\", \"Casos completos\", \"Imputación con evento y H(t)\"),\n       HR_isglt2 = c(exp(coef(cox_ref)[\"isglt2\"]), exp(coef(cox_cc)[\"isglt2\"]), exp(cox_mi$estimate[cox_mi$term == \"isglt2\"]))) |&gt;\n  mutate(HR_isglt2 = round(HR_isglt2, 3))\n\n# A tibble: 3 × 2\n  analisis                     HR_isglt2\n  &lt;chr&gt;                            &lt;dbl&gt;\n1 Datos completos (referencia)     0.55 \n2 Casos completos                  0.623\n3 Imputación con evento y H(t)     0.555\n\n\nEl HR con casos completos (0.62) está sesgado hacia el nulo respecto de la referencia (0.55); la IM con el evento y H(t) la recupera (0.555).\nQué pasa si se omite la información de supervivencia\n\nd_s &lt;- d |&gt; select(-evento, -H, -tiempo_meses)         # imputar SIN información de supervivencia\nimp_s &lt;- mice(d_s, m = 20, maxit = 10, method = \"pmm\", printFlag = FALSE, seed = 1)\n\nfits &lt;- lapply(1:20, \\(i) {\n  di &lt;- complete(imp_s, i); di$tiempo_meses &lt;- d$tiempo_meses; di$evento &lt;- d$evento\n  coxph(Surv(tiempo_meses, evento) ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv, data = di)\n})\nexp(summary(pool(as.mira(fits)))$estimate[1]) |&gt; round(3)\n\n[1] 0.586\n\n\nSin el desenlace en la imputación, el HR queda en 0.59: parte de la asociación se pierde (el imputador no sabía quién tuvo el evento).",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>74</span>  <span class='chapter-title'>Imputación en análisis causal y de supervivencia</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.5.html#efecto-causal-con-ipw-analizar-cada-base-imputada",
+    "href": "capitulos/Capítulo13.5.html#efecto-causal-con-ipw-analizar-cada-base-imputada",
+    "title": "Imputación en análisis causal y de supervivencia",
+    "section": "2. Efecto causal con IPW: analizar cada base imputada",
+    "text": "2. Efecto causal con IPW: analizar cada base imputada\nCon IPW (o emparejamiento, AIPW), se debe: (1) imputar m veces; (2) en cada base, estimar el PS, los pesos y el efecto; (3) combinar con Rubin. (Se llama within approach; es el más recomendado.)\n\nestimar_ipw &lt;- function(dd) {\n  ps &lt;- fitted(glm(isglt2 ~ I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv, data = dd, family = binomial))\n  w &lt;- ifelse(dd$isglt2 == 1, 1 / ps, 1 / (1 - ps))\n  f &lt;- lm(pendiente_tfg ~ isglt2, data = dd, weights = w)\n  c(estimado = unname(coef(f)[\"isglt2\"]), varianza = vcovHC(f, \"HC1\")[\"isglt2\", \"isglt2\"])\n}\n\nres_imp &lt;- t(sapply(1:20, \\(i) estimar_ipw(complete(imp, i))))\nrubin &lt;- pool.scalar(res_imp[, 1], res_imp[, 2], n = nrow(d))\n\ntibble(analisis = c(\"Datos completos (referencia)\", \"Casos completos\", \"IM + IPW (Rubin)\"),\n       ATE = c(estimar_ipw(oraculo)[1], estimar_ipw(na.omit(d))[1], rubin$qbar),\n       EE = c(sqrt(estimar_ipw(oraculo)[2]), sqrt(estimar_ipw(na.omit(d))[2]), sqrt(rubin$t))) |&gt;\n  mutate(across(where(is.numeric), \\(x) round(x, 3)))\n\n# A tibble: 3 × 3\n  analisis                       ATE    EE\n  &lt;chr&gt;                        &lt;dbl&gt; &lt;dbl&gt;\n1 Datos completos (referencia)  1.34 0.048\n2 Casos completos               1.28 0.06 \n3 IM + IPW (Rubin)              1.35 0.048\n\n\nLa IM + IPW (1.35) coincide con la referencia (1.34); el análisis de casos completos (1.28) queda sesgado.\n\n\n\n\n\n\nAdvertencia⚠️ Errores frecuentes al combinar imputación y análisis causal\n\n\n\n\n\nPromediar los pesos o las bases antes de analizar: debe hacerse el análisis por separado en cada base y luego combinar las estimaciones (no los datos).\n\nImputar solo en el brazo con faltantes: imputa con todos los pacientes (tratamiento como predictor).\n\nExcluir el tratamiento del modelo de imputación: sesga hacia el nulo.\n\nImputar el desenlace si el análisis causal lo tiene incompleto: ver abajo.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>74</span>  <span class='chapter-title'>Imputación en análisis causal y de supervivencia</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.5.html#cuando-falta-el-desenlace",
+    "href": "capitulos/Capítulo13.5.html#cuando-falta-el-desenlace",
+    "title": "Imputación en análisis causal y de supervivencia",
+    "section": "3. Cuando falta el desenlace",
+    "text": "3. Cuando falta el desenlace\nSi falta el desenlace (pérdidas de seguimiento), hay dos opciones:\n\n\nIPCW: ponderar a quienes tienen desenlace por la inversa de la probabilidad de ser observados (Cap. 19).\n\nImputar el desenlace con un modelo que incluya tratamiento, covariables y variables auxiliares (medidas intermedias).\n\nSi el abandono depende del desenlace no observado (MNAR), ninguna es suficiente: análisis de sensibilidad (13.6).",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>74</span>  <span class='chapter-title'>Imputación en análisis causal y de supervivencia</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.5.html#otras-decisiones-prácticas",
+    "href": "capitulos/Capítulo13.5.html#otras-decisiones-prácticas",
+    "title": "Imputación en análisis causal y de supervivencia",
+    "section": "4. Otras decisiones prácticas",
+    "text": "4. Otras decisiones prácticas\n\n\n\n\n\n\nSituación\nRecomendación\n\n\n\n\nInteracción tratamiento × covariable\nImputar por separado en cada brazo, o incluir los productos\n\n\nCovariables no lineales\nImputar la variable ya transformada (luacr); ojo con splines\n\n\n\n\nExposición con faltantes\nImputarla (es una covariable más), con el desenlace dentro del modelo\n\n\n\nDatos agrupados (centros)\nIncluir el centro (efecto fijo) o usar mice con modelo multinivel (miceadds)\n\n\nMuchas variables\n\nquickpred() y variables auxiliares seleccionadas\n\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nEn supervivencia, imputa con el indicador de evento y el riesgo acumulado de Nelson-Aalen.\nEn análisis causales (IPW, emparejamiento, AIPW): imputa → repite todo el análisis en cada base → combina con Rubin.\nEl modelo de imputación debe incluir tratamiento, desenlace e interacciones del análisis.\n\nOmitir el desenlace del modelo de imputación sesga las asociaciones hacia el nulo.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>74</span>  <span class='chapter-title'>Imputación en análisis causal y de supervivencia</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.5.html#ejercicio",
+    "href": "capitulos/Capítulo13.5.html#ejercicio",
+    "title": "Imputación en análisis causal y de supervivencia",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nCalcula el HR con imputación pero sin H (solo evento). ¿Cuánto se acerca a 0.55?\nAplica emparejamiento (MatchIt) dentro de cada base imputada y combina los ATT con Rubin.\nAjusta una IM + fórmula g (12.6) para el ATE, y compara con el IPW.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>74</span>  <span class='chapter-title'>Imputación en análisis causal y de supervivencia</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.6.html",
+    "href": "capitulos/Capítulo13.6.html",
+    "title": "Análisis de sensibilidad: datos faltantes MNAR",
+    "section": "",
+    "text": "Lo que ningún método resuelve\nLa imputación múltiple supone MAR: que, dado lo que observamos, los datos que faltan no difieren sistemáticamente de los que tenemos. Pero si faltan más en los pacientes con UACR alta (MNAR), los valores imputados serán demasiado bajos. Nadie puede comprobar ese supuesto con los datos observados, así que se hace un análisis de sensibilidad: ¿qué tanto cambiaría la conclusión si los faltantes fueran distintos de lo que supone MAR?\nLa técnica más utilizada es el ajuste delta (δ-adjustment, patrón de mezcla): después de imputar bajo MAR, se suma un valor δ a los datos imputados (p. ej., “los pacientes que no tienen UACR tienen, en promedio, un ln(UACR) δ unidades mayor que el que supone MAR”), y se repite el análisis con varios δ.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>75</span>  <span class='chapter-title'>Análisis de sensibilidad: datos faltantes MNAR</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.6.html#un-escenario-mnar",
+    "href": "capitulos/Capítulo13.6.html#un-escenario-mnar",
+    "title": "Análisis de sensibilidad: datos faltantes MNAR",
+    "section": "Un escenario MNAR",
+    "text": "Un escenario MNAR\nGeneramos una base en la que la falta de UACR depende de su propio valor (los de UACR alta faltan más):\n\nlibrary(tidyverse)\nlibrary(mice)\nlibrary(marginaleffects)\nsource(\"R/simular_faltantes.R\")\n\noraculo &lt;- read_csv(\"Bases/ckd_isglt2_oraculo.csv\") |&gt;\n  mutate(luacr = log(uacr), sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")))\n\ndatos &lt;- generar_faltantes(oraculo, \"MNAR\") |&gt;\n  mutate(luacr = log(uacr), sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\"))) |&gt;\n  select(pendiente_tfg, isglt2, edad, sexo, hba1c, pas, tfg_basal, luacr, ecv)\nfalta &lt;- is.na(datos$luacr)\n\nc(porcentaje_falta = mean(falta) * 100,\n  ln_uacr_medio_observados = mean(datos$luacr, na.rm = TRUE),\n  ln_uacr_medio_verdadero = mean(oraculo$luacr)) |&gt; round(2)\n\n        porcentaje_falta ln_uacr_medio_observados  ln_uacr_medio_verdadero \n                   32.66                     4.49                     4.79 \n\n\nEntre los pacientes que sí tienen UACR, el ln(UACR) medio es 4.49; en la población real es 4.79: los que faltan tienen UACR más alta.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>75</span>  <span class='chapter-title'>Análisis de sensibilidad: datos faltantes MNAR</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.6.html#imputar-bajo-mar-y-ver-lo-que-pasa",
+    "href": "capitulos/Capítulo13.6.html#imputar-bajo-mar-y-ver-lo-que-pasa",
+    "title": "Análisis de sensibilidad: datos faltantes MNAR",
+    "section": "Imputar bajo MAR y ver lo que pasa",
+    "text": "Imputar bajo MAR y ver lo que pasa\n\nimp &lt;- mice(datos, m = 20, maxit = 10, method = \"pmm\", printFlag = FALSE, seed = 1)\n\nimputados_mar &lt;- mean(sapply(1:20, \\(i) mean(complete(imp, i)$luacr[falta])))\nc(`ln(UACR) imputado (MAR)` = imputados_mar, `ln(UACR) verdadero en los faltantes` = mean(oraculo$luacr[falta])) |&gt; round(2)\n\n            ln(UACR) imputado (MAR) ln(UACR) verdadero en los faltantes \n                               4.64                                5.41 \n\n\nBajo MAR, el imputador asigna a los faltantes un ln(UACR) medio de 4.64, mientras que su valor real es 5.41. Está subestimando a los pacientes con albuminuria alta.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>75</span>  <span class='chapter-title'>Análisis de sensibilidad: datos faltantes MNAR</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.6.html#ajuste-delta",
+    "href": "capitulos/Capítulo13.6.html#ajuste-delta",
+    "title": "Análisis de sensibilidad: datos faltantes MNAR",
+    "section": "Ajuste delta",
+    "text": "Ajuste delta\nPara cada δ, sumamos δ a los valores imputados y calculamos dos cosas:\n\n\nPrevalencia de albuminuria severa (UACR ≥ 300): cantidad muy sensible a MNAR.\n\nEfecto promedio del iSGLT2 (con fórmula g y el modelo con interacciones): cantidad que depende de cómo se distribuye la albuminuria.\n\n\nf_out &lt;- pendiente_tfg ~ isglt2 * (I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv)\nate &lt;- function(dd) {\n  m &lt;- lm(f_out, data = dd)\n  mean(predict(m, mutate(dd, isglt2 = 1)) - predict(m, mutate(dd, isglt2 = 0)))\n}\n\ndeltas &lt;- c(0, 0.25, 0.5, 0.75, 1, 1.5)\nsens &lt;- map_dfr(deltas, \\(delta) {\n  res &lt;- map_dfr(1:20, \\(i) {\n    di &lt;- complete(imp, i); di$luacr[falta] &lt;- di$luacr[falta] + delta\n    tibble(prev_A3 = mean(exp(di$luacr) &gt;= 300) * 100, ate = ate(di))\n  })\n  tibble(delta = delta, prevalencia_A3 = mean(res$prev_A3), ATE = mean(res$ate))\n})\n\nreferencia &lt;- tibble(prevalencia_A3 = mean(oraculo$uacr &gt;= 300) * 100, ATE = ate(oraculo))\nsens |&gt; mutate(across(where(is.numeric), \\(x) round(x, 2)))\n\n# A tibble: 6 × 3\n  delta prevalencia_A3   ATE\n  &lt;dbl&gt;          &lt;dbl&gt; &lt;dbl&gt;\n1  0              11.9  1.32\n2  0.25           14.1  1.33\n3  0.5            16.6  1.33\n4  0.75           19.5  1.33\n5  1              22.5  1.33\n6  1.5            29.7  1.32\n\nreferencia |&gt; mutate(across(everything(), \\(x) round(x, 2)))\n\n# A tibble: 1 × 2\n  prevalencia_A3   ATE\n           &lt;dbl&gt; &lt;dbl&gt;\n1           20.0  1.32\n\n\n\nsens |&gt;\n  pivot_longer(-delta, names_to = \"cantidad\", values_to = \"valor\") |&gt;\n  mutate(cantidad = recode(cantidad, prevalencia_A3 = \"Prevalencia de UACR ≥ 300 (%)\", ATE = \"Efecto promedio del iSGLT2\")) |&gt;\n  ggplot(aes(delta, valor)) +\n  geom_hline(data = tibble(cantidad = c(\"Prevalencia de UACR ≥ 300 (%)\", \"Efecto promedio del iSGLT2\"),\n                           valor = c(referencia$prevalencia_A3, referencia$ATE)),\n             aes(yintercept = valor), color = \"#D55E00\", linewidth = 1) +\n  geom_line(color = \"#0072B2\") + geom_point(color = \"#0072B2\", size = 2) +\n  facet_wrap(~ cantidad, scales = \"free_y\") +\n  labs(x = \"δ (aumento del ln(UACR) en los valores imputados)\", y = NULL,\n       caption = \"Naranja: valor con datos completos. Azul: estimado tras el ajuste delta. Datos simulados.\") +\n  theme_minimal(base_size = 11)\n\n\n\n\n\n\n\nDos cantidades, dos conclusiones muy distintas:\n\n\nPrevalencia de UACR ≥ 300: depende mucho de δ. Bajo MAR (δ = 0) la subestimamos (≈ 12 % vs. 20 % verdadero); con δ ≈ 0.75 coincide con la verdad. Hay que recoger la UACR en esos pacientes o aceptar una incertidumbre grande.\n\nEfecto promedio del iSGLT2: casi no cambia con δ (1.32-1.33 para todos): la conclusión es robusta al supuesto sobre los datos faltantes. El ajuste por UACR en el modelo depende poco de los valores exactos de los pacientes sin dato.\n\n\n\n\n\n\n\nImportante🎯 La sensibilidad depende del estimando\n\n\n\nUn mismo supuesto de MNAR puede ser crítico para un resultado (prevalencia) y casi irrelevante para otro (efecto del tratamiento). Por eso se analiza cada resultado principal, no la base en general.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>75</span>  <span class='chapter-title'>Análisis de sensibilidad: datos faltantes MNAR</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.6.html#punto-de-inflexión-tipping-point",
+    "href": "capitulos/Capítulo13.6.html#punto-de-inflexión-tipping-point",
+    "title": "Análisis de sensibilidad: datos faltantes MNAR",
+    "section": "Punto de inflexión (tipping point)",
+    "text": "Punto de inflexión (tipping point)\nEl punto de inflexión es el valor de δ a partir del cual la conclusión cambia (por ejemplo, el IC deja de excluir el 0, o el efecto cae por debajo de un umbral clínico):\n\n## ¿Para qué δ el efecto promedio caería por debajo de 1.0 (umbral clínico)?\n## Aquí el efecto no cae por debajo de ~1.3 en ningún δ plausible: no hay punto de inflexión.\nsens |&gt; filter(ATE &lt; 1.0)\n\n# A tibble: 0 × 3\n# ℹ 3 variables: delta &lt;dbl&gt;, prevalencia_A3 &lt;dbl&gt;, ATE &lt;dbl&gt;\n\n\nNo hay δ para el que el efecto baje de 1.0: la conclusión no depende del mecanismo. Si el efecto sí dependiera, se reporta “la conclusión se invierte si los pacientes sin dato tuvieran un ln(UACR) δ = … mayor que el supuesto”, y se discute si ese δ es clínicamente plausible.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>75</span>  <span class='chapter-title'>Análisis de sensibilidad: datos faltantes MNAR</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.6.html#otras-estrategias-para-mnar",
+    "href": "capitulos/Capítulo13.6.html#otras-estrategias-para-mnar",
+    "title": "Análisis de sensibilidad: datos faltantes MNAR",
+    "section": "Otras estrategias para MNAR",
+    "text": "Otras estrategias para MNAR\n\n\n\n\n\n\n\nEstrategia\nIdea\nCuándo\n\n\n\nModelos de selección / de mezcla de patrones\nModelar explícitamente cómo la falta depende del valor\nCon supuestos externos justificables\n\n\nImputación con δ por brazo\nUn δ distinto para tratados y controles\nSi el mecanismo difiere entre grupos\n\n\n\nCotas de peor caso (bounds)\nImputar los faltantes con los valores extremos\nCuando se quiere una garantía conservadora (suele dar intervalos muy amplios)\n\n\nSeguimiento de una submuestra\nMedir a una muestra de los faltantes para estimar la diferencia\nMejor solución; costosa\n\n\nVariables auxiliares\nUn proxy del valor que falta (otra medición del paciente)\nConvierte parte de MNAR en MAR",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>75</span>  <span class='chapter-title'>Análisis de sensibilidad: datos faltantes MNAR</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.6.html#qué-reportar",
+    "href": "capitulos/Capítulo13.6.html#qué-reportar",
+    "title": "Análisis de sensibilidad: datos faltantes MNAR",
+    "section": "Qué reportar",
+    "text": "Qué reportar\n\n\n\n\n\n\nTip💡 Checklist de datos faltantes en el artículo\n\n\n\n\nPorcentaje de faltantes por variable y descripción de quiénes son.\nSupuesto de mecanismo (MAR) y su justificación clínica.\nMétodo de imputación (software, m, variables en el modelo, desenlace incluido).\nResultados del análisis principal (IM) y de casos completos (como análisis de sensibilidad).\nAnálisis de sensibilidad MNAR (delta) y el punto de inflexión, si lo hay.\nLimitaciones: MNAR no se puede descartar.\n\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nLa imputación múltiple supone MAR; MNAR no se verifica con los datos observados.\nEl ajuste delta suma δ a los valores imputados y repite el análisis: muestra cuánto cambia el resultado; el punto de inflexión es el δ donde la conclusión cambia.\nLa sensibilidad depende del estimando: la prevalencia de albuminuria severa cambia mucho; el efecto del iSGLT2, poco.\nReporta casos completos, IM y sensibilidad juntos.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>75</span>  <span class='chapter-title'>Análisis de sensibilidad: datos faltantes MNAR</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.6.html#ejercicio",
+    "href": "capitulos/Capítulo13.6.html#ejercicio",
+    "title": "Análisis de sensibilidad: datos faltantes MNAR",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nCalcula el δ con el que el ln(UACR) imputado coincide con el real (≈ 0.77) y verifica que la prevalencia de UACR ≥ 300 se acerca al 20 %.\nRepite el ajuste delta solo en el brazo tratado (δ distinto por brazo). ¿Cambia el efecto promedio?\nPiensa en una variable de tu práctica cuya falta pueda ser MNAR y propón un rango razonable de δ.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>75</span>  <span class='chapter-title'>Análisis de sensibilidad: datos faltantes MNAR</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo13.6.html#nota-editorial",
+    "href": "capitulos/Capítulo13.6.html#nota-editorial",
+    "title": "Análisis de sensibilidad: datos faltantes MNAR",
+    "section": "Nota editorial",
+    "text": "Nota editorial\n\nCapítulo redactado con asistencia de IA y revisado por el autor. Los datos son simulados; los mecanismos de falta fueron impuestos para ilustrar.",
+    "crumbs": [
+      "Capítulo 13: Datos faltantes",
+      "<span class='chapter-number'>75</span>  <span class='chapter-title'>Análisis de sensibilidad: datos faltantes MNAR</span>"
+    ]
+  },
+  {
     "objectID": "capitulos/Apéndice-resumen.html",
     "href": "capitulos/Apéndice-resumen.html",
     "title": "Apéndice: cuadros de resumen y plantillas",

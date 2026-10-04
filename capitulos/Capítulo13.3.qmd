@@ -1,0 +1,121 @@
+# Análisis de casos completos: cuándo sirve
+
+## La opción por defecto (y peligrosa)
+
+R, Stata y SPSS **eliminan** por defecto las filas con algún valor faltante en las variables del modelo (*listwise deletion*): ese es el **análisis de casos completos** (ACC). Es simple, pero **no es neutro**:
+
+-   Pierde **precisión** (menos pacientes).
+-   Con MAR o MNAR puede **sesgar**.
+-   Cambia la **población** analizada (los completos no son una muestra aleatoria).
+
+## ¿Cuándo da resultados válidos?
+
+| Situación | ¿ACC válido? |
+|---|---|
+| **MCAR** | **Sí** (sin sesgo; menos precisión) |
+| Faltan **solo covariables**, y la falta depende de **covariables** (no del desenlace) | **Sí** para los coeficientes de una regresión bien especificada |
+| Faltan **solo covariables**, y la falta depende del **desenlace** | **No** |
+| Falta el **desenlace** y depende de covariables observadas | Sí para la regresión del desenlace sobre esas covariables |
+| **Hay interacción** (efecto heterogéneo) y se selecciona por el modificador | **No** (cambia la población y el efecto promedio) |
+| MNAR | **No** |
+
+```{r}
+#| label: setup-133
+library(tidyverse)
+library(mice)
+library(broom)
+source("R/simular_faltantes.R")
+
+oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv")
+formula_mod <- pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv
+```
+
+## Demostración con muchas repeticiones
+
+Un solo conjunto de datos puede engañar: el resultado de una muestra varía por azar. Repetimos el proceso **30 veces** (nuevo patrón de faltantes cada vez) en cada mecanismo y comparamos el **promedio** de las estimaciones del efecto del iSGLT2 con el obtenido con **datos completos** (referencia):
+
+```{r}
+#| label: repeticiones
+referencia <- coef(lm(formula_mod, data = mutate(oraculo, luacr = log(uacr))))["isglt2"]
+
+una_vez <- function(semilla, mecanismo) {
+  d <- generar_faltantes(oraculo, mecanismo, semilla = semilla) |> mutate(luacr = log(uacr), sexo = factor(sexo))
+  cc <- coef(lm(formula_mod, data = d))["isglt2"]
+  d2 <- d |> select(pendiente_tfg, isglt2, edad, sexo, hba1c, pas, tfg_basal, luacr, ecv)
+  imp <- mice(d2, m = 5, method = "norm", maxit = 5, printFlag = FALSE, seed = semilla)
+  mi <- summary(pool(with(imp, lm(pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv))))
+  c(casos_completos = unname(cc), imputacion_multiple = mi$estimate[mi$term == "isglt2"])
+}
+
+set.seed(1)
+reps <- map_dfr(c("MCAR", "MAR", "MNAR"), \(mec) {
+  m <- t(sapply(1:30, \(s) una_vez(s, mec)))
+  tibble(mecanismo = mec, casos_completos = m[, 1], imputacion_multiple = m[, 2])
+})
+
+reps |> group_by(mecanismo) |>
+  summarise(across(c(casos_completos, imputacion_multiple), list(media = mean, de = sd), .names = "{.col}_{.fn}")) |>
+  mutate(referencia = referencia, across(where(is.numeric), \(x) round(x, 3)))
+```
+
+```{r}
+#| label: graf-reps
+#| fig-width: 8
+#| fig-height: 3.8
+reps |> pivot_longer(-mecanismo, names_to = "metodo", values_to = "efecto") |>
+  mutate(metodo = recode(metodo, casos_completos = "Casos completos", imputacion_multiple = "Imputación múltiple")) |>
+  ggplot(aes(mecanismo, efecto, fill = metodo)) +
+  geom_hline(yintercept = referencia, color = "#D55E00", linewidth = 1) +
+  geom_boxplot(alpha = 0.7) +
+  scale_fill_manual(values = c("Casos completos" = "#999999", "Imputación múltiple" = "#0072B2"), name = NULL) +
+  labs(x = "Mecanismo de falta de la UACR", y = "Efecto estimado del iSGLT2",
+       caption = "Línea naranja: estimación con datos completos. 30 repeticiones por celda. Datos simulados.") +
+  theme_minimal(base_size = 11) + theme(legend.position = "bottom")
+```
+
+Lo que enseña:
+
+-   **MCAR**: ambos métodos centrados en la referencia; los casos completos solo con **mayor variabilidad**.
+-   **MAR** (con falta que depende del **desenlace**): los casos completos **se desvían** (~1.28 vs. 1.34); la **imputación** (que usa el desenlace para imputar) **corrige**.
+-   **MNAR** (falta depende de la propia UACR): los casos completos se desvían **más** (~1.20), porque quedan **sobrerrepresentados los de UACR baja**, donde el beneficio del iSGLT2 es menor: el ACC estima el **efecto en otra población** (efecto heterogéneo, 8.4).
+
+::: {.callout-warning}
+## ⚠️ El ACC cambia el estimando cuando el efecto es heterogéneo
+
+El iSGLT2 beneficia **más** a quienes tienen albuminuria **alta**. Si los datos de albuminuria **faltan más** en esos pacientes, el ACC **sobrerrepresenta** a los de albuminuria baja y estima un **efecto promedio menor**, aunque el modelo "ajuste" por UACR. No es confusión: es **selección** (Cap. 10).
+:::
+
+## ¿Y ajustar solo por lo disponible? La trampa del "indicador de falta"
+
+Otra práctica común: **reemplazar** el valor faltante por un valor fijo (media, 0) y añadir un **indicador de falta** a la regresión. **No se recomienda**: produce estimaciones **sesgadas** incluso con MCAR en la mayoría de los modelos. Tampoco **imputar con la media** (reduce la variabilidad y atenúa las asociaciones).
+
+```{r}
+#| label: indicador
+d <- generar_faltantes(oraculo, "MAR") |> mutate(luacr = log(uacr), sexo = factor(sexo))
+d_ind <- d |> mutate(falta_uacr = as.integer(is.na(luacr)), luacr = ifelse(is.na(luacr), mean(luacr, na.rm = TRUE), luacr))
+d_ind_cc <- d_ind |> filter(!is.na(hba1c), !is.na(pas))     # hba1c y pas siguen incompletos
+
+media_imp <- coef(lm(update(formula_mod, . ~ . + falta_uacr), data = d_ind_cc))
+ref <- coef(lm(formula_mod, data = mutate(oraculo, luacr = log(uacr), sexo = factor(sexo))))
+tibble(coeficiente = c("ln(UACR)", "iSGLT2"),
+       referencia = c(ref["luacr"], ref["isglt2"]),
+       con_media_e_indicador = c(media_imp["luacr"], media_imp["isglt2"])) |>
+  mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+El coeficiente de la UACR queda **atenuado** (≈ −0.18 frente a −0.22) y el del tratamiento **se desvía** (≈ 1.28 frente a 1.34): la "imputación por la media" **diluye** la asociación del confusor y **no ajusta bien**, además de dar una falsa seguridad (los errores estándar ignoran que se inventaron datos).
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   El **ACC** (el valor por defecto) es válido con **MCAR** o cuando la falta depende solo de **covariables** del modelo; con falta que depende del **desenlace** o del **propio valor**, **sesga**.
+-   Además **cambia la población**: con efectos heterogéneos, estima el efecto de **otra** población.
+-   **Imputar con la media** o usar un **indicador de falta** **no son soluciones**: distorsionan las asociaciones.
+-   La alternativa estándar: **imputación múltiple** (13.4).
+:::
+
+## Ejercicio
+
+1.  Repite la simulación con **500** pacientes en vez de 5 000 (`slice_sample`): ¿qué método sufre más?
+2.  Calcula cuántos pacientes se pierden por el ACC si **solo faltaran** HbA1c y PAS. ¿Cuánto cambia el IC del efecto?
+3.  Explica con tus palabras por qué la imputación con la media **atenúa** la asociación.

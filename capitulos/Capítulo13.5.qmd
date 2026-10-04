@@ -1,0 +1,137 @@
+# Imputación en análisis causal y de supervivencia
+
+## Tres reglas que cambian cuando el análisis es causal o de supervivencia
+
+La imputación múltiple vista en 13.4 sirve para regresiones. En estudios **causales** y de **supervivencia** hay que cuidar tres cosas:
+
+| Situación | Qué hay que hacer |
+|---|---|
+| **Supervivencia** | Incluir en el modelo de imputación **el indicador de evento** y el **riesgo acumulado de Nelson-Aalen**, no solo el tiempo |
+| **Efecto causal** (IPW, emparejamiento, AIPW) | Imputar **antes** y repetir **todo el análisis causal en cada base imputada**; combinar con Rubin |
+| **Interacciones, no linealidades** | El modelo de imputación debe contenerlas (o imputar por estratos) |
+
+```{r}
+#| label: setup-135
+library(tidyverse)
+library(mice)
+library(survival)
+library(sandwich)
+
+ckd <- read_csv("Bases/ckd_faltantes.csv") |>
+  mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")), luacr = log(uacr))
+oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv") |>
+  mutate(luacr = log(uacr), sexo = factor(sexo, levels = c("Mujer", "Hombre")))
+```
+
+## 1. Supervivencia: imputar con el evento y el riesgo acumulado
+
+Si en la regresión de Cox faltan covariables (aquí, la UACR), el modelo de imputación debe contener **el desenlace**. En supervivencia, el desenlace tiene **dos partes** (tiempo y evento) y la forma correcta es incluir:
+
+-   el **indicador de evento** y
+-   el **riesgo acumulado de Nelson-Aalen** $H(t)$ en el momento observado de cada paciente (aproxima la información conjunta del tiempo y el evento).
+
+(White y Royston, 2009). **No** basta con incluir solo el tiempo (la relación es no lineal) ni solo el evento.
+
+```{r}
+#| label: surv-imp
+ckd$H <- nelsonaalen(ckd, tiempo_meses, evento)       # riesgo acumulado de Nelson-Aalen
+
+d <- ckd |> select(pendiente_tfg, evento, tiempo_meses, H, isglt2, edad, sexo, hba1c, pas, tfg_basal, luacr, ecv)
+pm <- make.predictorMatrix(d)
+pm[, "tiempo_meses"] <- 0                  # usar H y evento, no el tiempo bruto
+
+imp <- mice(d, m = 20, maxit = 10, method = "pmm", predictorMatrix = pm, printFlag = FALSE, seed = 1)
+
+cox_mi <- summary(pool(with(imp, coxph(Surv(tiempo_meses, evento) ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv))))
+cox_ref <- coxph(Surv(tiempo_meses, evento) ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv, data = oraculo)
+cox_cc  <- coxph(Surv(tiempo_meses, evento) ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv, data = d)
+
+tibble(analisis = c("Datos completos (referencia)", "Casos completos", "Imputación con evento y H(t)"),
+       HR_isglt2 = c(exp(coef(cox_ref)["isglt2"]), exp(coef(cox_cc)["isglt2"]), exp(cox_mi$estimate[cox_mi$term == "isglt2"]))) |>
+  mutate(HR_isglt2 = round(HR_isglt2, 3))
+```
+
+El HR con **casos completos** (0.62) está **sesgado hacia el nulo** respecto de la referencia (0.55); la **IM con el evento y H(t)** la recupera (0.555).
+
+### Qué pasa si se omite la información de supervivencia
+
+```{r}
+#| label: surv-sin
+d_s <- d |> select(-evento, -H, -tiempo_meses)         # imputar SIN información de supervivencia
+imp_s <- mice(d_s, m = 20, maxit = 10, method = "pmm", printFlag = FALSE, seed = 1)
+
+fits <- lapply(1:20, \(i) {
+  di <- complete(imp_s, i); di$tiempo_meses <- d$tiempo_meses; di$evento <- d$evento
+  coxph(Surv(tiempo_meses, evento) ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv, data = di)
+})
+exp(summary(pool(as.mira(fits)))$estimate[1]) |> round(3)
+```
+
+Sin el desenlace en la imputación, el HR queda en **0.59**: parte de la asociación **se pierde** (el imputador no sabía quién tuvo el evento).
+
+## 2. Efecto causal con IPW: analizar cada base imputada
+
+Con **IPW** (o emparejamiento, AIPW), se debe: (1) **imputar** *m* veces; (2) en **cada** base, **estimar el PS, los pesos y el efecto**; (3) **combinar** con Rubin. (Se llama *within approach*; es el más recomendado.)
+
+```{r}
+#| label: ipw-mi
+estimar_ipw <- function(dd) {
+  ps <- fitted(glm(isglt2 ~ I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv, data = dd, family = binomial))
+  w <- ifelse(dd$isglt2 == 1, 1 / ps, 1 / (1 - ps))
+  f <- lm(pendiente_tfg ~ isglt2, data = dd, weights = w)
+  c(estimado = unname(coef(f)["isglt2"]), varianza = vcovHC(f, "HC1")["isglt2", "isglt2"])
+}
+
+res_imp <- t(sapply(1:20, \(i) estimar_ipw(complete(imp, i))))
+rubin <- pool.scalar(res_imp[, 1], res_imp[, 2], n = nrow(d))
+
+tibble(analisis = c("Datos completos (referencia)", "Casos completos", "IM + IPW (Rubin)"),
+       ATE = c(estimar_ipw(oraculo)[1], estimar_ipw(na.omit(d))[1], rubin$qbar),
+       EE = c(sqrt(estimar_ipw(oraculo)[2]), sqrt(estimar_ipw(na.omit(d))[2]), sqrt(rubin$t))) |>
+  mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+La IM + IPW (1.35) coincide con la referencia (1.34); el análisis de casos completos (1.28) queda sesgado.
+
+::: {.callout-warning}
+## ⚠️ Errores frecuentes al combinar imputación y análisis causal
+
+-   **Promediar los pesos o las bases** antes de analizar: debe hacerse el análisis **por separado** en cada base y luego combinar las **estimaciones** (no los datos).
+-   **Imputar solo en el brazo con faltantes**: imputa con **todos** los pacientes (tratamiento como predictor).
+-   **Excluir el tratamiento del modelo de imputación**: sesga hacia el nulo.
+-   **Imputar el desenlace** si el análisis causal lo tiene incompleto: ver abajo.
+:::
+
+## 3. Cuando falta el desenlace
+
+Si falta el desenlace (pérdidas de seguimiento), hay dos opciones:
+
+1.  **IPCW**: ponderar a quienes tienen desenlace por la **inversa de la probabilidad de ser observados** (Cap. 19).
+2.  **Imputar el desenlace** con un modelo que incluya tratamiento, covariables y **variables auxiliares** (medidas intermedias).
+
+Si el abandono depende del **desenlace no observado** (MNAR), ninguna es suficiente: análisis de sensibilidad (13.6).
+
+## 4. Otras decisiones prácticas
+
+| Situación | Recomendación |
+|---|---|
+| **Interacción** tratamiento × covariable | Imputar **por separado en cada brazo**, o incluir los productos |
+| **Covariables no lineales** | Imputar la variable ya transformada (`luacr`); ojo con *splines* |
+| **Exposición** con faltantes | Imputarla (es una covariable más), con el desenlace dentro del modelo |
+| **Datos agrupados** (centros) | Incluir el centro (efecto fijo) o usar `mice` con modelo multinivel (`miceadds`) |
+| **Muchas variables** | `quickpred()` y variables auxiliares seleccionadas |
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   En **supervivencia**, imputa con el **indicador de evento** y el **riesgo acumulado de Nelson-Aalen**.
+-   En análisis **causales** (IPW, emparejamiento, AIPW): **imputa → repite todo el análisis en cada base → combina con Rubin**.
+-   El modelo de imputación debe incluir **tratamiento, desenlace e interacciones** del análisis.
+-   **Omitir el desenlace** del modelo de imputación sesga las asociaciones hacia el nulo.
+:::
+
+## Ejercicio
+
+1.  Calcula el HR con imputación pero **sin `H`** (solo `evento`). ¿Cuánto se acerca a 0.55?
+2.  Aplica **emparejamiento** (`MatchIt`) dentro de cada base imputada y combina los ATT con Rubin.
+3.  Ajusta una IM + **fórmula g** (12.6) para el ATE, y compara con el IPW.
