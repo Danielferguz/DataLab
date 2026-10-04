@@ -1,0 +1,175 @@
+# Cómo reportar una regresión (y la *Table 2 fallacy*)
+
+## Qué debe contener el reporte
+
+Siguiendo STROBE, un modelo bien reportado dice **qué se estimó**, **cómo** y **con qué datos**:
+
+::: {.callout-tip}
+## 💡 Checklist de reporte de una regresión
+
+-   [ ] **Pregunta y estimando**: ¿efecto de qué sobre qué, en qué población?
+-   [ ] **Variable de exposición** y **desenlace**, con sus unidades y escala.
+-   [ ] **Covariables** incluidas **y por qué** (DAG), no solo "variables con *p* < 0.2".
+-   [ ] **Forma funcional**: transformaciones y *splines*.
+-   [ ] **Estimación cruda *y* ajustada**, con **IC 95 %**.
+-   [ ] **Número de pacientes y de eventos** analizados y **cómo se trataron los datos faltantes**.
+-   [ ] **Supuestos** revisados (residuos, calibración, riesgos proporcionales).
+-   [ ] **Análisis de sensibilidad** (puntos influyentes, otra especificación, confusión no medida).
+:::
+
+## Tabla de resultados reutilizable
+
+Una función que convierte cualquier modelo en una tabla presentable, con las estimaciones y su IC en una sola columna:
+
+```{r}
+#| label: setup-86
+library(tidyverse)
+library(broom)
+library(sandwich)
+
+oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv") |>
+  mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")), luacr = log(uacr))
+ckd <- oraculo |> select(id, edad, sexo, hba1c, pas, tfg_basal, uacr, luacr, ecv, isglt2,
+                         pendiente_tfg, tiempo_meses, evento)
+
+## Tabla de un modelo: estimación (IC 95 %) y p
+tabla_modelo <- function(modelo, exponenciar = FALSE, digitos = 2, etiquetas = NULL) {
+  tt <- tidy(modelo, conf.int = TRUE, exponentiate = exponenciar) |> filter(term != "(Intercept)")
+  tt |>
+    mutate(termino = if (is.null(etiquetas)) term else recode(term, !!!etiquetas),
+           estimacion = sprintf(paste0("%.", digitos, "f (%.", digitos, "f, %.", digitos, "f)"),
+                                estimate, conf.low, conf.high),
+           p = ifelse(p.value < 0.001, "<0.001", sprintf("%.3f", p.value))) |>
+    select(termino, estimacion, p)
+}
+```
+
+### Estimación cruda y ajustada, lado a lado
+
+Es la tabla más informativa de un estudio observacional: muestra **cuánto cambia** la estimación al ajustar.
+
+```{r}
+#| label: tabla-lado-a-lado
+etq <- c(isglt2 = "iSGLT2 (sí vs. no)", `I(edad/10)` = "Edad, por 10 años", sexoHombre = "Sexo masculino",
+         hba1c = "HbA1c, por 1 %", pas = "PAS, por 1 mmHg", tfg_basal = "TFGe basal, por 1 unidad",
+         luacr = "ln(UACR), por 1 unidad", ecv = "ECV previa")
+
+mc <- glm(evento ~ isglt2 + offset(log(tiempo_meses)), data = ckd, family = poisson)
+ma <- glm(evento ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv + offset(log(tiempo_meses)),
+          data = ckd, family = poisson)
+
+full_join(tabla_modelo(mc, TRUE, 2, etq), tabla_modelo(ma, TRUE, 2, etq), by = "termino",
+          suffix = c(" (crudo)", " (ajustado)")) |>
+  mutate(across(everything(), \(x) replace_na(x, ""))) |>
+  knitr::kable(col.names = c("Variable", "IRR crudo (IC 95 %)", "p", "IRR ajustado (IC 95 %)", "p"))
+```
+
+### Gráfico de coeficientes
+
+Un gráfico de puntos con IC se lee más rápido que una tabla con 10 filas:
+
+```{r}
+#| label: graf-coef
+#| fig-width: 7
+#| fig-height: 3.8
+tidy(ma, conf.int = TRUE, exponentiate = TRUE) |>
+  filter(term != "(Intercept)") |>
+  mutate(term = recode(term, !!!etq), term = fct_reorder(term, estimate)) |>
+  ggplot(aes(estimate, term, xmin = conf.low, xmax = conf.high)) +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  geom_pointrange(color = "#0072B2") +
+  scale_x_log10() +
+  labs(x = "Razón de tasas (IRR), escala logarítmica", y = NULL,
+       caption = "Modelo de Poisson con offset de tiempo. Datos simulados.") +
+  theme_minimal(base_size = 11)
+```
+
+## La falacia de la Tabla 2
+
+La **"Tabla 2"** de muchos artículos muestra **todos** los coeficientes del modelo ajustado, y los autores los interpretan como si cada uno fuera un efecto. Es un error, porque **cada coeficiente responde a una pregunta distinta**, con un conjunto de ajuste distinto:
+
+-   El conjunto de ajuste del **iSGLT2** (exposición de interés) está diseñado para cerrar los caminos de puerta trasera **de esa exposición**.
+-   Para la **HbA1c**, la UACR es un **mediador** (la glucemia alta aumenta la albuminuria, y esta aumenta el riesgo). Si se la incluye, el coeficiente de la HbA1c muestra solo su efecto **directo**, no el **total**.
+
+Lo comprobamos con la IRR de la HbA1c con y sin la UACR en el modelo:
+
+```{r}
+#| label: table2-fallacy
+m_con <- glm(evento ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv + offset(log(tiempo_meses)),
+             data = ckd, family = poisson)
+m_sin <- update(m_con, . ~ . - luacr)
+
+irr_hba1c <- function(m) round(exp(c(IRR = coef(m)["hba1c"], confint.default(m)["hba1c", ])), 3)
+rbind(`Con UACR (efecto directo)` = irr_hba1c(m_con), `Sin UACR (efecto total)` = irr_hba1c(m_sin))
+```
+
+El **efecto total** de la HbA1c (alrededor de 1.25 por punto) es **mayor** que el directo (~1.17); el modelo que usamos para el iSGLT2 **subestima** el efecto de la glucemia. Interpretar como "efecto de la HbA1c" el coeficiente de la Tabla 2 es la ***Table 2 fallacy*** (Westreich y Greenland, 2013).
+
+::: {.callout-important}
+## 🎯 Qué hacer en la práctica
+
+-   **Reporta el coeficiente de la exposición de interés** (con su conjunto de ajuste justificado).
+-   Presenta el resto de las covariables como **ajuste**, **sin interpretarlas causalmente**, o, si quieres estimar su efecto, **construye un modelo aparte** con **su** conjunto de ajuste (DAG).
+-   Etiqueta la tabla: *"los coeficientes de las covariables no deben interpretarse como efectos causales"*.
+:::
+
+## Selección de variables
+
+| Objetivo | ¿Cómo elegir las variables? |
+|---|---|
+| **Efecto causal de una exposición** | Desde un **DAG**: confusores (sí), mediadores y colisionadores (no) |
+| **Predicción** (Cap. 17) | Conocimiento clínico + **penalización** (LASSO), validación interna |
+| **Exploración** | Con mucha cautela; declarar exploratorio |
+
+Para estimar un efecto, la selección **por valor *p*** o ***stepwise*** es inadecuada:
+
+-   Descarta confusores con *p* alto aunque sesguen la estimación de la exposición.
+-   Los IC y valores *p* del modelo final **no son válidos** (se ignora que se seleccionó con los mismos datos).
+-   Es inestable: en otra muestra, otro modelo.
+
+Una alternativa de utilidad práctica es el **cambio en la estimación**: ¿cuánto se mueve la IRR del iSGLT2 al **quitar** cada covariable?
+
+```{r}
+#| label: cambio-estimacion
+vars <- c("I(edad/10)", "sexo", "hba1c", "pas", "tfg_basal", "luacr", "ecv")
+b_full <- coef(ma)["isglt2"]
+
+map_dfr(vars, \(v) {
+  f <- reformulate(setdiff(c("isglt2", vars), v), "evento")
+  m <- glm(update(f, . ~ . + offset(log(tiempo_meses))), data = ckd, family = poisson)
+  tibble(variable_quitada = v, IRR_sin_ella = exp(coef(m)["isglt2"]),
+         cambio_pct = 100 * (exp(coef(m)["isglt2"]) / exp(b_full) - 1))
+}) |> arrange(desc(abs(cambio_pct))) |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+Quitar **ln(UACR)** cambia la IRR del iSGLT2 en ~17 %, la edad y la TFGe basal en 7-9 %: son **confusores importantes que deben quedar** en el modelo. El sexo (0.1 %) no cambia nada, pero lo mantenemos por **razones causales** (variable clínica básica), no por el *p*.
+
+Una regla práctica (a veces citada): conservar toda variable que cambie la estimación **> 10 %**. Es un **complemento** del DAG, no un sustituto.
+
+### Número de eventos por variable
+
+Con pocos eventos, un modelo grande **sobreajusta**. Como guía: **≥ 10-20 eventos por parámetro** estimado. Aquí hay 765 eventos y 8 parámetros: holgura de sobra. En estudios pequeños, restringe el número de covariables a los confusores más importantes o usa **puntuación de propensión** (Cap. 12), que resume muchas covariables en una.
+
+## Resumen: plantilla de párrafo de Métodos
+
+> *"Se estimó la razón de tasas de evento renal compuesto asociada con el inicio de iSGLT2 mediante regresión de Poisson con* offset *del logaritmo del tiempo de seguimiento. El modelo ajustó por edad, sexo, HbA1c, presión arterial sistólica, TFGe basal, albuminuria (logaritmo natural) y enfermedad cardiovascular previa, seleccionadas a partir de un diagrama causal (Figura X). Se reportan estimaciones crudas y ajustadas con IC 95 %. Los coeficientes de las covariables no se interpretan como efectos causales. Se verificó la linealidad con splines y se usaron errores estándar robustos. Los análisis se realizaron en R 4.3 (paquetes tidyverse, broom, sandwich)."*
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   Reporta la estimación **cruda y ajustada con IC**, el número de eventos, los supuestos revisados y los datos faltantes.
+-   `tabla_modelo()` y el **gráfico de coeficientes** dan reportes rápidos y reproducibles.
+-   **Table 2 fallacy**: los coeficientes de las covariables **no** son efectos causales; para cada exposición, un conjunto de ajuste distinto.
+-   Para efectos causales, elige las covariables con el **DAG**, no con *stepwise* ni con el *p*.
+-   Usa el **cambio en la estimación** para identificar confusores importantes y vigila los **eventos por variable**.
+:::
+
+## Ejercicio
+
+1.  Reproduce `tabla_modelo()` para el modelo lineal de la pendiente (8.2) y presenta la tabla cruda/ajustada.
+2.  ¿Qué pasa con el coeficiente de la **PAS** al quitar la `luacr`? ¿Por qué?
+3.  Escribe un párrafo de Métodos para el análisis de la pendiente de TFGe con la regresión lineal del 8.2.
+
+## Nota editorial
+
+-   Capítulo redactado con asistencia de IA y revisado por el autor. Todos los datos son **simulados**.

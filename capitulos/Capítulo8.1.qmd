@@ -1,0 +1,199 @@
+# Dos variables: pruebas de hipótesis y correlación
+
+## ¿Qué prueba uso?
+
+| Variable resultado | Variable que se compara | Prueba paramétrica | Alternativa no paramétrica |
+|---|---|---|---|
+| Continua | 2 grupos independientes | *t* de Welch | Wilcoxon-Mann-Whitney |
+| Continua | 2 mediciones del **mismo** paciente | *t* pareada | Wilcoxon de rangos con signo |
+| Continua | ≥ 3 grupos | ANOVA | Kruskal-Wallis |
+| Categórica | Categórica | χ² de Pearson | **Fisher** (frecuencias esperadas < 5) |
+| Binaria pareada | Antes/después | — | McNemar |
+| Continua | Continua | Correlación de Pearson | Correlación de Spearman |
+
+```{r}
+#| label: setup-81
+library(tidyverse)
+library(broom)
+source("R/funciones_epi.R")
+
+ckd <- read_csv("Bases/ckd_isglt2.csv") |>
+  mutate(
+    trat  = factor(isglt2, levels = 0:1, labels = c("Sin iSGLT2", "Con iSGLT2")),
+    sexo  = factor(sexo, levels = c("Mujer", "Hombre")),
+    cat_g = categoria_g(tfg_basal), cat_a = categoria_a(uacr)
+  )
+```
+
+::: {.callout-warning}
+## ⚠️ Lo que una prueba **no** te dice
+
+El valor *p* contesta: *"si no hubiera ninguna asociación, ¿qué tan raro sería este resultado?"* No dice **qué tan grande** es la diferencia, ni si es **clínicamente importante**, ni si es **causal**. Siempre reporta la **estimación con su IC**; el *p* es un complemento.
+:::
+
+## Comparar una variable continua entre dos grupos
+
+### Prueba *t* (con la diferencia y su IC)
+
+¿La TFGe basal es distinta entre tratados y no tratados?
+
+```{r}
+#| label: t-test
+t.test(tfg_basal ~ trat, data = ckd)
+```
+
+`broom::tidy()` convierte el resultado de cualquier prueba en una tabla ordenada (útil para reportar o para repetir la prueba en muchas variables):
+
+```{r}
+#| label: t-tidy
+tidy(t.test(tfg_basal ~ trat, data = ckd)) |>
+  transmute(diferencia = estimate1 - estimate2, ic_inf = conf.low, ic_sup = conf.high, p = p.value) |>
+  mutate(across(where(is.numeric), \(x) signif(x, 3)))
+```
+
+Los tratados tienen una TFGe basal ~4 mL/min/1.73 m² **mayor** (la diferencia ya se vio en la Tabla 1). Con *n* = 5 000 el *p* es diminuto; lo informativo es el tamaño (4 unidades) y su IC.
+
+### Wilcoxon para la UACR (asimétrica)
+
+```{r}
+#| label: wilcoxon
+wilcox.test(uacr ~ trat, data = ckd, conf.int = TRUE)
+```
+
+El estimador es el **pseudomediano de las diferencias** (Hodges-Lehmann), no la diferencia de medianas. Para reportar, **junto con el *p***, da las medianas [RIC] de cada grupo (Tabla 1).
+
+::: {.callout-tip}
+## 💡 ¿*t* o Wilcoxon?
+
+Con *n* grande (≥ 30 por grupo), la *t* es robusta aun con asimetría moderada. Con *n* pequeño y asimetría clara (UACR, triglicéridos) o valores atípicos, usa Wilcoxon o transforma con logaritmo y usa *t* sobre `log(uacr)` (el resultado es una **razón de medias geométricas**).
+:::
+
+## Dos variables categóricas: χ² y Fisher
+
+¿Está la ECV previa asociada con recibir iSGLT2?
+
+```{r}
+#| label: chi2
+tabla <- table(ckd$trat, ckd$ecv)
+dimnames(tabla) <- list(trat = c("Sin iSGLT2", "Con iSGLT2"), ECV = c("Sin ECV", "Con ECV"))
+tabla
+round(100 * prop.table(tabla, margin = 1), 1)       # % por fila
+
+chisq.test(tabla, correct = FALSE)
+```
+
+Con **frecuencias esperadas < 5** en alguna celda, usa `fisher.test()`. Con muchas celdas pequeñas, `fisher.test(tabla, simulate.p.value = TRUE)`.
+
+```{r}
+#| label: esperadas
+chisq.test(tabla)$expected      # revisa que ninguna sea < 5
+```
+
+## Tres o más grupos: ANOVA y Kruskal-Wallis
+
+¿La pendiente anual de TFGe difiere según la categoría G basal?
+
+```{r}
+#| label: anova
+#| fig-width: 8
+#| fig-height: 3.6
+ggplot(ckd, aes(cat_g, pendiente_tfg)) +
+  geom_boxplot(fill = "#56B4E9", alpha = 0.6, outlier.alpha = 0.2) +
+  labs(x = "Categoría G basal", y = "Cambio anual de TFGe (mL/min/1.73 m²/año)",
+       caption = "Datos simulados.") +
+  theme_minimal(base_size = 11)
+
+m_aov <- aov(pendiente_tfg ~ cat_g, data = ckd)
+summary(m_aov)
+kruskal.test(pendiente_tfg ~ cat_g, data = ckd)
+```
+
+El ANOVA solo dice que **hay alguna diferencia**; para saber **cuáles** grupos difieren se hacen comparaciones por pares con corrección:
+
+```{r}
+#| label: posthoc
+TukeyHSD(m_aov)
+
+pairwise.wilcox.test(ckd$pendiente_tfg, ckd$cat_g, p.adjust.method = "holm")
+```
+
+## Comparaciones múltiples
+
+Si pruebas 20 hipótesis con α = 0.05, **esperas una falsa "significativa"** aunque no haya nada real. Opciones:
+
+-   **Bonferroni**: multiplica cada *p* por el número de pruebas (conservador).
+-   **Holm**: igual de válido y más potente; es el predeterminado razonable (`p.adjust(p, method = "holm")`).
+-   **FDR (Benjamini-Hochberg)**: controla la proporción esperada de falsos descubrimientos; para análisis exploratorios con muchas pruebas.
+
+```{r}
+#| label: ajuste-p
+p_vals <- c(0.001, 0.012, 0.034, 0.048, 0.20)
+tibble(p = p_vals, bonferroni = p.adjust(p_vals, "bonferroni"),
+       holm = p.adjust(p_vals, "holm"), fdr = p.adjust(p_vals, "BH")) |> mutate(across(everything(), \(x) round(x, 3)))
+```
+
+::: {.callout-warning}
+## ⚠️ El pecado capital: probar todo y reportar lo "significativo"
+
+Declara **antes** de ver los datos cuáles son las hipótesis principales; el resto se etiqueta como **exploratorio**. Ajustar por múltiples comparaciones no sustituye una pregunta clara, y reportar solo los *p* < 0.05 de un análisis amplio es una forma de *p-hacking*.
+:::
+
+## Correlación entre dos variables continuas
+
+```{r}
+#| label: correlacion
+cor.test(ckd$edad, ckd$tfg_basal)                                  # Pearson
+cor.test(ckd$uacr, ckd$pendiente_tfg, method = "spearman")        # Spearman (UACR asimétrica)
+```
+
+```{r}
+#| label: graf-cor
+#| fig-width: 8
+#| fig-height: 3.8
+ggplot(ckd, aes(uacr, pendiente_tfg)) +
+  geom_point(alpha = 0.15, size = 0.7) +
+  geom_smooth(method = "loess", formula = y ~ x, color = "#D55E00") +
+  scale_x_log10() +
+  labs(x = "UACR (mg/g, escala log)", y = "Cambio anual de TFGe",
+       caption = "Datos simulados.") +
+  theme_minimal(base_size = 11)
+```
+
+-   **Pearson** mide asociación **lineal**; es sensible a valores extremos.
+-   **Spearman** mide asociación **monótona** (usa rangos); es robusta a asimetría y *outliers*.
+-   El coeficiente es **adimensional** (de −1 a 1): *r* = 0.5 no significa "50 %". Elevado al cuadrado (*r*²) da la fracción de varianza compartida.
+-   **Correlación ≠ concordancia** (si comparas dos métodos de medición, usa Bland-Altman) y **≠ causalidad**.
+
+## Datos pareados: antes y después
+
+`lab_visitas_ancho.csv` tiene la creatinina de 378 pacientes en tres visitas (simulada, Cap. 5). ¿Cambió la creatinina entre la basal y los 12 meses **en los mismos pacientes**? Una *t* para dos muestras independientes ignoraría el pareamiento; se usa la **pareada**:
+
+```{r}
+#| label: pareada
+lab <- read_csv("Bases/lab_visitas_ancho.csv")
+
+t.test(lab$creat_12m, lab$creat_basal, paired = TRUE)
+wilcox.test(lab$creat_12m, lab$creat_basal, paired = TRUE)
+```
+
+::: {.callout-tip}
+## 💡 La clave del pareamiento
+
+La prueba pareada analiza **la diferencia dentro de cada paciente**. Quita la variabilidad entre pacientes (unos tienen creatinina de 0.8 y otros de 5) y es mucho más potente. Si tus datos son pareados y usas la prueba independiente, **pierdes potencia y a veces conclusiones**.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   Elige la prueba por **tipo de variable** y **diseño** (independiente/pareado), y confirma los supuestos mirando los datos.
+-   **Reporta la diferencia o la asociación con su IC**, no solo el *p*.
+-   Con **n grande**, casi todo es "significativo"; con **n pequeño**, nada: juzga el **tamaño** del efecto.
+-   **Corrige comparaciones múltiples** (Holm o FDR) y separa lo confirmatorio de lo exploratorio.
+-   `broom::tidy()` ordena el resultado de cualquier prueba en una tabla.
+:::
+
+## Ejercicio
+
+1.  Compara la **HbA1c** entre hombres y mujeres con `t.test` y reporta la diferencia con su IC. ¿Es clínicamente relevante?
+2.  Haz una tabla χ² de **sexo × ECV** y reporta el *p* y los porcentajes por fila.
+3.  Calcula la correlación de Spearman entre la **PAS y la edad**. ¿Y entre la HbA1c y el log(UACR)?

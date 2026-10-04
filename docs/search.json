@@ -3076,6 +3076,620 @@
     ]
   },
   {
+    "objectID": "capitulos/Capítulo8.html",
+    "href": "capitulos/Capítulo8.html",
+    "title": "Capítulo 8: Asociación y regresión",
+    "section": "",
+    "text": "Referencias\nEste capítulo usa ckd_isglt2 (simulada). Como la simulamos, conocemos el efecto verdadero y podemos ver qué tan lejos queda cada modelo. Spoiler: ajustar por lo medido acerca la estimación a la verdad, pero no la alcanza cuando hay un confusor no medido (la fragilidad).\nAl finalizar este capítulo podrás:\nPrerrequisitos: Caps. 3, 5 y 7. Prepara: Caps. 9 a 12.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.html#referencias",
+    "href": "capitulos/Capítulo8.html#referencias",
+    "title": "Capítulo 8: Asociación y regresión",
+    "section": "",
+    "text": "Harrell FE. Regression Modeling Strategies (2e). Springer; 2015.\nWestreich D, Greenland S. The Table 2 fallacy. Am J Epidemiol. 2013;177:292-298.\nZou G. A modified Poisson regression approach to prospective studies with binary data. Am J Epidemiol. 2004;159:702-706.\nVanderWeele TJ, Knol MJ. A tutorial on interaction. Epidemiol Methods. 2014;3:33-72.\nGreenland S, Pearl J, Robins JM. Confounding and collapsibility in causal inference. Stat Sci. 1999;14:29-46.\nHernán MA, Robins JM. Causal Inference: What If. Caps. 11-15.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.1.html",
+    "href": "capitulos/Capítulo8.1.html",
+    "title": "Dos variables: pruebas de hipótesis y correlación",
+    "section": "",
+    "text": "¿Qué prueba uso?\nlibrary(tidyverse)\nlibrary(broom)\nsource(\"R/funciones_epi.R\")\n\nckd &lt;- read_csv(\"Bases/ckd_isglt2.csv\") |&gt;\n  mutate(\n    trat  = factor(isglt2, levels = 0:1, labels = c(\"Sin iSGLT2\", \"Con iSGLT2\")),\n    sexo  = factor(sexo, levels = c(\"Mujer\", \"Hombre\")),\n    cat_g = categoria_g(tfg_basal), cat_a = categoria_a(uacr)\n  )",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>36</span>  <span class='chapter-title'>Dos variables: pruebas de hipótesis y correlación</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.1.html#qué-prueba-uso",
+    "href": "capitulos/Capítulo8.1.html#qué-prueba-uso",
+    "title": "Dos variables: pruebas de hipótesis y correlación",
+    "section": "",
+    "text": "Variable resultado\nVariable que se compara\nPrueba paramétrica\nAlternativa no paramétrica\n\n\n\nContinua\n2 grupos independientes\n\nt de Welch\nWilcoxon-Mann-Whitney\n\n\nContinua\n2 mediciones del mismo paciente\n\nt pareada\nWilcoxon de rangos con signo\n\n\nContinua\n≥ 3 grupos\nANOVA\nKruskal-Wallis\n\n\nCategórica\nCategórica\nχ² de Pearson\n\nFisher (frecuencias esperadas &lt; 5)\n\n\nBinaria pareada\nAntes/después\n—\nMcNemar\n\n\nContinua\nContinua\nCorrelación de Pearson\nCorrelación de Spearman\n\n\n\n\n\n\n\n\n\n\nAdvertencia⚠️ Lo que una prueba no te dice\n\n\n\nEl valor p contesta: “si no hubiera ninguna asociación, ¿qué tan raro sería este resultado?” No dice qué tan grande es la diferencia, ni si es clínicamente importante, ni si es causal. Siempre reporta la estimación con su IC; el p es un complemento.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>36</span>  <span class='chapter-title'>Dos variables: pruebas de hipótesis y correlación</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.1.html#comparar-una-variable-continua-entre-dos-grupos",
+    "href": "capitulos/Capítulo8.1.html#comparar-una-variable-continua-entre-dos-grupos",
+    "title": "Dos variables: pruebas de hipótesis y correlación",
+    "section": "Comparar una variable continua entre dos grupos",
+    "text": "Comparar una variable continua entre dos grupos\nPrueba t (con la diferencia y su IC)\n¿La TFGe basal es distinta entre tratados y no tratados?\n\nt.test(tfg_basal ~ trat, data = ckd)\n\n\n    Welch Two Sample t-test\n\ndata:  tfg_basal by trat\nt = -15.427, df = 4892.9, p-value &lt; 2.2e-16\nalternative hypothesis: true difference in means between group Sin iSGLT2 and group Con iSGLT2 is not equal to 0\n95 percent confidence interval:\n -4.558025 -3.530155\nsample estimates:\nmean in group Sin iSGLT2 mean in group Con iSGLT2 \n                44.05004                 48.09413 \n\n\nbroom::tidy() convierte el resultado de cualquier prueba en una tabla ordenada (útil para reportar o para repetir la prueba en muchas variables):\n\ntidy(t.test(tfg_basal ~ trat, data = ckd)) |&gt;\n  transmute(diferencia = estimate1 - estimate2, ic_inf = conf.low, ic_sup = conf.high, p = p.value) |&gt;\n  mutate(across(where(is.numeric), \\(x) signif(x, 3)))\n\n# A tibble: 1 × 4\n  diferencia ic_inf ic_sup        p\n       &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;    &lt;dbl&gt;\n1      -4.04  -4.56  -3.53 1.83e-52\n\n\nLos tratados tienen una TFGe basal ~4 mL/min/1.73 m² mayor (la diferencia ya se vio en la Tabla 1). Con n = 5 000 el p es diminuto; lo informativo es el tamaño (4 unidades) y su IC.\nWilcoxon para la UACR (asimétrica)\n\nwilcox.test(uacr ~ trat, data = ckd, conf.int = TRUE)\n\n\n    Wilcoxon rank sum test with continuity correction\n\ndata:  uacr by trat\nW = 2367492, p-value &lt; 2.2e-16\nalternative hypothesis: true location shift is not equal to 0\n95 percent confidence interval:\n -49.99997 -37.00004\nsample estimates:\ndifference in location \n             -43.99996 \n\n\nEl estimador es el pseudomediano de las diferencias (Hodges-Lehmann), no la diferencia de medianas. Para reportar, junto con el p, da las medianas [RIC] de cada grupo (Tabla 1).\n\n\n\n\n\n\nTip💡 ¿t o Wilcoxon?\n\n\n\nCon n grande (≥ 30 por grupo), la t es robusta aun con asimetría moderada. Con n pequeño y asimetría clara (UACR, triglicéridos) o valores atípicos, usa Wilcoxon o transforma con logaritmo y usa t sobre log(uacr) (el resultado es una razón de medias geométricas).",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>36</span>  <span class='chapter-title'>Dos variables: pruebas de hipótesis y correlación</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.1.html#dos-variables-categóricas-χ²-y-fisher",
+    "href": "capitulos/Capítulo8.1.html#dos-variables-categóricas-χ²-y-fisher",
+    "title": "Dos variables: pruebas de hipótesis y correlación",
+    "section": "Dos variables categóricas: χ² y Fisher",
+    "text": "Dos variables categóricas: χ² y Fisher\n¿Está la ECV previa asociada con recibir iSGLT2?\n\ntabla &lt;- table(ckd$trat, ckd$ecv)\ndimnames(tabla) &lt;- list(trat = c(\"Sin iSGLT2\", \"Con iSGLT2\"), ECV = c(\"Sin ECV\", \"Con ECV\"))\ntabla\n\n            ECV\ntrat         Sin ECV Con ECV\n  Sin iSGLT2    1903     747\n  Con iSGLT2    1730     620\n\nround(100 * prop.table(tabla, margin = 1), 1)       # % por fila\n\n            ECV\ntrat         Sin ECV Con ECV\n  Sin iSGLT2    71.8    28.2\n  Con iSGLT2    73.6    26.4\n\nchisq.test(tabla, correct = FALSE)\n\n\n    Pearson's Chi-squared test\n\ndata:  tabla\nX-squared = 2.0443, df = 1, p-value = 0.1528\n\n\nCon frecuencias esperadas &lt; 5 en alguna celda, usa fisher.test(). Con muchas celdas pequeñas, fisher.test(tabla, simulate.p.value = TRUE).\n\nchisq.test(tabla)$expected      # revisa que ninguna sea &lt; 5\n\n            ECV\ntrat         Sin ECV Con ECV\n  Sin iSGLT2 1925.49  724.51\n  Con iSGLT2 1707.51  642.49",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>36</span>  <span class='chapter-title'>Dos variables: pruebas de hipótesis y correlación</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.1.html#tres-o-más-grupos-anova-y-kruskal-wallis",
+    "href": "capitulos/Capítulo8.1.html#tres-o-más-grupos-anova-y-kruskal-wallis",
+    "title": "Dos variables: pruebas de hipótesis y correlación",
+    "section": "Tres o más grupos: ANOVA y Kruskal-Wallis",
+    "text": "Tres o más grupos: ANOVA y Kruskal-Wallis\n¿La pendiente anual de TFGe difiere según la categoría G basal?\n\nggplot(ckd, aes(cat_g, pendiente_tfg)) +\n  geom_boxplot(fill = \"#56B4E9\", alpha = 0.6, outlier.alpha = 0.2) +\n  labs(x = \"Categoría G basal\", y = \"Cambio anual de TFGe (mL/min/1.73 m²/año)\",\n       caption = \"Datos simulados.\") +\n  theme_minimal(base_size = 11)\n\n\n\n\n\n\nm_aov &lt;- aov(pendiente_tfg ~ cat_g, data = ckd)\nsummary(m_aov)\n\n              Df Sum Sq Mean Sq F value Pr(&gt;F)    \ncat_g          3   1055   351.8   140.1 &lt;2e-16 ***\nResiduals   4996  12543     2.5                   \n---\nSignif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1\n\nkruskal.test(pendiente_tfg ~ cat_g, data = ckd)\n\n\n    Kruskal-Wallis rank sum test\n\ndata:  pendiente_tfg by cat_g\nKruskal-Wallis chi-squared = 373.2, df = 3, p-value &lt; 2.2e-16\n\n\nEl ANOVA solo dice que hay alguna diferencia; para saber cuáles grupos difieren se hacen comparaciones por pares con corrección:\n\nTukeyHSD(m_aov)\n\n  Tukey multiple comparisons of means\n    95% family-wise confidence level\n\nFit: aov(formula = pendiente_tfg ~ cat_g, data = ckd)\n\n$cat_g\n              diff        lwr        upr p adj\nG3a-G2  -0.6709785 -0.9061896 -0.4357673     0\nG3b-G2  -1.3137810 -1.5512343 -1.0763276     0\nG4-G2   -2.0941725 -2.4459013 -1.7424438     0\nG3b-G3a -0.6428025 -0.7653715 -0.5202335     0\nG4-G3a  -1.4231941 -1.7101648 -1.1362233     0\nG4-G3b  -0.7803916 -1.0692029 -0.4915803     0\n\npairwise.wilcox.test(ckd$pendiente_tfg, ckd$cat_g, p.adjust.method = \"holm\")\n\n\n    Pairwise comparisons using Wilcoxon rank sum test with continuity correction \n\ndata:  ckd$pendiente_tfg and ckd$cat_g \n\n    G2      G3a     G3b    \nG3a 4.5e-12 -       -      \nG3b &lt; 2e-16 &lt; 2e-16 -      \nG4  &lt; 2e-16 &lt; 2e-16 3.8e-11\n\nP value adjustment method: holm",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>36</span>  <span class='chapter-title'>Dos variables: pruebas de hipótesis y correlación</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.1.html#comparaciones-múltiples",
+    "href": "capitulos/Capítulo8.1.html#comparaciones-múltiples",
+    "title": "Dos variables: pruebas de hipótesis y correlación",
+    "section": "Comparaciones múltiples",
+    "text": "Comparaciones múltiples\nSi pruebas 20 hipótesis con α = 0.05, esperas una falsa “significativa” aunque no haya nada real. Opciones:\n\n\nBonferroni: multiplica cada p por el número de pruebas (conservador).\n\nHolm: igual de válido y más potente; es el predeterminado razonable (p.adjust(p, method = \"holm\")).\n\nFDR (Benjamini-Hochberg): controla la proporción esperada de falsos descubrimientos; para análisis exploratorios con muchas pruebas.\n\n\np_vals &lt;- c(0.001, 0.012, 0.034, 0.048, 0.20)\ntibble(p = p_vals, bonferroni = p.adjust(p_vals, \"bonferroni\"),\n       holm = p.adjust(p_vals, \"holm\"), fdr = p.adjust(p_vals, \"BH\")) |&gt; mutate(across(everything(), \\(x) round(x, 3)))\n\n# A tibble: 5 × 4\n      p bonferroni  holm   fdr\n  &lt;dbl&gt;      &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;\n1 0.001      0.005 0.005 0.005\n2 0.012      0.06  0.048 0.03 \n3 0.034      0.17  0.102 0.057\n4 0.048      0.24  0.102 0.06 \n5 0.2        1     0.2   0.2  \n\n\n\n\n\n\n\n\nAdvertencia⚠️ El pecado capital: probar todo y reportar lo “significativo”\n\n\n\nDeclara antes de ver los datos cuáles son las hipótesis principales; el resto se etiqueta como exploratorio. Ajustar por múltiples comparaciones no sustituye una pregunta clara, y reportar solo los p &lt; 0.05 de un análisis amplio es una forma de p-hacking.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>36</span>  <span class='chapter-title'>Dos variables: pruebas de hipótesis y correlación</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.1.html#correlación-entre-dos-variables-continuas",
+    "href": "capitulos/Capítulo8.1.html#correlación-entre-dos-variables-continuas",
+    "title": "Dos variables: pruebas de hipótesis y correlación",
+    "section": "Correlación entre dos variables continuas",
+    "text": "Correlación entre dos variables continuas\n\ncor.test(ckd$edad, ckd$tfg_basal)                                  # Pearson\n\n\n    Pearson's product-moment correlation\n\ndata:  ckd$edad and ckd$tfg_basal\nt = -23.614, df = 4998, p-value &lt; 2.2e-16\nalternative hypothesis: true correlation is not equal to 0\n95 percent confidence interval:\n -0.3415347 -0.2916567\nsample estimates:\n       cor \n-0.3168147 \n\ncor.test(ckd$uacr, ckd$pendiente_tfg, method = \"spearman\")        # Spearman (UACR asimétrica)\n\n\n    Spearman's rank correlation rho\n\ndata:  ckd$uacr and ckd$pendiente_tfg\nS = 2.4141e+10, p-value &lt; 2.2e-16\nalternative hypothesis: true rho is not equal to 0\nsample estimates:\n       rho \n-0.1587678 \n\n\n\nggplot(ckd, aes(uacr, pendiente_tfg)) +\n  geom_point(alpha = 0.15, size = 0.7) +\n  geom_smooth(method = \"loess\", formula = y ~ x, color = \"#D55E00\") +\n  scale_x_log10() +\n  labs(x = \"UACR (mg/g, escala log)\", y = \"Cambio anual de TFGe\",\n       caption = \"Datos simulados.\") +\n  theme_minimal(base_size = 11)\n\n\n\n\n\n\n\n\n\nPearson mide asociación lineal; es sensible a valores extremos.\n\nSpearman mide asociación monótona (usa rangos); es robusta a asimetría y outliers.\nEl coeficiente es adimensional (de −1 a 1): r = 0.5 no significa “50 %”. Elevado al cuadrado (r²) da la fracción de varianza compartida.\n\nCorrelación ≠ concordancia (si comparas dos métodos de medición, usa Bland-Altman) y ≠ causalidad.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>36</span>  <span class='chapter-title'>Dos variables: pruebas de hipótesis y correlación</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.1.html#datos-pareados-antes-y-después",
+    "href": "capitulos/Capítulo8.1.html#datos-pareados-antes-y-después",
+    "title": "Dos variables: pruebas de hipótesis y correlación",
+    "section": "Datos pareados: antes y después",
+    "text": "Datos pareados: antes y después\nlab_visitas_ancho.csv tiene la creatinina de 378 pacientes en tres visitas (simulada, Cap. 5). ¿Cambió la creatinina entre la basal y los 12 meses en los mismos pacientes? Una t para dos muestras independientes ignoraría el pareamiento; se usa la pareada:\n\nlab &lt;- read_csv(\"Bases/lab_visitas_ancho.csv\")\n\nt.test(lab$creat_12m, lab$creat_basal, paired = TRUE)\n\n\n    Paired t-test\n\ndata:  lab$creat_12m and lab$creat_basal\nt = 9.9252, df = 377, p-value &lt; 2.2e-16\nalternative hypothesis: true mean difference is not equal to 0\n95 percent confidence interval:\n 0.1756098 0.2623796\nsample estimates:\nmean difference \n      0.2189947 \n\nwilcox.test(lab$creat_12m, lab$creat_basal, paired = TRUE)\n\n\n    Wilcoxon signed rank test with continuity correction\n\ndata:  lab$creat_12m and lab$creat_basal\nV = 54372, p-value &lt; 2.2e-16\nalternative hypothesis: true location shift is not equal to 0\n\n\n\n\n\n\n\n\nTip💡 La clave del pareamiento\n\n\n\nLa prueba pareada analiza la diferencia dentro de cada paciente. Quita la variabilidad entre pacientes (unos tienen creatinina de 0.8 y otros de 5) y es mucho más potente. Si tus datos son pareados y usas la prueba independiente, pierdes potencia y a veces conclusiones.\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nElige la prueba por tipo de variable y diseño (independiente/pareado), y confirma los supuestos mirando los datos.\n\nReporta la diferencia o la asociación con su IC, no solo el p.\nCon n grande, casi todo es “significativo”; con n pequeño, nada: juzga el tamaño del efecto.\n\nCorrige comparaciones múltiples (Holm o FDR) y separa lo confirmatorio de lo exploratorio.\n\nbroom::tidy() ordena el resultado de cualquier prueba en una tabla.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>36</span>  <span class='chapter-title'>Dos variables: pruebas de hipótesis y correlación</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.1.html#ejercicio",
+    "href": "capitulos/Capítulo8.1.html#ejercicio",
+    "title": "Dos variables: pruebas de hipótesis y correlación",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nCompara la HbA1c entre hombres y mujeres con t.test y reporta la diferencia con su IC. ¿Es clínicamente relevante?\nHaz una tabla χ² de sexo × ECV y reporta el p y los porcentajes por fila.\nCalcula la correlación de Spearman entre la PAS y la edad. ¿Y entre la HbA1c y el log(UACR)?",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>36</span>  <span class='chapter-title'>Dos variables: pruebas de hipótesis y correlación</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.2.html",
+    "href": "capitulos/Capítulo8.2.html",
+    "title": "Regresión lineal",
+    "section": "",
+    "text": "El modelo\nLa regresión lineal describe cómo cambia, en promedio, un desenlace continuo \\(Y\\) según una o más variables \\(X\\):\n\\[\nE[Y \\mid X] = \\beta_0 + \\beta_1 X_1 + \\beta_2 X_2 + \\dots + \\beta_p X_p\n\\]\nEn nefrología se usa para desenlaces como la pendiente de TFGe, la creatinina a los 12 meses, la presión arterial, el peso seco o la hemoglobina.\nlibrary(tidyverse)\nlibrary(broom)\nlibrary(marginaleffects)\nsource(\"R/funciones_epi.R\")\n\nckd &lt;- read_csv(\"Bases/ckd_isglt2.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")),\n         luacr = log(uacr))\n\n## \"Oráculo\" (solo existe porque simulamos): contiene el efecto verdadero de cada paciente\noraculo &lt;- read_csv(\"Bases/ckd_isglt2_oraculo.csv\")\nate_verdadero &lt;- mean(oraculo$ite)\nate_verdadero\n\n[1] 0.927542\nEl efecto causal verdadero promedio del iSGLT2 sobre la pendiente de TFGe es 0.93 mL/min/1.73 m²/año (la columna ite del oráculo; en la vida real nunca se conoce). Veamos qué estima cada modelo.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>37</span>  <span class='chapter-title'>Regresión lineal</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.2.html#el-modelo",
+    "href": "capitulos/Capítulo8.2.html#el-modelo",
+    "title": "Regresión lineal",
+    "section": "",
+    "text": "\\(\\beta_0\\) (intercepto): el promedio de \\(Y\\) cuando todas las \\(X\\) valen 0 (por eso conviene centrar las variables continuas).\n\n\\(\\beta_j\\): la diferencia promedio de \\(Y\\) por cada unidad de \\(X_j\\), manteniendo constantes las demás variables del modelo.\nCon una exposición binaria \\(X_1\\) (iSGLT2 sí/no), \\(\\beta_1\\) es la diferencia de medias ajustada.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>37</span>  <span class='chapter-title'>Regresión lineal</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.2.html#modelo-simple-crudo",
+    "href": "capitulos/Capítulo8.2.html#modelo-simple-crudo",
+    "title": "Regresión lineal",
+    "section": "Modelo simple (crudo)",
+    "text": "Modelo simple (crudo)\n\nm0 &lt;- lm(pendiente_tfg ~ isglt2, data = ckd)\ntidy(m0, conf.int = TRUE)\n\n# A tibble: 2 × 7\n  term        estimate std.error statistic   p.value conf.low conf.high\n  &lt;chr&gt;          &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;\n1 (Intercept)    -2.61    0.0285     -91.6 0            -2.67     -2.56\n2 isglt2          1.50    0.0416      36.1 2.01e-253     1.42      1.58\n\n\nEl coeficiente de isglt2 es la diferencia de medias entre tratados y no tratados (idéntica a la de una prueba t de varianzas iguales). Es la estimación cruda: sin ajustar por nada.\n\nckd |&gt; group_by(isglt2) |&gt; summarise(media = mean(pendiente_tfg)) |&gt; summarise(dif = diff(media))\n\n# A tibble: 1 × 1\n    dif\n  &lt;dbl&gt;\n1  1.50",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>37</span>  <span class='chapter-title'>Regresión lineal</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.2.html#ajustar-por-otras-variables",
+    "href": "capitulos/Capítulo8.2.html#ajustar-por-otras-variables",
+    "title": "Regresión lineal",
+    "section": "Ajustar por otras variables",
+    "text": "Ajustar por otras variables\nAgregamos las covariables medidas. Reescalamos la edad (por 10 años) para que su coeficiente sea interpretable, y usamos luacr (logaritmo de la UACR) porque la UACR es muy asimétrica:\n\nm1 &lt;- lm(pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv,\n         data = ckd)\n\ntidy(m1, conf.int = TRUE) |&gt;\n  mutate(across(where(is.numeric), \\(x) round(x, 3)))\n\n# A tibble: 9 × 7\n  term        estimate std.error statistic p.value conf.low conf.high\n  &lt;chr&gt;          &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;   &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;\n1 (Intercept)    5.37      0.246    21.9     0        4.89      5.86 \n2 isglt2         1.34      0.037    36.1     0        1.26      1.41 \n3 I(edad/10)    -0.451     0.019   -24.0     0       -0.488    -0.414\n4 sexoHombre     0.023     0.034     0.678   0.498   -0.044     0.09 \n5 hba1c         -0.253     0.015   -16.7     0       -0.282    -0.223\n6 pas           -0.019     0.001   -16.3     0       -0.021    -0.016\n7 tfg_basal      0.015     0.002     7.73    0        0.011     0.019\n8 luacr         -0.225     0.017   -12.9     0       -0.259    -0.191\n9 ecv           -0.543     0.039   -14.1     0       -0.619    -0.467\n\n\nCómo leer cada coeficiente\n\n\n\n\n\n\n\nTérmino\nEstimación\nSe interpreta como\n\n\n\nisglt2\n≈ +1.3\nLos tratados pierden 1.3 mL/min/1.73 m²/año menos, a igual edad, sexo, HbA1c, PAS, TFGe, albuminuria y ECV\n\n\nI(edad/10)\n≈ −0.45\nPor cada 10 años más de edad, la pendiente es 0.45 peor\n\n\nhba1c\n≈ −0.25\nPor cada punto más de HbA1c, 0.25 peor\n\n\npas\n≈ −0.02\nPor cada mmHg más de PAS, 0.02 peor (0.2 por cada 10 mmHg)\n\n\ntfg_basal\n≈ +0.015\nA mayor TFGe basal, la pendiente es algo menos negativa\n\n\nluacr\n≈ −0.23\nCada aumento de 1 en ln(UACR) (UACR × 2.7) empeora la pendiente 0.23\n\n\necv\n≈ −0.5\nCon ECV previa, 0.5 peor\n\n\nsexoHombre\n≈ 0\nSin diferencia relevante\n\n\n\n\n\n\n\n\n\nTip💡 Tip práctico: escalar para interpretar mejor\n\n\n\n\nEdad por 10 años, PAS por 10 mmHg, UACR en logaritmo base 2 (log2(uacr): cada unidad = duplicar la UACR) hacen los coeficientes más fáciles de leer que “por 1 año” o “por 1 mg/g”.\nVariables categóricas: la categoría de referencia es la primera del factor; cámbiala con relevel() o fct_relevel() para comparar contra el grupo que tiene sentido clínico.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>37</span>  <span class='chapter-title'>Regresión lineal</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.2.html#qué-tan-bien-ajusta-r²-error-residual",
+    "href": "capitulos/Capítulo8.2.html#qué-tan-bien-ajusta-r²-error-residual",
+    "title": "Regresión lineal",
+    "section": "¿Qué tan bien ajusta? R², error residual",
+    "text": "¿Qué tan bien ajusta? R², error residual\n\nglance(m1) |&gt; select(r.squared, adj.r.squared, sigma, nobs) |&gt; round(3)\n\n# A tibble: 1 × 4\n  r.squared adj.r.squared sigma  nobs\n      &lt;dbl&gt;         &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;\n1     0.476         0.475  1.20  5000\n\n\n\n\nR² = fracción de la variación de \\(Y\\) explicada por el modelo. Aquí ≈ 0.48.\n\nsigma (error residual) = desviación típica de lo que el modelo no explica, en unidades de \\(Y\\).\n\nUn R² alto no significa que el modelo sea causalmente correcto, ni un R² bajo que no sirva: para estimar el efecto de la exposición, importa el sesgo de ese coeficiente, no el R².",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>37</span>  <span class='chapter-title'>Regresión lineal</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.2.html#qué-hace-el-ajuste-crudo-vs.-ajustado-vs.-verdad",
+    "href": "capitulos/Capítulo8.2.html#qué-hace-el-ajuste-crudo-vs.-ajustado-vs.-verdad",
+    "title": "Regresión lineal",
+    "section": "¿Qué hace el ajuste? Crudo vs. ajustado vs. verdad",
+    "text": "¿Qué hace el ajuste? Crudo vs. ajustado vs. verdad\nComparemos el coeficiente del iSGLT2 en tres modelos con la verdad (0.93). El tercer modelo incluye la fragilidad, que en la vida real no se mide:\n\ndat_o &lt;- oraculo |&gt; mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")), luacr = log(uacr))\n\nm2 &lt;- lm(pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv + fragilidad,\n         data = dat_o)\n\nbind_rows(\n  `Crudo (solo iSGLT2)` = tidy(m0, conf.int = TRUE),\n  `Ajustado por lo medido` = tidy(m1, conf.int = TRUE),\n  `Ajustado + fragilidad (no medible)` = tidy(m2, conf.int = TRUE),\n  .id = \"modelo\"\n) |&gt;\n  filter(term == \"isglt2\") |&gt;\n  select(modelo, estimate, conf.low, conf.high) |&gt;\n  add_row(modelo = \"Verdad (oráculo)\", estimate = ate_verdadero, conf.low = NA, conf.high = NA) |&gt;\n  mutate(across(where(is.numeric), \\(x) round(x, 2)))\n\n# A tibble: 4 × 4\n  modelo                             estimate conf.low conf.high\n  &lt;chr&gt;                                 &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;\n1 Crudo (solo iSGLT2)                    1.5      1.42      1.58\n2 Ajustado por lo medido                 1.34     1.26      1.41\n3 Ajustado + fragilidad (no medible)     0.93     0.87      1   \n4 Verdad (oráculo)                       0.93    NA        NA   \n\n\n\ntibble(\n  modelo = factor(c(\"Crudo\", \"Ajustado por\\nlo medido\", \"Ajustado +\\nfragilidad\"), \n                  levels = c(\"Crudo\", \"Ajustado por\\nlo medido\", \"Ajustado +\\nfragilidad\")),\n  est = c(coef(m0)[\"isglt2\"], coef(m1)[\"isglt2\"], coef(m2)[\"isglt2\"]),\n  inf = c(confint(m0)[\"isglt2\", 1], confint(m1)[\"isglt2\", 1], confint(m2)[\"isglt2\", 1]),\n  sup = c(confint(m0)[\"isglt2\", 2], confint(m1)[\"isglt2\", 2], confint(m2)[\"isglt2\", 2])\n) |&gt;\n  ggplot(aes(est, modelo, xmin = inf, xmax = sup)) +\n  geom_vline(xintercept = ate_verdadero, color = \"#D55E00\", linewidth = 1) +\n  geom_pointrange(color = \"#0072B2\") +\n  labs(x = \"Efecto del iSGLT2 sobre la pendiente de TFGe (mL/min/1.73 m²/año)\", y = NULL,\n       caption = \"Línea naranja = efecto causal verdadero (oráculo). Datos simulados.\") +\n  theme_minimal(base_size = 11)\n\n\n\n\n\n\n\nEsto resume la lección del capítulo:\n\nEl estimador crudo sobrestima el beneficio (tratados = pacientes de mejor pronóstico).\n\nAjustar por lo medido lo acerca a la verdad, pero no lo alcanza: queda confusión residual por la fragilidad.\nSolo cuando se incluye la variable no medida se recupera la verdad. Un modelo de regresión no puede arreglar lo que no se midió. Para eso sirven el diseño (aleatorización), los análisis de sensibilidad (E-value) o los instrumentos (Cap. 19).\n\n\n\n\n\n\n\nAdvertencia⚠️ El modelo no es el DAG\n\n\n\nUn coeficiente ajustado es “causal” solo si (1) el conjunto de ajuste cierra todos los caminos de puerta trasera (Cap. 3), (2) no se ajusta por mediadores ni colisionadores, y (3) el modelo está bien especificado. La selección de covariables viene del DAG, no del valor p de cada coeficiente.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>37</span>  <span class='chapter-title'>Regresión lineal</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.2.html#predicciones-y-efectos-promedio-marginaleffects",
+    "href": "capitulos/Capítulo8.2.html#predicciones-y-efectos-promedio-marginaleffects",
+    "title": "Regresión lineal",
+    "section": "Predicciones y efectos promedio: marginaleffects\n",
+    "text": "Predicciones y efectos promedio: marginaleffects\n\nUn coeficiente solo equivale al efecto promedio cuando el modelo no tiene interacciones ni transformaciones. Una forma general es predecir cada paciente con y sin tratamiento y promediar la diferencia (esto es el efecto marginal promedio, base de la g-fórmula, Cap. 12):\n\navg_comparisons(m1, variables = \"isglt2\")\n\n\n   Term Contrast Estimate Std. Error    z Pr(&gt;|z|)     S 2.5 % 97.5 %\n isglt2    1 - 0     1.34      0.037 36.1   &lt;0.001 943.2  1.26   1.41\n\nColumns: term, contrast, estimate, std.error, statistic, p.value, s.value, conf.low, conf.high \nType:  response \n\n\nCon este modelo lineal sin interacciones el resultado coincide con el coeficiente. Con modelos con interacción o no lineales (8.3 a 8.5) se diferencian, y avg_comparisons() sigue entregando el efecto promedio en la población.\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\n\n\\(\\beta_j\\) = diferencia promedio de \\(Y\\) por unidad de \\(X_j\\), manteniendo constantes las demás.\nCon exposición binaria, el coeficiente es la diferencia de medias ajustada.\nEscala las variables (por 10 años, log2(uacr)) y fija la categoría de referencia para interpretar.\n\nCrudo ≠ ajustado: ajustar por lo medido reduce la confusión pero no elimina la no medida.\nR² describe el ajuste, no la causalidad; el DAG decide las covariables.\n\nbroom::tidy()/glance() ordenan el resultado; avg_comparisons() da el efecto marginal promedio.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>37</span>  <span class='chapter-title'>Regresión lineal</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.2.html#ejercicio",
+    "href": "capitulos/Capítulo8.2.html#ejercicio",
+    "title": "Regresión lineal",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nAjusta un modelo con log2(uacr) en lugar de log(uacr). ¿Cómo cambia la interpretación del coeficiente?\nCambia con relevel(sexo, ref = \"Hombre\") el sexo de referencia. ¿Qué cambia en la tabla y qué no?\n¿Qué pasa con el coeficiente del iSGLT2 si quitas luacr del modelo? ¿Por qué se aleja de la verdad?",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>37</span>  <span class='chapter-title'>Regresión lineal</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.3.html",
+    "href": "capitulos/Capítulo8.3.html",
+    "title": "Regresión logística y de Poisson",
+    "section": "",
+    "text": "Desenlaces binarios y de conteo\nMuchos desenlaces nefrológicos son sí/no (evento renal a 36 meses, diálisis, hospitalización, muerte, hiperkalemia) o conteos (episodios de peritonitis, hospitalizaciones por año). Para ellos se usan modelos lineales generalizados:\nlibrary(tidyverse)\nlibrary(broom)\nlibrary(marginaleffects)\nlibrary(sandwich)\nlibrary(survival)\nsource(\"R/funciones_epi.R\")\n\noraculo &lt;- read_csv(\"Bases/ckd_isglt2_oraculo.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")), luacr = log(uacr))\n\nckd &lt;- oraculo |&gt; select(-starts_with(\"pendiente_0\"), -pendiente_1, -ite, -starts_with(\"evento_36m\"), -fragilidad)\n\n## Verdad (oráculo): riesgo a 36 meses si TODOS vs. NADIE reciben iSGLT2\nr1 &lt;- mean(oraculo$evento_36m_1); r0 &lt;- mean(oraculo$evento_36m_0)\nverdad &lt;- c(riesgo_si_todos = r1, riesgo_si_nadie = r0, DR = r1 - r0, RR = r1 / r0,\n            OR = (r1 / (1 - r1)) / (r0 / (1 - r0)))\nround(verdad, 3)\n\nriesgo_si_todos riesgo_si_nadie              DR              RR              OR \n          0.126           0.172          -0.045           0.736           0.698\nEl desenlace es el evento renal compuesto a los 36 meses (evento). En esta base todos los pacientes se siguen hasta el evento o hasta 36 meses, así que el riesgo a 36 meses está bien definido sin censura. (Con censura, se usa análisis de supervivencia, Cap. 9.)\nEl efecto causal verdadero que simulamos es RR = 0.74, DR = -0.045 y OR = 0.70: los tres miden el mismo efecto en escalas distintas.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>38</span>  <span class='chapter-title'>Regresión logística y de Poisson</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.3.html#desenlaces-binarios-y-de-conteo",
+    "href": "capitulos/Capítulo8.3.html#desenlaces-binarios-y-de-conteo",
+    "title": "Regresión logística y de Poisson",
+    "section": "",
+    "text": "Desenlace\nModelo\nMedida que se estima\n\n\n\nBinario\n\nLogística (binomial, enlace logit)\nOdds ratio (OR)\n\n\nBinario\n\nPoisson con errores robustos (o log-binomial)\nRazón de riesgos (RR)\n\n\nBinario\n\nModelo lineal o estandarización\n\nDiferencia de riesgos (DR)\n\n\nConteo o tasa\n\nPoisson (con offset de tiempo)\nRazón de tasas (IRR)\n\n\nTiempo hasta evento\n\nCox (Cap. 9)\nRazón de riesgos instantáneos (HR)",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>38</span>  <span class='chapter-title'>Regresión logística y de Poisson</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.3.html#regresión-logística",
+    "href": "capitulos/Capítulo8.3.html#regresión-logística",
+    "title": "Regresión logística y de Poisson",
+    "section": "Regresión logística",
+    "text": "Regresión logística\nEl modelo logístico trabaja con el logaritmo de las odds:\n\\[\n\\ln\\left(\\frac{P(Y=1)}{1-P(Y=1)}\\right) = \\beta_0 + \\beta_1 X_1 + \\dots + \\beta_p X_p \\qquad \\Rightarrow \\qquad \\text{OR} = e^{\\beta_1}\n\\]\n\n## Crudo\nl0 &lt;- glm(evento ~ isglt2, data = ckd, family = binomial)\n## Ajustado por las covariables medidas\nl1 &lt;- glm(evento ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv,\n          data = ckd, family = binomial)\n\ntidy(l1, conf.int = TRUE, exponentiate = TRUE) |&gt;\n  select(term, OR = estimate, conf.low, conf.high, p.value) |&gt;\n  mutate(across(where(is.numeric), \\(x) round(x, 3)))\n\n# A tibble: 9 × 5\n  term           OR conf.low conf.high p.value\n  &lt;chr&gt;       &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;   &lt;dbl&gt;\n1 (Intercept) 0.001    0         0.004   0    \n2 isglt2      0.507    0.422     0.608   0    \n3 I(edad/10)  1.25     1.14      1.37    0    \n4 sexoHombre  0.946    0.805     1.11    0.502\n5 hba1c       1.20     1.12      1.29    0    \n6 pas         1.01     1.01      1.02    0    \n7 tfg_basal   0.974    0.965     0.983   0    \n8 luacr       1.42     1.31      1.55    0    \n9 ecv         1.54     1.30      1.83    0    \n\n\nexponentiate = TRUE convierte los coeficientes en OR. Interpretación: “con iSGLT2 las odds de evento renal a 36 meses son ~0.51 veces las de no tratados, ajustando por las covariables”.\n\n\n\n\n\n\nAdvertencia⚠️ Odds ≠ riesgo (cuando el evento no es raro)\n\n\n\nEl OR se parece al RR solo si el evento es raro (&lt; 10 %). Aquí el riesgo es 15 % y el OR exagera el efecto: un OR de 0.51 corresponde a un RR de ~0.58. Presentar un OR como “la mitad del riesgo” es un error muy común. Si tu pregunta es sobre riesgo, estima RR o DR.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>38</span>  <span class='chapter-title'>Regresión logística y de Poisson</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.3.html#obtener-el-rr-directamente-poisson-con-errores-robustos",
+    "href": "capitulos/Capítulo8.3.html#obtener-el-rr-directamente-poisson-con-errores-robustos",
+    "title": "Regresión logística y de Poisson",
+    "section": "Obtener el RR directamente: Poisson con errores robustos",
+    "text": "Obtener el RR directamente: Poisson con errores robustos\nUn modelo de Poisson aplicado a un desenlace binario estima el RR; el problema es que sus errores estándar usuales son demasiado grandes. Se corrige con la varianza robusta (Zou, 2004):\n\np1 &lt;- glm(evento ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv,\n          data = ckd, family = poisson)\n\nee_rob &lt;- sqrt(diag(vcovHC(p1, type = \"HC0\")))\ntibble(termino = names(coef(p1)), RR = exp(coef(p1)),\n       inf = exp(coef(p1) - 1.96 * ee_rob), sup = exp(coef(p1) + 1.96 * ee_rob)) |&gt;\n  filter(termino == \"isglt2\") |&gt;\n  mutate(across(where(is.numeric), \\(x) round(x, 3)))\n\n# A tibble: 1 × 4\n  termino    RR   inf   sup\n  &lt;chr&gt;   &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;\n1 isglt2  0.586 0.507 0.677\n\n\n\n\n\n\n\n\nTip💡 ¿Poisson robusto o log-binomial?\n\n\n\n\n\nglm(..., family = binomial(link = \"log\")) (log-binomial) estima el RR directamente, pero a veces no converge y puede predecir riesgos &gt; 1.\n\nPoisson robusto casi siempre converge: es la opción práctica por defecto.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>38</span>  <span class='chapter-title'>Regresión logística y de Poisson</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.3.html#la-diferencia-de-riesgos-y-el-riesgo-estandarizado",
+    "href": "capitulos/Capítulo8.3.html#la-diferencia-de-riesgos-y-el-riesgo-estandarizado",
+    "title": "Regresión logística y de Poisson",
+    "section": "La diferencia de riesgos y el riesgo “estandarizado”",
+    "text": "La diferencia de riesgos y el riesgo “estandarizado”\nLa logística no entrega directamente DR ni RR. Una vía general: predecir el riesgo de cada paciente con y sin tratamiento y promediar (estandarización o g-fórmula, Cap. 12). Con marginaleffects:\n\navg_comparisons(l1, variables = \"isglt2\", comparison = \"difference\")   # diferencia de riesgos\n\n\n   Term Contrast Estimate Std. Error     z Pr(&gt;|z|)    S   2.5 %  97.5 %\n isglt2    1 - 0  -0.0789     0.0105 -7.52   &lt;0.001 44.0 -0.0995 -0.0583\n\nColumns: term, contrast, estimate, std.error, statistic, p.value, s.value, conf.low, conf.high \nType:  response \n\navg_comparisons(l1, variables = \"isglt2\", comparison = \"ratio\")        # razón de riesgos\n\n\n   Term Contrast Estimate Std. Error    z Pr(&gt;|z|)     S 2.5 % 97.5 %\n isglt2    1 / 0    0.562     0.0446 12.6   &lt;0.001 118.5 0.474  0.649\n\nColumns: term, contrast, estimate, std.error, statistic, p.value, s.value, conf.low, conf.high \nType:  response",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>38</span>  <span class='chapter-title'>Regresión logística y de Poisson</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.3.html#resumen-seis-estimaciones-del-mismo-efecto",
+    "href": "capitulos/Capítulo8.3.html#resumen-seis-estimaciones-del-mismo-efecto",
+    "title": "Regresión logística y de Poisson",
+    "section": "Resumen: seis estimaciones del mismo efecto",
+    "text": "Resumen: seis estimaciones del mismo efecto\n\ncrudo_rr &lt;- mean(ckd$evento[ckd$isglt2 == 1]) / mean(ckd$evento[ckd$isglt2 == 0])\ndr &lt;- avg_comparisons(l1, variables = \"isglt2\", comparison = \"difference\")\nrr &lt;- avg_comparisons(l1, variables = \"isglt2\", comparison = \"ratio\")\n\ntibble(\n  medida = c(\"OR crudo\", \"OR ajustado\", \"RR crudo\", \"RR (Poisson robusto)\", \"RR estandarizado\", \"DR estandarizada\"),\n  estimacion = c(exp(coef(l0)[\"isglt2\"]), exp(coef(l1)[\"isglt2\"]), crudo_rr, exp(coef(p1)[\"isglt2\"]),\n                 rr$estimate, dr$estimate),\n  verdad = unname(verdad[c(\"OR\", \"OR\", \"RR\", \"RR\", \"RR\", \"DR\")])\n) |&gt;\n  mutate(across(where(is.numeric), \\(x) round(x, 3)))\n\n# A tibble: 6 × 3\n  medida               estimacion verdad\n  &lt;chr&gt;                     &lt;dbl&gt;  &lt;dbl&gt;\n1 OR crudo                  0.514  0.698\n2 OR ajustado               0.507  0.698\n3 RR crudo                  0.567  0.736\n4 RR (Poisson robusto)      0.586  0.736\n5 RR estandarizado          0.562  0.736\n6 DR estandarizada         -0.079 -0.045\n\n\nLos valores “ajustados” mejoran frente a los crudos, pero siguen más lejos de la verdad (RR verdadero 0.74, DR -0.045) por la confusión residual (fragilidad), igual que en el 8.2. Cada medida debe compararse con su propia verdad (OR 0.70, RR 0.74, DR −0.045): el OR ajustado (0.51) y el RR (0.56-0.59) se alejan de ellas por la misma razón, y recuerda que OR y RR son escalas distintas.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>38</span>  <span class='chapter-title'>Regresión logística y de Poisson</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.3.html#no-colapsabilidad-del-or",
+    "href": "capitulos/Capítulo8.3.html#no-colapsabilidad-del-or",
+    "title": "Regresión logística y de Poisson",
+    "section": "No colapsabilidad del OR",
+    "text": "No colapsabilidad del OR\nEl RR y la DR se “colapsan”: si el efecto es el mismo en todos los estratos y no hay confusión, el valor global coincide con el de los estratos. El OR no: puede diferir entre el estrato y el total aunque no haya confusión. Ejemplo de juguete, con la misma RR = 0.5 en dos estratos del mismo tamaño y sin confusión:\n\ntoy &lt;- tibble(estrato = c(\"Bajo riesgo\", \"Alto riesgo\"),\n              r_trat = c(0.10, 0.40), r_ctrl = c(0.20, 0.80)) |&gt;\n  mutate(RR = r_trat / r_ctrl, OR = (r_trat / (1 - r_trat)) / (r_ctrl / (1 - r_ctrl)))\ntoy\n\n# A tibble: 2 × 5\n  estrato     r_trat r_ctrl    RR    OR\n  &lt;chr&gt;        &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;\n1 Bajo riesgo    0.1    0.2   0.5 0.444\n2 Alto riesgo    0.4    0.8   0.5 0.167\n\nglobal &lt;- toy |&gt; summarise(r_trat = mean(r_trat), r_ctrl = mean(r_ctrl)) |&gt;\n  mutate(RR = r_trat / r_ctrl, OR = (r_trat / (1 - r_trat)) / (r_ctrl / (1 - r_ctrl)))\nglobal\n\n# A tibble: 1 × 4\n  r_trat r_ctrl    RR    OR\n   &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;\n1   0.25    0.5   0.5 0.333\n\n\nEl RR es 0.5 en cada estrato y en el total; el OR global (0.33) no coincide con ninguno de los OR de los estratos (0.44 y 0.17). Consecuencia: un OR ajustado y uno crudo pueden diferir aunque no haya confusión, y los OR de estudios con distintas covariables no son comparables entre sí. Otra razón para preferir RR o DR cuando se pueda.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>38</span>  <span class='chapter-title'>Regresión logística y de Poisson</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.3.html#conteos-y-tasas-regresión-de-poisson-con-offset",
+    "href": "capitulos/Capítulo8.3.html#conteos-y-tasas-regresión-de-poisson-con-offset",
+    "title": "Regresión logística y de Poisson",
+    "section": "Conteos y tasas: regresión de Poisson con offset\n",
+    "text": "Conteos y tasas: regresión de Poisson con offset\n\nCuando los pacientes tienen distinto tiempo de seguimiento, el desenlace es una tasa (eventos por persona-tiempo). El modelo de Poisson incluye el logaritmo del tiempo como offset:\n\ni0 &lt;- glm(evento ~ isglt2 + offset(log(tiempo_meses)), data = ckd, family = poisson)\ni1 &lt;- glm(evento ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv + offset(log(tiempo_meses)),\n          data = ckd, family = poisson)\n\nirr &lt;- function(m) round(exp(c(IRR = coef(m)[\"isglt2\"], confint.default(m)[\"isglt2\", ])), 3)\nrbind(crudo = irr(i0), ajustado = irr(i1))\n\n         IRR.isglt2 2.5 % 97.5 %\ncrudo          0.54 0.465  0.628\najustado       0.55 0.467  0.647\n\n\nLa razón de tasas (IRR) es aquí casi igual al HR del modelo de Cox cuando el riesgo instantáneo es constante en el tiempo. Los datos simulados lo cumplen; la IRR ajustada (0.55) tampoco llega al HR verdadero de 0.70 por la misma confusión residual. Con riesgos que cambian en el tiempo se usa Cox (Cap. 9).",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>38</span>  <span class='chapter-title'>Regresión logística y de Poisson</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.3.html#casos-y-controles-pareados-regresión-logística-condicional",
+    "href": "capitulos/Capítulo8.3.html#casos-y-controles-pareados-regresión-logística-condicional",
+    "title": "Regresión logística y de Poisson",
+    "section": "Casos y controles pareados: regresión logística condicional",
+    "text": "Casos y controles pareados: regresión logística condicional\nEn un estudio de casos y controles se compara la exposición entre quienes tuvieron el evento (casos) y sujetos sin evento (controles). Para controlar por factores de emparejamiento (sexo, grupo de edad) se forman conjuntos: cada caso con 2 controles del mismo sexo y edad. El análisis debe respetar los conjuntos con regresión logística condicional (survival::clogit()):\n\nset.seed(3)\nckd_g &lt;- ckd |&gt; mutate(gedad = cut(edad, seq(25, 95, 5)))\ncasos &lt;- ckd_g |&gt; filter(evento == 1)\npool  &lt;- ckd_g |&gt; filter(evento == 0)\n\nconjuntos &lt;- map_dfr(seq_len(nrow(casos)), \\(i) {\n  cs &lt;- casos[i, ]\n  elegibles &lt;- pool |&gt; filter(sexo == cs$sexo, gedad == cs$gedad)\n  if (nrow(elegibles) &lt; 2) return(NULL)\n  bind_rows(cs, slice_sample(elegibles, n = 2)) |&gt; mutate(conjunto = i)\n})\n\nc(conjuntos = n_distinct(conjuntos$conjunto), filas = nrow(conjuntos))\n\nconjuntos     filas \n      765      2295 \n\ncl &lt;- clogit(evento ~ isglt2 + strata(conjunto), data = conjuntos)\nround(exp(c(OR = coef(cl), confint(cl))), 3)\n\nOR.isglt2                     \n    0.618     0.510     0.749 \n\n\nEl OR de casos y controles (0.62, IC 0.51-0.75) estima el OR del diseño, no el RR; con un evento tan frecuente, lo vuelve a exagerar. Las variables usadas para emparejar no pueden estimarse en el modelo (se anulan dentro de cada conjunto) pero sí se pueden ajustar las demás.\n\n\n\n\n\n\nAdvertencia⚠️ Emparejar y analizar sin conjuntos\n\n\n\nSi emparejas por diseño pero analizas con glm() común, pierdes precisión y puedes sesgar hacia el nulo. Los casos y controles pareados se analizan con clogit().",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>38</span>  <span class='chapter-title'>Regresión logística y de Poisson</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.3.html#consejos-prácticos-con-modelos-binarios",
+    "href": "capitulos/Capítulo8.3.html#consejos-prácticos-con-modelos-binarios",
+    "title": "Regresión logística y de Poisson",
+    "section": "Consejos prácticos con modelos binarios",
+    "text": "Consejos prácticos con modelos binarios\n\n\n\n\n\n\nTip💡 Checklist para un modelo logístico o de Poisson\n\n\n\n\n¿Cuál es la medida que quiero (OR, RR, DR)? Si el evento es común, no uses OR como riesgo.\nEventos por variable: al menos 10-20 eventos por cada parámetro del modelo (más si el modelo es predictivo, Cap. 17).\nVariables continuas con escala interpretable (por 10 años, log2).\nSeparación perfecta (coeficientes enormes con error estándar gigante): un nivel predice el desenlace sin excepción. Soluciones: agrupar categorías, regresión de Firth.\nSi hay datos agrupados (pacientes en centros): errores estándar robustos por conglomerado o modelos mixtos (Cap. 14).\nCon tiempos de seguimiento distintos o censura: no uses un modelo binario; usa Poisson con offset o Cox.\n\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\n\nLogística → OR; Poisson robusto → RR; estandarización (avg_comparisons) → DR y RR marginales; Poisson con offset → IRR.\nEl OR exagera el RR si el evento no es raro y no es colapsable: evítalo como medida de riesgo.\nUn modelo ajustado no repara la confusión no medida: todos los estimadores quedaron lejos de la verdad por la fragilidad.\nCasos y controles pareados → clogit().\nCon censura o seguimiento desigual, pasa a supervivencia (Cap. 9).",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>38</span>  <span class='chapter-title'>Regresión logística y de Poisson</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.3.html#ejercicio",
+    "href": "capitulos/Capítulo8.3.html#ejercicio",
+    "title": "Regresión logística y de Poisson",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nCalcula el RR del iSGLT2 con family = binomial(link = \"log\") y compáralo con el Poisson robusto. ¿Convergió?\nEstima el OR del iSGLT2 solo en pacientes con A3 (UACR ≥ 300). ¿Es mayor o menor que en el total?\nCalcula el NNT a 36 meses a partir de la DR estandarizada. ¿Cómo cambia el NNT crudo (sin ajustar)?",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>38</span>  <span class='chapter-title'>Regresión logística y de Poisson</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.4.html",
+    "href": "capitulos/Capítulo8.4.html",
+    "title": "Interacción y modificación del efecto",
+    "section": "",
+    "text": "Tres conceptos que se confunden\nEn el Cap. 3 vimos que el iSGLT2 beneficia más a quienes tienen más albuminuria. Eso es modificación del efecto por la albuminuria: una pregunta clínica real (“¿a quién trato con prioridad?”), no un error que haya que “corregir”.\nlibrary(tidyverse)\nlibrary(broom)\nlibrary(marginaleffects)\nsource(\"R/funciones_epi.R\")\n\noraculo &lt;- read_csv(\"Bases/ckd_isglt2_oraculo.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")),\n         luacr = log(uacr), cat_a = categoria_a(uacr))",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>39</span>  <span class='chapter-title'>Interacción y modificación del efecto</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.4.html#tres-conceptos-que-se-confunden",
+    "href": "capitulos/Capítulo8.4.html#tres-conceptos-que-se-confunden",
+    "title": "Interacción y modificación del efecto",
+    "section": "",
+    "text": "Concepto\nPregunta\nQué se hace\n\n\n\nConfusión\n¿Otra variable distorsiona la relación exposición-desenlace?\nSe ajusta (la variable es una molestia)\n\n\nMediación\n¿Parte del efecto pasa por otra variable?\nSe descompone (Cap. 18)\n\n\nModificación del efecto (interacción)\n¿El efecto cambia según el nivel de otra variable?\nSe estudia (la variable es de interés)",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>39</span>  <span class='chapter-title'>Interacción y modificación del efecto</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.4.html#interacción-en-un-modelo-lineal",
+    "href": "capitulos/Capítulo8.4.html#interacción-en-un-modelo-lineal",
+    "title": "Interacción y modificación del efecto",
+    "section": "Interacción en un modelo lineal",
+    "text": "Interacción en un modelo lineal\nPara que el efecto del iSGLT2 dependa de la albuminuria, se incluye un producto entre la exposición y la variable modificadora:\n\\[\nE[Y] = \\beta_0 + \\beta_1\\,\\text{iSGLT2} + \\beta_2\\,\\ln(\\text{UACR}) + \\beta_3\\,(\\text{iSGLT2} \\times \\ln\\text{UACR}) + \\dots\n\\]\nEl efecto del iSGLT2 es \\(\\beta_1 + \\beta_3 \\ln(\\text{UACR})\\): cambia con la UACR. Para que \\(\\beta_1\\) sea interpretable se centra la UACR (restando un valor de referencia; aquí ln(UACR) = 4.8 es la UACR típica ≈ 120 mg/g).\n\nm_int &lt;- lm(pendiente_tfg ~ isglt2 * I(luacr - 4.8) + I(edad / 10) + sexo + hba1c + pas + tfg_basal + ecv,\n            data = oraculo)\n\ntidy(m_int, conf.int = TRUE) |&gt;\n  filter(str_detect(term, \"isglt2\")) |&gt;\n  mutate(across(where(is.numeric), \\(x) round(x, 3)))\n\n# A tibble: 2 × 7\n  term                  estimate std.error statistic p.value conf.low conf.high\n  &lt;chr&gt;                    &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;   &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;\n1 isglt2                   1.33      0.036      36.8       0     1.26     1.40 \n2 isglt2:I(luacr - 4.8)    0.532     0.032      16.9       0     0.47     0.593\n\n\n\n\nisglt2 (≈ 1.3): el efecto del iSGLT2 cuando ln(UACR) = 4.8 (UACR ≈ 120 mg/g).\n\nisglt2:I(luacr - 4.8) (≈ 0.53): por cada aumento de 1 en ln(UACR), el beneficio aumenta en 0.53 mL/min/1.73 m²/año.\n\n¿La interacción es necesaria? Se compara el modelo con y sin ella con una prueba de razón de verosimilitud o F:\n\nm_sin &lt;- update(m_int, . ~ . - isglt2:I(luacr - 4.8))\nanova(m_sin, m_int)\n\nAnalysis of Variance Table\n\nModel 1: pendiente_tfg ~ isglt2 + I(luacr - 4.8) + I(edad/10) + sexo + \n    hba1c + pas + tfg_basal + ecv\nModel 2: pendiente_tfg ~ isglt2 * I(luacr - 4.8) + I(edad/10) + sexo + \n    hba1c + pas + tfg_basal + ecv\n  Res.Df    RSS Df Sum of Sq     F    Pr(&gt;F)    \n1   4991 7126.9                                 \n2   4990 6742.5  1    384.42 284.5 &lt; 2.2e-16 ***\n---\nSignif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1\n\n\nEfecto del iSGLT2 por categoría de albuminuria\nEn clínica interesa el efecto en cada grupo (A1, A2, A3). avg_comparisons() con by lo calcula a partir del modelo con interacción:\n\nest &lt;- avg_comparisons(m_int, variables = \"isglt2\", by = \"cat_a\") |&gt;\n  as_tibble() |&gt; select(cat_a, estimate, conf.low, conf.high)\n\nverdad &lt;- oraculo |&gt; group_by(cat_a) |&gt; summarise(verdadero = mean(ite), n = n())\n\nleft_join(est, verdad, by = \"cat_a\") |&gt; mutate(across(where(is.numeric), \\(x) round(x, 2)))\n\n# A tibble: 3 × 6\n  cat_a estimate conf.low conf.high verdadero     n\n  &lt;ord&gt;    &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt; &lt;dbl&gt;\n1 A1        0.31     0.17      0.45      0.06   465\n2 A2        1.23     1.16      1.3       0.8   3536\n3 A3        2.12     2.01      2.24      1.8    999\n\n\n\nleft_join(est, verdad, by = \"cat_a\") |&gt;\n  ggplot(aes(cat_a)) +\n  geom_pointrange(aes(y = estimate, ymin = conf.low, ymax = conf.high, color = \"Estimado (modelo)\"),\n                  position = position_nudge(x = -0.08)) +\n  geom_point(aes(y = verdadero, color = \"Verdad (oráculo)\"), shape = 18, size = 4,\n             position = position_nudge(x = 0.08)) +\n  scale_color_manual(values = c(\"Estimado (modelo)\" = \"#0072B2\", \"Verdad (oráculo)\" = \"#D55E00\"), name = NULL) +\n  labs(x = \"Categoría de albuminuria (KDIGO)\", y = \"Efecto del iSGLT2 (mL/min/1.73 m²/año)\",\n       caption = \"Datos simulados.\") +\n  theme_minimal(base_size = 11) + theme(legend.position = \"bottom\")\n\n\n\n\n\n\n\nEl modelo recupera el patrón (casi nulo en A1, intermedio en A2, grande en A3), pero sobrestima el nivel de cada grupo en ~0.3: es la misma confusión residual por la fragilidad (8.2). La forma de la heterogeneidad se aprende bien aunque el nivel esté sesgado.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>39</span>  <span class='chapter-title'>Interacción y modificación del efecto</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.4.html#interacción-en-desenlaces-binarios-en-qué-escala",
+    "href": "capitulos/Capítulo8.4.html#interacción-en-desenlaces-binarios-en-qué-escala",
+    "title": "Interacción y modificación del efecto",
+    "section": "Interacción en desenlaces binarios: ¿en qué escala?",
+    "text": "Interacción en desenlaces binarios: ¿en qué escala?\nPara un desenlace binario, “interacción” depende de la escala:\n\n\nMultiplicativa: el efecto relativo (RR u OR) cambia entre estratos.\n\nAditiva: el efecto absoluto (DR) cambia entre estratos.\n\nPueden no coincidir. Un efecto relativo constante (RR = 0.7 en todos) implica diferencias de riesgo distintas si el riesgo basal varía. Eso ocurre en nuestros datos: el HR del iSGLT2 es constante (0.70) para todos, pero el riesgo basal de evento crece con la albuminuria.\n\nl_int &lt;- glm(evento ~ isglt2 * cat_a + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv,\n             data = oraculo, family = binomial)\nl_sin &lt;- update(l_int, . ~ . - isglt2:cat_a)\n\n## ¿Hay interacción multiplicativa? (prueba de razón de verosimilitud)\nanova(l_sin, l_int, test = \"LRT\")\n\nAnalysis of Deviance Table\n\nModel 1: evento ~ isglt2 + cat_a + I(edad/10) + sexo + hba1c + pas + tfg_basal + \n    luacr + ecv\nModel 2: evento ~ isglt2 * cat_a + I(edad/10) + sexo + hba1c + pas + tfg_basal + \n    luacr + ecv\n  Resid. Df Resid. Dev Df Deviance Pr(&gt;Chi)\n1      4989     3877.2                     \n2      4987     3876.6  2  0.59652   0.7421\n\n\nNo hay evidencia de interacción multiplicativa (p ≈ 0.7). Pero en escala absoluta el beneficio es muy distinto:\n\ndr_grupo &lt;- avg_comparisons(l_int, variables = \"isglt2\", by = \"cat_a\", comparison = \"difference\") |&gt;\n  as_tibble() |&gt; select(cat_a, DR = estimate, DR_inf = conf.low, DR_sup = conf.high)\nrr_grupo &lt;- avg_comparisons(l_int, variables = \"isglt2\", by = \"cat_a\", comparison = \"ratio\") |&gt;\n  as_tibble() |&gt; select(cat_a, RR = estimate)\n\ndr_verdad &lt;- oraculo |&gt; group_by(cat_a) |&gt; summarise(DR_verdad = mean(evento_36m_1 - evento_36m_0))\n\nleft_join(dr_grupo, rr_grupo, by = \"cat_a\") |&gt;\n  left_join(dr_verdad, by = \"cat_a\") |&gt;\n  mutate(NNT = 1 / abs(DR), across(where(is.numeric), \\(x) round(x, 3)))\n\n# A tibble: 3 × 7\n  cat_a     DR DR_inf DR_sup    RR DR_verdad   NNT\n  &lt;ord&gt;  &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt;     &lt;dbl&gt; &lt;dbl&gt;\n1 A1    -0.046 -0.084 -0.008 0.347    -0.024 21.8 \n2 A2    -0.073 -0.096 -0.05  0.576    -0.042 13.6 \n3 A3    -0.113 -0.167 -0.058 0.627    -0.066  8.87\n\n\nEn escala relativa, la heterogeneidad es leve y poco precisa (el RR de A1 se basa en pocos pacientes y su IC es amplio; la prueba de interacción da p ≈ 0.7). En escala absoluta, la diferencia de riesgos y el NNT cambian mucho: tratar a un paciente A3 evita bastantes más eventos que tratar a uno A1. Esto es modificación del efecto en escala aditiva y es la que importa para decidir a quién tratar con recursos limitados.\nLas DR estimadas están infladas respecto de la verdad (DR_verdad: −2.4, −4.2 y −6.6 puntos) por la confusión residual de siempre, pero el gradiente (más beneficio absoluto a mayor albuminuria) se conserva.\n\n\n\n\n\n\nImportante🎯 Qué escala reportar\n\n\n\n\n\nSiempre reporta la interacción en la escala aditiva si la decisión clínica depende del beneficio absoluto (NNT, eventos evitados).\nLa escala multiplicativa es la natural de los modelos logístico y de Cox y sirve para poner a prueba la interacción estadística.\n\nReporta ambas (recomendación de VanderWeele): la ausencia de interacción en una escala no implica ausencia en la otra.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>39</span>  <span class='chapter-title'>Interacción y modificación del efecto</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.4.html#interacción-aditiva-entre-dos-factores-reri",
+    "href": "capitulos/Capítulo8.4.html#interacción-aditiva-entre-dos-factores-reri",
+    "title": "Interacción y modificación del efecto",
+    "section": "Interacción aditiva entre dos factores: RERI",
+    "text": "Interacción aditiva entre dos factores: RERI\nCuando se estudian dos factores de riesgo, la interacción aditiva se resume con el RERI (relative excess risk due to interaction):\n\\[\n\\text{RERI} = RR_{11} - RR_{10} - RR_{01} + 1\n\\]\nSi no hay interacción aditiva, RERI = 0; RERI &gt; 0 indica un efecto conjunto mayor que la suma de los efectos separados. Para ambos factores definidos como de riesgo, recodificamos “no recibir iSGLT2” y comparamos con la ECV previa:\n\noraculo &lt;- oraculo |&gt; mutate(sin_isglt2 = 1 - isglt2)\n\nreri_fn &lt;- function(datos, i = seq_len(nrow(datos))) {\n  m &lt;- glm(evento ~ sin_isglt2 * ecv + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr,\n           data = datos[i, ], family = poisson)\n  b &lt;- coef(m)\n  rr10 &lt;- exp(b[\"sin_isglt2\"]); rr01 &lt;- exp(b[\"ecv\"])\n  rr11 &lt;- exp(b[\"sin_isglt2\"] + b[\"ecv\"] + b[\"sin_isglt2:ecv\"])\n  unname(rr11 - rr10 - rr01 + 1)\n}\n\nlibrary(boot)\nset.seed(8)\nb_reri &lt;- boot(oraculo, reri_fn, R = 500)\nc(RERI = b_reri$t0, boot.ci(b_reri, type = \"perc\")$percent[4:5] |&gt; setNames(c(\"IC_inf\", \"IC_sup\")))\n\n      RERI     IC_inf     IC_sup \n 0.1353647 -0.3007817  0.5318136 \n\n\nUn RERI cuyo IC incluye 0 indica sin interacción aditiva detectable entre no recibir iSGLT2 y tener ECV previa. El IC del RERI no tiene una fórmula sencilla: se obtiene con el método delta o, como aquí, con bootstrap (Cap. 7.4).",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>39</span>  <span class='chapter-title'>Interacción y modificación del efecto</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.4.html#análisis-de-subgrupos-lo-que-se-debe-y-no-se-debe-hacer",
+    "href": "capitulos/Capítulo8.4.html#análisis-de-subgrupos-lo-que-se-debe-y-no-se-debe-hacer",
+    "title": "Interacción y modificación del efecto",
+    "section": "Análisis de subgrupos: lo que se debe y no se debe hacer",
+    "text": "Análisis de subgrupos: lo que se debe y no se debe hacer\n\n\n\n\n\n\nAdvertencia⚠️ Cinco errores frecuentes\n\n\n\n\n\nComparar valores p entre subgrupos (“significativo en hombres, no en mujeres”). El método correcto es probar la interacción.\n\nHacer muchos subgrupos sin plan previo: con 10 subgrupos, 40 % de probabilidad de al menos un falso positivo.\n\nSubgrupos sin potencia: el estudio se calculó para el efecto global, no para subgrupos; “sin efecto” puede significar “sin potencia”.\n\nDicotomizar una variable continua (UACR &lt; 300 vs. ≥ 300) pierde información; mejor interacción con la variable continua.\n\nInterpretar causalmente la interacción sin considerar que la variable modificadora también necesita control de confusión.\n\n\n\n\n\n\n\n\n\nTip💡 Cómo presentar subgrupos\n\n\n\nUn gráfico de bosque (forest plot) con la estimación en cada subgrupo y el p de la interacción, en la misma escala y con el efecto global arriba. Si los subgrupos no fueron planeados, etiqueta el análisis como exploratorio.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>39</span>  <span class='chapter-title'>Interacción y modificación del efecto</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.4.html#efecto-heterogéneo-del-tratamiento-lo-que-viene",
+    "href": "capitulos/Capítulo8.4.html#efecto-heterogéneo-del-tratamiento-lo-que-viene",
+    "title": "Interacción y modificación del efecto",
+    "section": "Efecto heterogéneo del tratamiento: lo que viene",
+    "text": "Efecto heterogéneo del tratamiento: lo que viene\nEstudiar un modificador a la vez (albuminuria, sexo, edad) es el primer paso. El conjunto de métodos para estimar el efecto individual esperado con muchas variables (causal forests, meta-learners) se verá en el Cap. 19.\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\n\nConfusión = se ajusta; modificación del efecto = se estudia; mediación = se descompone.\nLa interacción se modela con términos producto (centrar la variable continua).\nPara decidir a quién tratar importa la escala aditiva (DR, NNT); para pruebas, la multiplicativa. Reporta ambas.\nUn RR constante genera DR distinta si el riesgo basal varía.\nPrueba la interacción; nunca compares p entre subgrupos.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>39</span>  <span class='chapter-title'>Interacción y modificación del efecto</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.4.html#ejercicio",
+    "href": "capitulos/Capítulo8.4.html#ejercicio",
+    "title": "Interacción y modificación del efecto",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nEstima la interacción entre iSGLT2 y sexo en la pendiente de TFGe. ¿Existe modificación del efecto?\nCalcula el NNT a 36 meses por categoría de albuminuria con la DR estandarizada de cada grupo. ¿En qué grupo es menor?\nCambia cat_a por luacr (continua) en la interacción del modelo binario. ¿Cómo cambia el efecto estimado al aumentar la UACR?",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>39</span>  <span class='chapter-title'>Interacción y modificación del efecto</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.5.html",
+    "href": "capitulos/Capítulo8.5.html",
+    "title": "Supuestos, diagnóstico y no linealidad",
+    "section": "",
+    "text": "Supuestos de la regresión lineal\nEl que más importa para el sesgo es la linealidad; los demás afectan sobre todo la precisión.\nlibrary(tidyverse)\nlibrary(broom)\nlibrary(splines)\nlibrary(sandwich)\nlibrary(lmtest)\nlibrary(rms)            # vif(), rcs()\n\nckd &lt;- read_csv(\"Bases/ckd_isglt2.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")), luacr = log(uacr))",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>40</span>  <span class='chapter-title'>Supuestos, diagnóstico y no linealidad</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.5.html#supuestos-de-la-regresión-lineal",
+    "href": "capitulos/Capítulo8.5.html#supuestos-de-la-regresión-lineal",
+    "title": "Supuestos, diagnóstico y no linealidad",
+    "section": "",
+    "text": "Supuesto\n¿Qué pasa si falla?\nCómo se revisa\n\n\n\n\nLinealidad (la relación X–Y es recta en la escala usada)\nCoeficientes y efecto sesgados\n\nResiduos vs. cada variable\n\n\n\nIndependencia de las observaciones\nErrores estándar demasiado pequeños\n\nConocer el diseño (pacientes por centro, mediciones repetidas)\n\n\n\nHomocedasticidad (varianza constante de los residuos)\nErrores estándar incorrectos\n\nResiduos vs. predichos\n\n\nNormalidad de los residuos\nPoco importante con n grande; afecta intervalos de predicción\nGráfico Q-Q\n\n\nSin colinealidad extrema\nCoeficientes inestables\nFactor de inflación de varianza (VIF)\n\n\nSin puntos muy influyentes\nUn paciente cambia el resultado\nDistancia de Cook, DFBETA",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>40</span>  <span class='chapter-title'>Supuestos, diagnóstico y no linealidad</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.5.html#diagnóstico-con-gráficos",
+    "href": "capitulos/Capítulo8.5.html#diagnóstico-con-gráficos",
+    "title": "Supuestos, diagnóstico y no linealidad",
+    "section": "Diagnóstico con gráficos",
+    "text": "Diagnóstico con gráficos\nbroom::augment() agrega a la base los valores predichos, residuos y la distancia de Cook:\n\nm &lt;- lm(pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv, data = ckd)\na &lt;- augment(m)\n\ng1 &lt;- ggplot(a, aes(.fitted, .resid)) +\n  geom_point(alpha = 0.15, size = 0.7) +\n  geom_hline(yintercept = 0, color = \"#D55E00\") +\n  geom_smooth(method = \"loess\", formula = y ~ x, se = FALSE) +\n  labs(x = \"Valores predichos\", y = \"Residuos\", title = \"Residuos vs. predichos\")\n\ng2 &lt;- ggplot(a, aes(sample = .std.resid)) +\n  stat_qq(alpha = 0.3, size = 0.7) + stat_qq_line(color = \"#D55E00\") +\n  labs(x = \"Cuantiles teóricos\", y = \"Residuos estandarizados\", title = \"Gráfico Q-Q\")\n\nlibrary(patchwork)\n(g1 + g2) & theme_minimal(base_size = 11)\n\n\n\n\n\n\n\nCómo leer estos gráficos:\n\n\nResiduos vs. predichos: debe ser una nube sin forma alrededor de 0. Una curva indica no linealidad; un embudo, heterocedasticidad.\n\nQ-Q: los puntos sobre la recta indican residuos aproximadamente normales. Aquí lo son (los simulamos así).\n\nCon plot(m) de R base se obtienen los cuatro gráficos clásicos en una sola llamada.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>40</span>  <span class='chapter-title'>Supuestos, diagnóstico y no linealidad</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.5.html#no-linealidad-cuando-la-variable-no-entra-en-línea-recta",
+    "href": "capitulos/Capítulo8.5.html#no-linealidad-cuando-la-variable-no-entra-en-línea-recta",
+    "title": "Supuestos, diagnóstico y no linealidad",
+    "section": "No linealidad: cuando la variable no entra “en línea recta”",
+    "text": "No linealidad: cuando la variable no entra “en línea recta”\nEl ejemplo clásico en nefrología es la UACR: es muy asimétrica y su efecto sobre la pérdida de TFGe se parece más a una función del logaritmo. Comparemos tres modelos y miremos el residuo frente a la UACR: con la UACR cruda, con su logaritmo y con el logaritmo más la interacción iSGLT2 × ln(UACR) que vimos en el 8.4.\n\nm_cruda &lt;- lm(pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + uacr + ecv, data = ckd)\nm_log   &lt;- lm(pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv, data = ckd)\nm_loginter &lt;- lm(pendiente_tfg ~ isglt2 * luacr + I(edad / 10) + sexo + hba1c + pas + tfg_basal + ecv, data = ckd)\n\nbind_rows(\n  `UACR cruda` = glance(m_cruda), `ln(UACR)` = glance(m_log),\n  `ln(UACR) + interacción` = glance(m_loginter), .id = \"modelo\"\n) |&gt; select(modelo, r.squared, AIC) |&gt; mutate(across(where(is.numeric), \\(x) round(x, 3)))\n\n# A tibble: 3 × 3\n  modelo                 r.squared    AIC\n  &lt;chr&gt;                      &lt;dbl&gt;  &lt;dbl&gt;\n1 UACR cruda                 0.461 16121.\n2 ln(UACR)                   0.476 15982.\n3 ln(UACR) + interacción     0.504 15706.\n\n\n\nbind_rows(\n  augment(m_cruda, data = ckd) |&gt; mutate(modelo = \"UACR cruda\"),\n  augment(m_log, data = ckd) |&gt; mutate(modelo = \"ln(UACR)\"),\n  augment(m_loginter, data = ckd) |&gt; mutate(modelo = \"ln(UACR) + interacción\")\n) |&gt;\n  mutate(modelo = fct_inorder(modelo)) |&gt;\n  ggplot(aes(uacr, .resid)) +\n  geom_point(alpha = 0.1, size = 0.6) +\n  geom_smooth(method = \"loess\", formula = y ~ x, color = \"#D55E00\", se = FALSE) +\n  geom_hline(yintercept = 0, linetype = \"dashed\") +\n  scale_x_log10() +\n  facet_wrap(~ modelo) +\n  labs(x = \"UACR (mg/g, escala log)\", y = \"Residuos\") +\n  theme_minimal(base_size = 11)\n\n\n\n\n\n\n\nTres etapas, tres lecciones:\n\n\nUACR cruda: la curva de residuos se aparta de 0 de forma sistemática (el modelo se equivoca de manera predecible según la albuminuria) y el AIC es el peor.\n\nln(UACR): mejora mucho (AIC más bajo), pero queda un patrón en U. Ya no es un problema de la forma de la UACR, sino de un término que falta: el efecto del iSGLT2 depende de la albuminuria (8.4).\n\nln(UACR) + interacción: la curva se aplana y el AIC baja otros ~275 puntos.\n\nEl coeficiente “principal” del iSGLT2 cambia entre modelos (1.25, 1.34), y en el modelo con interacción pasa a ser el efecto cuando ln(UACR) = 0 (no el efecto promedio): hay que usar avg_comparisons() (8.4) para volver a un efecto promedio. Una mala forma funcional deja confusión residual, y un patrón residual indica que “algo falta”, no cuál es el término que falta: siempre combina el gráfico con el conocimiento clínico.\n\nSplines: dejar que los datos dibujen la curva\nCuando no sabes qué transformación usar, un spline ajusta una curva suave en tramos. Dos opciones:\n\n\nsplines::ns(x, df): spline natural, lineal en los extremos (más estable).\n\nrms::rcs(x, nk): spline cúbico restringido (el preferido en epidemiología clínica, con 3 a 5 nodos).\n\n\nm_spl &lt;- lm(pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + ns(uacr, df = 4) + ecv,\n            data = ckd)\n\nglance(m_spl) |&gt; select(r.squared, AIC) |&gt; round(3)\n\n# A tibble: 1 × 2\n  r.squared    AIC\n      &lt;dbl&gt;  &lt;dbl&gt;\n1      0.48 15949.\n\n## Curva ajustada de la UACR sobre la pendiente (otras variables en su valor típico)\nnuevo &lt;- tibble(uacr = exp(seq(log(10), log(2000), length.out = 100)), isglt2 = 0, edad = 64,\n                sexo = factor(\"Hombre\", levels = levels(ckd$sexo)), hba1c = 7.8, pas = 135,\n                tfg_basal = 46, ecv = 0)\npred &lt;- bind_cols(nuevo, as_tibble(predict(m_spl, nuevo, interval = \"confidence\")))\n\nggplot(pred, aes(uacr, fit)) +\n  geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = 0.25, fill = \"#56B4E9\") +\n  geom_line(color = \"#0072B2\", linewidth = 1) +\n  scale_x_log10(breaks = c(10, 30, 100, 300, 1000)) +\n  labs(x = \"UACR (mg/g, escala log)\", y = \"Pendiente de TFGe predicha (mL/min/1.73 m²/año)\",\n       caption = \"Paciente típico sin iSGLT2. Datos simulados.\") +\n  theme_minimal(base_size = 11)\n\n\n\n\n\n\n\nLa curva es casi una recta en escala logarítmica: el spline “descubrió” lo que el logaritmo ya hacía. En un conjunto real, esta es la forma de comprobar que la transformación elegida es razonable.\n¿Hay realmente no linealidad? Prueba formal\nSi la TFGe basal entra con spline de 3 grados de libertad, ¿mejora el ajuste frente a la forma lineal?\n\nm_lin &lt;- lm(pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv, data = ckd)\nm_ns  &lt;- lm(pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + ns(tfg_basal, 3) + luacr + ecv, data = ckd)\nanova(m_lin, m_ns)\n\nAnalysis of Variance Table\n\nModel 1: pendiente_tfg ~ isglt2 + I(edad/10) + sexo + hba1c + pas + tfg_basal + \n    luacr + ecv\nModel 2: pendiente_tfg ~ isglt2 + I(edad/10) + sexo + hba1c + pas + ns(tfg_basal, \n    3) + luacr + ecv\n  Res.Df    RSS Df Sum of Sq      F Pr(&gt;F)\n1   4991 7126.9                           \n2   4989 7125.8  2     1.113 0.3896 0.6773\n\n\nNo (p alto): para la TFGe basal la forma lineal basta (así la simulamos). Ajustar el spline y no encontrar curvatura también es un resultado útil.\n\n\n\n\n\n\nTip💡 Reglas para tratar variables continuas\n\n\n\n\n\nNo dicotomices (“TFGe &lt; 60”) para ajustar: pierdes información y dejas confusión residual dentro de cada categoría.\nPrueba transformaciones (log) y splines (3-5 nodos) para los confusores principales.\nPara la exposición, la forma funcional importa más (es lo que quieres estimar): una curva dosis-respuesta con spline es más informativa que una categoría.\nCon polinomios (x + x²) centra la variable para evitar colinealidad artificial.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>40</span>  <span class='chapter-title'>Supuestos, diagnóstico y no linealidad</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.5.html#colinealidad",
+    "href": "capitulos/Capítulo8.5.html#colinealidad",
+    "title": "Supuestos, diagnóstico y no linealidad",
+    "section": "Colinealidad",
+    "text": "Colinealidad\nDos variables muy correlacionadas inflan la varianza de sus coeficientes. Se mide con el VIF: &gt; 5-10 es preocupante.\n\nvif(m_lin)\n\n    isglt2 I(edad/10) sexoHombre      hba1c        pas  tfg_basal      luacr \n  1.196953   1.240197   1.003865   1.084496   1.061749   1.167319   1.213060 \n       ecv \n  1.034262 \n\n\nAquí todos los VIF son cercanos a 1. Un caso típico de colinealidad artificial es el polinomio sin centrar:\n\nvif(lm(pendiente_tfg ~ isglt2 + tfg_basal + I(tfg_basal^2) + luacr, data = ckd))                          # sin centrar\n\n        isglt2      tfg_basal I(tfg_basal^2)          luacr \n      1.119725      50.993216      51.013401       1.092219 \n\nvif(lm(pendiente_tfg ~ isglt2 + I(tfg_basal - 46) + I((tfg_basal - 46)^2) + luacr, data = ckd))          # centrada\n\n               isglt2     I(tfg_basal - 46) I((tfg_basal - 46)^2) \n             1.119725              1.092902              1.000756 \n                luacr \n             1.092219 \n\n\n\n\n\n\n\n\nAdvertencia⚠️ La colinealidad no sesga, pero engaña\n\n\n\n\n\nNo afecta la predicción global, pero hace inestables los coeficientes individuales.\nNo elimines un confusor importante solo por la colinealidad: es preferible un modelo con intervalo ancho que uno sesgado.\nNo incluyas en el mismo modelo una variable y su derivada (creatinina y TFGe calculada a partir de ella): son redundantes.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>40</span>  <span class='chapter-title'>Supuestos, diagnóstico y no linealidad</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.5.html#heterocedasticidad-errores-estándar-robustos",
+    "href": "capitulos/Capítulo8.5.html#heterocedasticidad-errores-estándar-robustos",
+    "title": "Supuestos, diagnóstico y no linealidad",
+    "section": "Heterocedasticidad: errores estándar robustos",
+    "text": "Heterocedasticidad: errores estándar robustos\nCuando los residuos no tienen varianza constante (por ejemplo, mayor variabilidad en pacientes con mayor albuminuria), los coeficientes siguen siendo insesgados pero los errores estándar no. La solución simple es la varianza robusta (sandwich):\n\ncl  &lt;- coeftest(m_lin)[\"isglt2\", ]\nrob &lt;- coeftest(m_lin, vcov = vcovHC(m_lin, type = \"HC3\"))[\"isglt2\", ]\nrbind(clasico = cl, robusto = rob) |&gt; round(4)\n\n        Estimate Std. Error t value Pr(&gt;|t|)\nclasico   1.3356     0.0370 36.0539        0\nrobusto   1.3356     0.0372 35.8899        0\n\n\nCon datos homocedásticos, ambos coinciden. Es recomendable usar el robusto por defecto en la regresión lineal observacional; si hay agrupación (pacientes por centro), usa vcovCL(m, cluster = ~centro).",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>40</span>  <span class='chapter-title'>Supuestos, diagnóstico y no linealidad</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.5.html#puntos-influyentes",
+    "href": "capitulos/Capítulo8.5.html#puntos-influyentes",
+    "title": "Supuestos, diagnóstico y no linealidad",
+    "section": "Puntos influyentes",
+    "text": "Puntos influyentes\nUn paciente con valores muy atípicos puede cambiar el modelo. Se detecta con la distancia de Cook:\n\naugment(m_lin, data = ckd) |&gt;\n  arrange(desc(.cooksd)) |&gt;\n  select(id, pendiente_tfg, tfg_basal, uacr, .fitted, .resid, .cooksd) |&gt;\n  head(5) |&gt;\n  mutate(across(where(is.numeric), \\(x) round(x, 4)))\n\n# A tibble: 5 × 7\n     id pendiente_tfg tfg_basal  uacr .fitted .resid .cooksd\n  &lt;dbl&gt;         &lt;dbl&gt;     &lt;dbl&gt; &lt;dbl&gt;   &lt;dbl&gt;  &lt;dbl&gt;   &lt;dbl&gt;\n1  3317         -7.66      20     120  -3.72   -3.94  0.0038\n2  4320          2.28      66.6  1797  -1.26    3.54  0.0032\n3  3406          4.23      56.5    18  -0.602   4.83  0.0032\n4  2778         -0.27      56.8    94  -3.64    3.37  0.003 \n5   365          1.96      26     153  -1.29    3.25  0.0028\n\n\nDistancias de Cook muy pequeñas (&lt; 0.01): ningún paciente domina. Si apareciera alguno &gt; 0.5 o claramente separado del resto: (1) verifica que no sea un error de datos, (2) repite el análisis sin él como análisis de sensibilidad, (3) no lo borres automáticamente y reporta lo que hiciste.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>40</span>  <span class='chapter-title'>Supuestos, diagnóstico y no linealidad</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.5.html#transformar-el-desenlace",
+    "href": "capitulos/Capítulo8.5.html#transformar-el-desenlace",
+    "title": "Supuestos, diagnóstico y no linealidad",
+    "section": "Transformar el desenlace",
+    "text": "Transformar el desenlace\nSi el desenlace es positivo y asimétrico (UACR, días de hospitalización, triglicéridos), conviene modelar su logaritmo. Los coeficientes se interpretan como razones de medias geométricas:\n\nm_lu &lt;- lm(log(uacr) ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + ecv, data = ckd)\nexp(cbind(razon = coef(m_lu), confint(m_lu)))[\"isglt2\", ]\n\n   razon    2.5 %   97.5 % \n1.690003 1.595973 1.789574 \n\n\nLos pacientes con iSGLT2 tienen una UACR basal 1.7 veces mayor (media geométrica): es lo esperado, porque se les prescribe preferentemente a quienes tienen más albuminuria (confusión por indicación). Una diferencia de 0.5 en log(uacr) equivale a un 65 % más, y exponenciar el coeficiente evita errores de interpretación.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>40</span>  <span class='chapter-title'>Supuestos, diagnóstico y no linealidad</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.5.html#y-para-la-logística-y-cox",
+    "href": "capitulos/Capítulo8.5.html#y-para-la-logística-y-cox",
+    "title": "Supuestos, diagnóstico y no linealidad",
+    "section": "Y para la logística y Cox",
+    "text": "Y para la logística y Cox\n\n\nLogística: linealidad en el logit (ns() o rcs() en los continuos), calibración (¿el riesgo predicho coincide con el observado?, Cap. 17), puntos influyentes y separación. La prueba de Hosmer-Lemeshow no se recomienda.\n\nCox: riesgos proporcionales (Cap. 9.4), linealidad de los log-HR y observaciones influyentes (residuos dfbeta).\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nRevisa linealidad (la que más sesga), independencia, homocedasticidad, colinealidad e influencia.\nLos gráficos de residuos y el Q-Q son el primer filtro; broom::augment() los prepara.\nUna mala forma funcional de un confusor deja confusión residual en la exposición: transforma (log) o usa splines (ns, rcs).\n\nNo dicotomices continuas para ajustar; centra al usar polinomios.\n\nErrores robustos (vcovHC, vcovCL) protegen frente a heterocedasticidad y agrupamiento.\n\nNo borres puntos influyentes sin investigar; haz un análisis de sensibilidad.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>40</span>  <span class='chapter-title'>Supuestos, diagnóstico y no linealidad</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.5.html#ejercicio",
+    "href": "capitulos/Capítulo8.5.html#ejercicio",
+    "title": "Supuestos, diagnóstico y no linealidad",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nAjusta el modelo con rcs(luacr, 4) en lugar de luacr y compara el AIC. ¿Cambia el coeficiente del iSGLT2?\nDibuja los residuos frente a la edad. ¿Hay patrón?\nCalcula el IC del coeficiente del iSGLT2 con vcovHC(type = \"HC3\") y compáralo con el clásico.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>40</span>  <span class='chapter-title'>Supuestos, diagnóstico y no linealidad</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.6.html",
+    "href": "capitulos/Capítulo8.6.html",
+    "title": "Cómo reportar una regresión (y la Table 2 fallacy)",
+    "section": "",
+    "text": "Qué debe contener el reporte\nSiguiendo STROBE, un modelo bien reportado dice qué se estimó, cómo y con qué datos:",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>41</span>  <span class='chapter-title'>Cómo reportar una regresión (y la *Table 2 fallacy*)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.6.html#qué-debe-contener-el-reporte",
+    "href": "capitulos/Capítulo8.6.html#qué-debe-contener-el-reporte",
+    "title": "Cómo reportar una regresión (y la Table 2 fallacy)",
+    "section": "",
+    "text": "Tip💡 Checklist de reporte de una regresión\n\n\n\n\nPregunta y estimando: ¿efecto de qué sobre qué, en qué población?\nVariable de exposición y desenlace, con sus unidades y escala.\nCovariables incluidas y por qué (DAG), no solo “variables con p &lt; 0.2”.\nForma funcional: transformaciones y splines.\nEstimación cruda y ajustada, con IC 95 %.\nNúmero de pacientes y de eventos analizados y cómo se trataron los datos faltantes.\nSupuestos revisados (residuos, calibración, riesgos proporcionales).\nAnálisis de sensibilidad (puntos influyentes, otra especificación, confusión no medida).",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>41</span>  <span class='chapter-title'>Cómo reportar una regresión (y la *Table 2 fallacy*)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.6.html#tabla-de-resultados-reutilizable",
+    "href": "capitulos/Capítulo8.6.html#tabla-de-resultados-reutilizable",
+    "title": "Cómo reportar una regresión (y la Table 2 fallacy)",
+    "section": "Tabla de resultados reutilizable",
+    "text": "Tabla de resultados reutilizable\nUna función que convierte cualquier modelo en una tabla presentable, con las estimaciones y su IC en una sola columna:\n\nlibrary(tidyverse)\nlibrary(broom)\nlibrary(sandwich)\n\noraculo &lt;- read_csv(\"Bases/ckd_isglt2_oraculo.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")), luacr = log(uacr))\nckd &lt;- oraculo |&gt; select(id, edad, sexo, hba1c, pas, tfg_basal, uacr, luacr, ecv, isglt2,\n                         pendiente_tfg, tiempo_meses, evento)\n\n## Tabla de un modelo: estimación (IC 95 %) y p\ntabla_modelo &lt;- function(modelo, exponenciar = FALSE, digitos = 2, etiquetas = NULL) {\n  tt &lt;- tidy(modelo, conf.int = TRUE, exponentiate = exponenciar) |&gt; filter(term != \"(Intercept)\")\n  tt |&gt;\n    mutate(termino = if (is.null(etiquetas)) term else recode(term, !!!etiquetas),\n           estimacion = sprintf(paste0(\"%.\", digitos, \"f (%.\", digitos, \"f, %.\", digitos, \"f)\"),\n                                estimate, conf.low, conf.high),\n           p = ifelse(p.value &lt; 0.001, \"&lt;0.001\", sprintf(\"%.3f\", p.value))) |&gt;\n    select(termino, estimacion, p)\n}\n\nEstimación cruda y ajustada, lado a lado\nEs la tabla más informativa de un estudio observacional: muestra cuánto cambia la estimación al ajustar.\n\netq &lt;- c(isglt2 = \"iSGLT2 (sí vs. no)\", `I(edad/10)` = \"Edad, por 10 años\", sexoHombre = \"Sexo masculino\",\n         hba1c = \"HbA1c, por 1 %\", pas = \"PAS, por 1 mmHg\", tfg_basal = \"TFGe basal, por 1 unidad\",\n         luacr = \"ln(UACR), por 1 unidad\", ecv = \"ECV previa\")\n\nmc &lt;- glm(evento ~ isglt2 + offset(log(tiempo_meses)), data = ckd, family = poisson)\nma &lt;- glm(evento ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv + offset(log(tiempo_meses)),\n          data = ckd, family = poisson)\n\nfull_join(tabla_modelo(mc, TRUE, 2, etq), tabla_modelo(ma, TRUE, 2, etq), by = \"termino\",\n          suffix = c(\" (crudo)\", \" (ajustado)\")) |&gt;\n  mutate(across(everything(), \\(x) replace_na(x, \"\"))) |&gt;\n  knitr::kable(col.names = c(\"Variable\", \"IRR crudo (IC 95 %)\", \"p\", \"IRR ajustado (IC 95 %)\", \"p\"))\n\n\n\n\n\n\n\n\n\n\nVariable\nIRR crudo (IC 95 %)\np\nIRR ajustado (IC 95 %)\np\n\n\n\niSGLT2 (sí vs. no)\n0.54 (0.46, 0.63)\n&lt;0.001\n0.55 (0.47, 0.65)\n&lt;0.001\n\n\nEdad, por 10 años\n\n\n1.21 (1.12, 1.31)\n&lt;0.001\n\n\nSexo masculino\n\n\n0.94 (0.82, 1.09)\n0.429\n\n\nHbA1c, por 1 %\n\n\n1.17 (1.10, 1.24)\n&lt;0.001\n\n\nPAS, por 1 mmHg\n\n\n1.01 (1.01, 1.02)\n&lt;0.001\n\n\nTFGe basal, por 1 unidad\n\n\n0.98 (0.97, 0.99)\n&lt;0.001\n\n\nln(UACR), por 1 unidad\n\n\n1.36 (1.27, 1.46)\n&lt;0.001\n\n\nECV previa\n\n\n1.45 (1.24, 1.68)\n&lt;0.001\n\n\n\n\n\nGráfico de coeficientes\nUn gráfico de puntos con IC se lee más rápido que una tabla con 10 filas:\n\ntidy(ma, conf.int = TRUE, exponentiate = TRUE) |&gt;\n  filter(term != \"(Intercept)\") |&gt;\n  mutate(term = recode(term, !!!etq), term = fct_reorder(term, estimate)) |&gt;\n  ggplot(aes(estimate, term, xmin = conf.low, xmax = conf.high)) +\n  geom_vline(xintercept = 1, linetype = \"dashed\") +\n  geom_pointrange(color = \"#0072B2\") +\n  scale_x_log10() +\n  labs(x = \"Razón de tasas (IRR), escala logarítmica\", y = NULL,\n       caption = \"Modelo de Poisson con offset de tiempo. Datos simulados.\") +\n  theme_minimal(base_size = 11)",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>41</span>  <span class='chapter-title'>Cómo reportar una regresión (y la *Table 2 fallacy*)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.6.html#la-falacia-de-la-tabla-2",
+    "href": "capitulos/Capítulo8.6.html#la-falacia-de-la-tabla-2",
+    "title": "Cómo reportar una regresión (y la Table 2 fallacy)",
+    "section": "La falacia de la Tabla 2",
+    "text": "La falacia de la Tabla 2\nLa “Tabla 2” de muchos artículos muestra todos los coeficientes del modelo ajustado, y los autores los interpretan como si cada uno fuera un efecto. Es un error, porque cada coeficiente responde a una pregunta distinta, con un conjunto de ajuste distinto:\n\nEl conjunto de ajuste del iSGLT2 (exposición de interés) está diseñado para cerrar los caminos de puerta trasera de esa exposición.\nPara la HbA1c, la UACR es un mediador (la glucemia alta aumenta la albuminuria, y esta aumenta el riesgo). Si se la incluye, el coeficiente de la HbA1c muestra solo su efecto directo, no el total.\n\nLo comprobamos con la IRR de la HbA1c con y sin la UACR en el modelo:\n\nm_con &lt;- glm(evento ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv + offset(log(tiempo_meses)),\n             data = ckd, family = poisson)\nm_sin &lt;- update(m_con, . ~ . - luacr)\n\nirr_hba1c &lt;- function(m) round(exp(c(IRR = coef(m)[\"hba1c\"], confint.default(m)[\"hba1c\", ])), 3)\nrbind(`Con UACR (efecto directo)` = irr_hba1c(m_con), `Sin UACR (efecto total)` = irr_hba1c(m_sin))\n\n                          IRR.hba1c 2.5 % 97.5 %\nCon UACR (efecto directo)     1.167 1.096  1.243\nSin UACR (efecto total)       1.248 1.175  1.327\n\n\nEl efecto total de la HbA1c (alrededor de 1.25 por punto) es mayor que el directo (~1.17); el modelo que usamos para el iSGLT2 subestima el efecto de la glucemia. Interpretar como “efecto de la HbA1c” el coeficiente de la Tabla 2 es la Table 2 fallacy (Westreich y Greenland, 2013).\n\n\n\n\n\n\nImportante🎯 Qué hacer en la práctica\n\n\n\n\n\nReporta el coeficiente de la exposición de interés (con su conjunto de ajuste justificado).\nPresenta el resto de las covariables como ajuste, sin interpretarlas causalmente, o, si quieres estimar su efecto, construye un modelo aparte con su conjunto de ajuste (DAG).\nEtiqueta la tabla: “los coeficientes de las covariables no deben interpretarse como efectos causales”.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>41</span>  <span class='chapter-title'>Cómo reportar una regresión (y la *Table 2 fallacy*)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.6.html#selección-de-variables",
+    "href": "capitulos/Capítulo8.6.html#selección-de-variables",
+    "title": "Cómo reportar una regresión (y la Table 2 fallacy)",
+    "section": "Selección de variables",
+    "text": "Selección de variables\n\n\n\n\n\n\nObjetivo\n¿Cómo elegir las variables?\n\n\n\nEfecto causal de una exposición\nDesde un DAG: confusores (sí), mediadores y colisionadores (no)\n\n\n\nPredicción (Cap. 17)\nConocimiento clínico + penalización (LASSO), validación interna\n\n\nExploración\nCon mucha cautela; declarar exploratorio\n\n\n\nPara estimar un efecto, la selección por valor p o stepwise es inadecuada:\n\nDescarta confusores con p alto aunque sesguen la estimación de la exposición.\nLos IC y valores p del modelo final no son válidos (se ignora que se seleccionó con los mismos datos).\nEs inestable: en otra muestra, otro modelo.\n\nUna alternativa de utilidad práctica es el cambio en la estimación: ¿cuánto se mueve la IRR del iSGLT2 al quitar cada covariable?\n\nvars &lt;- c(\"I(edad/10)\", \"sexo\", \"hba1c\", \"pas\", \"tfg_basal\", \"luacr\", \"ecv\")\nb_full &lt;- coef(ma)[\"isglt2\"]\n\nmap_dfr(vars, \\(v) {\n  f &lt;- reformulate(setdiff(c(\"isglt2\", vars), v), \"evento\")\n  m &lt;- glm(update(f, . ~ . + offset(log(tiempo_meses))), data = ckd, family = poisson)\n  tibble(variable_quitada = v, IRR_sin_ella = exp(coef(m)[\"isglt2\"]),\n         cambio_pct = 100 * (exp(coef(m)[\"isglt2\"]) / exp(b_full) - 1))\n}) |&gt; arrange(desc(abs(cambio_pct))) |&gt; mutate(across(where(is.numeric), \\(x) round(x, 3)))\n\n# A tibble: 7 × 3\n  variable_quitada IRR_sin_ella cambio_pct\n  &lt;chr&gt;                   &lt;dbl&gt;      &lt;dbl&gt;\n1 luacr                   0.646     17.5  \n2 I(edad/10)              0.501     -8.80 \n3 tfg_basal               0.511     -7.03 \n4 hba1c                   0.563      2.41 \n5 ecv                     0.556      1.10 \n6 pas                     0.545     -0.871\n7 sexo                    0.55       0.131\n\n\nQuitar ln(UACR) cambia la IRR del iSGLT2 en ~17 %, la edad y la TFGe basal en 7-9 %: son confusores importantes que deben quedar en el modelo. El sexo (0.1 %) no cambia nada, pero lo mantenemos por razones causales (variable clínica básica), no por el p.\nUna regla práctica (a veces citada): conservar toda variable que cambie la estimación &gt; 10 %. Es un complemento del DAG, no un sustituto.\nNúmero de eventos por variable\nCon pocos eventos, un modelo grande sobreajusta. Como guía: ≥ 10-20 eventos por parámetro estimado. Aquí hay 765 eventos y 8 parámetros: holgura de sobra. En estudios pequeños, restringe el número de covariables a los confusores más importantes o usa puntuación de propensión (Cap. 12), que resume muchas covariables en una.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>41</span>  <span class='chapter-title'>Cómo reportar una regresión (y la *Table 2 fallacy*)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.6.html#resumen-plantilla-de-párrafo-de-métodos",
+    "href": "capitulos/Capítulo8.6.html#resumen-plantilla-de-párrafo-de-métodos",
+    "title": "Cómo reportar una regresión (y la Table 2 fallacy)",
+    "section": "Resumen: plantilla de párrafo de Métodos",
+    "text": "Resumen: plantilla de párrafo de Métodos\n\n“Se estimó la razón de tasas de evento renal compuesto asociada con el inicio de iSGLT2 mediante regresión de Poisson con offset del logaritmo del tiempo de seguimiento. El modelo ajustó por edad, sexo, HbA1c, presión arterial sistólica, TFGe basal, albuminuria (logaritmo natural) y enfermedad cardiovascular previa, seleccionadas a partir de un diagrama causal (Figura X). Se reportan estimaciones crudas y ajustadas con IC 95 %. Los coeficientes de las covariables no se interpretan como efectos causales. Se verificó la linealidad con splines y se usaron errores estándar robustos. Los análisis se realizaron en R 4.3 (paquetes tidyverse, broom, sandwich).”\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nReporta la estimación cruda y ajustada con IC, el número de eventos, los supuestos revisados y los datos faltantes.\n\ntabla_modelo() y el gráfico de coeficientes dan reportes rápidos y reproducibles.\n\nTable 2 fallacy: los coeficientes de las covariables no son efectos causales; para cada exposición, un conjunto de ajuste distinto.\nPara efectos causales, elige las covariables con el DAG, no con stepwise ni con el p.\nUsa el cambio en la estimación para identificar confusores importantes y vigila los eventos por variable.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>41</span>  <span class='chapter-title'>Cómo reportar una regresión (y la *Table 2 fallacy*)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.6.html#ejercicio",
+    "href": "capitulos/Capítulo8.6.html#ejercicio",
+    "title": "Cómo reportar una regresión (y la Table 2 fallacy)",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nReproduce tabla_modelo() para el modelo lineal de la pendiente (8.2) y presenta la tabla cruda/ajustada.\n¿Qué pasa con el coeficiente de la PAS al quitar la luacr? ¿Por qué?\nEscribe un párrafo de Métodos para el análisis de la pendiente de TFGe con la regresión lineal del 8.2.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>41</span>  <span class='chapter-title'>Cómo reportar una regresión (y la *Table 2 fallacy*)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo8.6.html#nota-editorial",
+    "href": "capitulos/Capítulo8.6.html#nota-editorial",
+    "title": "Cómo reportar una regresión (y la Table 2 fallacy)",
+    "section": "Nota editorial",
+    "text": "Nota editorial\n\nCapítulo redactado con asistencia de IA y revisado por el autor. Todos los datos son simulados.",
+    "crumbs": [
+      "Capítulo 8: Asociación y regresión",
+      "<span class='chapter-number'>41</span>  <span class='chapter-title'>Cómo reportar una regresión (y la *Table 2 fallacy*)</span>"
+    ]
+  },
+  {
     "objectID": "capitulos/Apéndice-resumen.html",
     "href": "capitulos/Apéndice-resumen.html",
     "title": "Apéndice: cuadros de resumen y plantillas",
