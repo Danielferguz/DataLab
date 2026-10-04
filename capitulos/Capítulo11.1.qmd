@@ -1,0 +1,110 @@
+# Diseño del análisis: preespecificar
+
+## La aleatorización protege, el análisis puede estropearlo
+
+Los ECA son el estándar de oro porque la **asignación al azar** hace que los grupos sean **intercambiables** (en promedio) en lo medido y en lo no medido (Cap. 3). Pero esa protección **se pierde** si el análisis:
+
+-   **excluye pacientes** después de asignarlos (por no cumplir, por perderse, por "no tener datos suficientes");
+-   **elige el desenlace o los subgrupos después de ver los resultados**;
+-   **cambia el modelo** hasta que sale lo esperado.
+
+La defensa es **preespecificar** el análisis **antes** de abrir los datos, en un **plan de análisis estadístico** (PAE o SAP), idealmente registrado junto con el protocolo.
+
+## Estimand: la pregunta precisa
+
+El marco ***estimand*** (ICH E9(R1)) obliga a definir cinco elementos antes de escoger la técnica estadística:
+
+| Elemento | Pregunta | En nuestro ECA |
+|---|---|---|
+| **Población** | ¿A quiénes se aplica? | Adultos con ERC G3b-G4 y bicarbonato sérico < 22 mEq/L |
+| **Tratamiento** | ¿Qué se compara? | Bicarbonato de sodio vs. placebo, **asignados** |
+| **Variable** | ¿Qué se mide? | Cambio de TFGe a los 24 meses; falla renal o muerte |
+| **Evento intercurrente** | ¿Qué pasa con quien deja el fármaco, se pierde o muere? | Estrategias abajo |
+| **Medida de resumen** | ¿Cómo se resume la diferencia? | Diferencia de medias; HR; *win ratio* |
+
+### Eventos intercurrentes y sus estrategias
+
+Un **evento intercurrente** ocurre **después** de la aleatorización y afecta la interpretación o la existencia de la medición: **abandono del tratamiento**, **uso de tratamientos de rescate**, **muerte**, **pérdida de seguimiento**.
+
+| Estrategia | Significado | Análisis típico |
+|---|---|---|
+| **Política de tratamiento** | Se analiza **como se asignó**, pase lo que pase | **Intención de tratar** (ITT) |
+| **Hipotético** | ¿Qué habría pasado **si todos hubieran cumplido**? | Efecto en cumplidores (CACE), modelos con ponderación |
+| **Compuesto** | El evento intercurrente se **incluye en el desenlace** | Compuesto (falla renal **o** muerte) |
+| **Sobre la población** (*principal stratum*) | Efecto solo en quienes **no** tendrían el evento intercurrente | CACE (11.6) |
+| **Mientras en tratamiento** | Solo se cuenta el periodo antes del evento | Tasa de eventos mientras se toma el fármaco |
+
+::: {.callout-important}
+## 🎯 No existe "el análisis correcto" sin la pregunta
+
+La **ITT** responde: *"¿Qué efecto tiene **ofrecer** el tratamiento en la práctica real, con sus incumplimientos?"* El **efecto en cumplidores** responde: *"¿Qué efecto tiene **tomar** el fármaco?"* Son preguntas distintas con respuestas distintas. El ensayo debe **declarar cuál** es la principal y analizar las otras como **secundarias**.
+:::
+
+## Plan de análisis: lista mínima
+
+::: {.callout-tip}
+## 💡 Qué incluir en un plan de análisis estadístico
+
+-   [ ] **Objetivo primario y *estimand***, con estrategia para cada evento intercurrente.
+-   [ ] **Población de análisis**: ITT (todos los aleatorizados) como principal.
+-   [ ] **Variable primaria**, momento de medición y **cómo se define**.
+-   [ ] **Modelo**: ajuste por las **variables de estratificación** y por el **valor basal** (ANCOVA).
+-   [ ] **Tratamiento de los datos faltantes** y análisis de sensibilidad (Cap. 13).
+-   [ ] **Multiplicidad**: un solo desenlace primario; si hay varios, jerarquía o corrección.
+-   [ ] **Subgrupos preespecificados** (pocos) con prueba de **interacción**.
+-   [ ] **Análisis intermedios** y reglas de detención (si las hay).
+-   [ ] **Tamaño de muestra** y supuestos (Cap. 20).
+-   [ ] Qué análisis son **secundarios** y cuáles **exploratorios**.
+:::
+
+## Estructura de los datos del ECA
+
+```{r}
+#| label: setup-111
+library(tidyverse)
+
+eca <- read_csv("Bases/eca_bicarbonato.csv") |>
+  mutate(brazo = factor(brazo, levels = c("Placebo", "Bicarbonato")),
+         sexo = factor(sexo, levels = c("Mujer", "Hombre")))
+glimpse(eca)
+```
+
+-   `brazo`: grupo **asignado** (Placebo / Bicarbonato).
+-   `centro`: centro participante (estratificación).
+-   `tfg0`, `bic0`, ...: valores **basales** (antes de aleatorizar).
+-   `adhiere`: 1 = el paciente **tomó** el fármaco (solo se registra en el brazo activo; en placebo es 0).
+-   `tfg_6`, `tfg_12`, `tfg_24`: TFGe de seguimiento, con **faltantes**.
+-   `tiempo_meses` y `estado`: tiempo hasta falla renal (1), muerte (2) o censura (0).
+
+```{r}
+#| label: faltantes-eca
+eca |>
+  group_by(brazo) |>
+  summarise(n = n(), across(c(tfg_6, tfg_12, tfg_24), \(x) round(100 * mean(is.na(x)), 1), .names = "falt_{.col}_%"))
+```
+
+Hay más datos faltantes a medida que avanza el seguimiento y **algo más en el brazo activo**; es información para el análisis de datos faltantes (11.4 y Cap. 13).
+
+::: {.callout-warning}
+## ⚠️ Lo que nunca se hace con la base de un ECA
+
+-   **Excluir pacientes aleatorizados** porque "no tomaron el fármaco" o "no tienen datos": eso destruye la comparabilidad.
+-   **Cambiar el desenlace primario** después de ver los datos (*outcome switching*).
+-   **Buscar subgrupos** hasta encontrar uno "significativo" y presentarlo como hallazgo principal.
+-   **Comparar el antes y el después dentro de cada grupo** (con *p* por separado) en lugar de comparar **los grupos entre sí**.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   La aleatorización solo protege si el análisis **respeta la asignación**: preespecifica población, desenlace, modelo y subgrupos.
+-   El ***estimand*** define la **pregunta**: población, tratamiento, variable, **evento intercurrente** y medida de resumen.
+-   **ITT** = efecto de **ofrecer** el tratamiento; **cumplidores** = efecto de **tomarlo**. Declara cuál es el primario.
+-   Documenta el **plan de análisis** antes de abrir la base.
+:::
+
+## Ejercicio
+
+1.  Escribe el *estimand* completo (cinco elementos) para el desenlace **falla renal o muerte** a 3 años en este ECA.
+2.  ¿Qué estrategia usarías para los pacientes que **mueren** antes de la medición de TFGe a los 24 meses? ¿Por qué no basta con "dejarlos como faltantes"?
+3.  ¿Qué haría el plan de análisis si el 40 % de los pacientes del grupo activo suspendiera el fármaco? Redacta una frase sobre el análisis principal y otra sobre el de sensibilidad.

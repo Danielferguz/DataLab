@@ -1,0 +1,137 @@
+# Mediciones repetidas
+
+## ¿Por qué no basta el valor a los 24 meses?
+
+La TFGe se mide a los 0, 6, 12 y 24 meses. Analizar **solo la última medición** descarta información intermedia y a los pacientes que no llegaron al final. Un modelo de **mediciones repetidas**:
+
+-   usa **todas** las mediciones disponibles;
+-   modela la **correlación** entre las mediciones del mismo paciente;
+-   permite **datos faltantes** bajo el supuesto de que la falta depende de lo ya observado (***MAR***, Cap. 13);
+-   estima el efecto del tratamiento **en cada visita** y a lo largo del tiempo.
+
+## Formato largo
+
+Los modelos esperan **una fila por medición** (Cap. 5.6):
+
+```{r}
+#| label: setup-114
+library(tidyverse)
+library(nlme)
+library(lme4)
+library(emmeans)
+
+eca <- read_csv("Bases/eca_bicarbonato.csv") |>
+  mutate(brazo = factor(brazo, levels = c("Placebo", "Bicarbonato")),
+         sexo = factor(sexo, levels = c("Mujer", "Hombre")),
+         centro = factor(centro))
+
+largo <- eca |>
+  pivot_longer(c(tfg_6, tfg_12, tfg_24), names_to = "visita", values_to = "tfg", names_prefix = "tfg_") |>
+  mutate(mes = as.numeric(visita), visita = factor(visita, levels = c("6", "12", "24")),
+         cambio = tfg - tfg0, id_f = factor(id)) |>
+  filter(!is.na(tfg))
+
+count(largo, brazo, visita) |> pivot_wider(names_from = visita, values_from = n)
+```
+
+## Modelo MMRM: el estándar en ensayos clínicos
+
+El **MMRM** (*mixed model for repeated measures*) modela el **cambio desde la basal** con **efectos fijos** de grupo, visita y su interacción, ajustando por la TFGe basal, y una **matriz de covarianza no estructurada** entre visitas (no impone ninguna forma de correlación):
+
+```{r}
+#| label: mmrm
+mmrm <- gls(
+  cambio ~ brazo * visita + tfg0,
+  data = largo,
+  correlation = corSymm(form = ~ as.integer(visita) | id_f),   # correlación no estructurada entre visitas
+  weights = varIdent(form = ~ 1 | visita)                      # varianza distinta en cada visita
+)
+
+emm <- emmeans(mmrm, ~ brazo | visita)
+contrastes <- pairs(emm, reverse = TRUE) |> summary(infer = TRUE)
+contrastes |> as_tibble() |>
+  select(visita, diferencia = estimate, ee = SE, ic_inf = lower.CL, ic_sup = upper.CL, p = p.value) |>
+  mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+La diferencia entre grupos **crece con el tiempo**: 0.2 (6 meses), 0.5 (12 meses) y 1.4 (24 meses). Es el patrón esperado si el fármaco **enlentece la pérdida de TFGe** de forma gradual. Para comparar con la verdad simulada, el efecto ITT es de unos **0.3, 0.6 y 1.3** mL/min/1.73 m² a los 6, 12 y 24 meses.
+
+```{r}
+#| label: graf-mmrm
+#| fig-width: 8
+#| fig-height: 4
+emm_df <- as_tibble(summary(emm)) |> mutate(mes = as.numeric(as.character(visita)))
+basal <- tibble(brazo = factor(c("Placebo", "Bicarbonato"), levels = levels(eca$brazo)), mes = 0, emmean = 0, lower.CL = 0, upper.CL = 0)
+
+bind_rows(basal, emm_df) |>
+  ggplot(aes(mes, emmean, color = brazo, fill = brazo)) +
+  geom_ribbon(aes(ymin = lower.CL, ymax = upper.CL), alpha = 0.15, color = NA) +
+  geom_line(linewidth = 1) + geom_point(size = 2) +
+  scale_color_manual(values = c(Placebo = "#999999", Bicarbonato = "#0072B2"), name = NULL) +
+  scale_fill_manual(values = c(Placebo = "#999999", Bicarbonato = "#0072B2"), name = NULL) +
+  scale_x_continuous(breaks = c(0, 6, 12, 24)) +
+  labs(x = "Meses desde la aleatorización", y = "Cambio medio de TFGe (mL/min/1.73 m²)",
+       caption = "Medias ajustadas del MMRM, IC 95 %. Datos simulados.") +
+  theme_minimal(base_size = 11) + theme(legend.position = "bottom")
+```
+
+::: {.callout-tip}
+## 💡 Cómo leer un MMRM
+
+-   Un solo modelo da el **efecto a cada visita**. La visita **primaria** (aquí, 24 meses) se preespecifica; las demás son secundarias.
+-   El modelo usa **toda la información** de cada paciente aunque le falten visitas.
+-   Con *n* grande y pocas visitas (3-6) la covarianza **no estructurada** es la opción más segura; con muchas visitas se prefiere una estructura más simple (AR1, Toeplitz).
+-   `emmeans` convierte el modelo en **medias ajustadas** y **contrastes** con IC.
+:::
+
+## ¿Qué pasa con los datos faltantes?
+
+Dejar que falten pacientes **no es inocuo**. El MMRM es válido si la falta depende **solo de lo observado** (MAR): por ejemplo, el abandono depende de la TFGe **ya medida** en la visita anterior. En este ECA se simuló justamente así. Comparemos con el análisis "casos completos":
+
+```{r}
+#| label: cc-vs-mmrm
+## Casos completos: diferencia en el cambio a 24 meses solo con quienes tienen la visita de 24 meses
+cc <- eca |> filter(!is.na(tfg_24)) |>
+  lm(I(tfg_24 - tfg0) ~ brazo + tfg0, data = _)
+c(`Casos completos (24 m)` = unname(coef(cc)["brazoBicarbonato"]),
+  `MMRM (24 m)` = unname(summary(contrastes)$estimate[contrastes$visita == "24"]),
+  `Verdad ITT (24 m)` = 1.28) |> round(2)
+```
+
+En este ejemplo ambos son similares: la falta depende de la TFGe y el brazo en forma moderada. Con **mucha más falta** o con un abandono que dependa del desenlace **futuro no observado** (MNAR), todos los métodos sesgan y hay que hacer **análisis de sensibilidad** (Cap. 13).
+
+## Modelo de pendiente aleatoria (curva por paciente)
+
+Una alternativa común es un **modelo mixto** con **intercepto y pendiente aleatorios por paciente**: cada paciente tiene su propia trayectoria; el efecto del tratamiento es el **cambio en la pendiente** (mL/min/1.73 m² por año).
+
+```{r}
+#| label: lmer-pendiente
+largo_a <- largo |> mutate(anio = mes / 12)
+m_mixto <- lmer(tfg ~ anio * brazo + tfg0 + (anio | id_f), data = largo_a,
+                control = lmerControl(optimizer = "bobyqa"))
+summary(m_mixto)$coefficients["anio:brazoBicarbonato", ] |> round(3)
+```
+
+El efecto sobre la **pendiente** es de ~0.8 mL/min/1.73 m² por año (el verdadero ITT es 0.64). Un modelo de pendiente **supone trayectorias lineales**; el MMRM no impone forma y suele ser el preferido para el **análisis primario** de ECA con pocas visitas.
+
+| | **MMRM** | **Pendiente aleatoria** |
+|---|---|---|
+| Efecto estimado | Diferencia en cada visita | Diferencia en la pendiente |
+| Supuesto sobre el tiempo | Ninguno (visita como factor) | Trayectoria lineal |
+| Datos faltantes | MAR | MAR |
+| Cuándo | Pocos tiempos fijos (ensayos) | Muchas mediciones irregulares (cohortes) |
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   Con mediciones repetidas, usa **todas**: **MMRM** (efectos fijos de grupo × visita, covarianza no estructurada, ajuste por basal) para visitas fijas, o **modelo de pendiente aleatoria** para trayectorias lineales.
+-   `emmeans` da **medias ajustadas y contrastes** por visita con IC.
+-   Los modelos mixtos manejan datos faltantes **MAR**; si la falta depende del desenlace no observado (**MNAR**), hay que hacer **análisis de sensibilidad** (Cap. 13).
+-   La visita y el modelo **primarios** se **preespecifican**.
+:::
+
+## Ejercicio
+
+1.  Ajusta un MMRM con **covarianza compuesta simétrica** (`corCompSymm`) y compara el AIC con el de la no estructurada.
+2.  Calcula la diferencia a 12 meses en el análisis de casos completos y compárala con la del MMRM.
+3.  Agrega al modelo de pendiente aleatoria la interacción con `dm`. ¿Cambia la trayectoria en diabéticos?

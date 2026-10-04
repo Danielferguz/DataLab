@@ -1,0 +1,157 @@
+# Desenlaces compuestos y *win ratio*
+
+## Desenlaces compuestos
+
+En nefrología, los ensayos suelen usar **desenlaces compuestos** (falla renal **o** muerte **o** descenso de ≥ 40 % de la TFGe) para ganar eventos y potencia. Tienen ventajas y trampas:
+
+| Ventaja | Trampa |
+|---|---|
+| Más eventos → más potencia | Los **componentes** tienen **distinta gravedad** (muerte ≠ aumento de creatinina) |
+| Captura el beneficio global | El componente **más frecuente** domina |
+| Evita decidir "el" desenlace | Efectos **en direcciones opuestas** se cancelan |
+| Reduce el problema de riesgos competitivos | El HR del compuesto no dice **qué componente** cambió |
+
+```{r}
+#| label: setup-117
+library(tidyverse)
+library(survival)
+library(boot)
+
+eca <- read_csv("Bases/eca_bicarbonato.csv") |>
+  mutate(brazo = factor(brazo, levels = c("Placebo", "Bicarbonato")),
+         dif24 = tfg_24 - tfg0)
+
+tabla <- eca |> count(brazo, estado) |>
+  mutate(evento = recode(estado, `0` = "Censurado", `1` = "Falla renal", `2` = "Muerte")) |>
+  select(-estado) |> pivot_wider(names_from = brazo, values_from = n)
+tabla
+```
+
+## Análisis tiempo-hasta-primer-evento
+
+La forma estándar: **tiempo hasta el primer** evento del compuesto, con Kaplan-Meier y Cox (Cap. 9), y **el HR de cada componente por separado**:
+
+```{r}
+#| label: cox-compuesto
+hr <- function(evento) {
+  m <- coxph(Surv(tiempo_meses, evento) ~ brazo + strata(centro), data = eca)
+  c(HR = unname(exp(coef(m))), exp(confint(m)))
+}
+rbind(`Compuesto (falla renal o muerte)` = hr(eca$estado > 0),
+      `Falla renal` = hr(eca$estado == 1),
+      `Muerte` = hr(eca$estado == 2)) |> round(2)
+```
+
+El efecto sobre el **compuesto** (HR ~0.80) viene de la **falla renal** (~0.75); sobre **muerte** el HR es ~0.9 con un IC muy amplio. Un lector que solo viera el compuesto **no sabría** que el efecto es sobre la progresión renal y no está demostrado sobre la mortalidad.
+
+## El *win ratio*: jerarquizar los componentes
+
+El ***win ratio*** (Pocock 2012) compara **cada paciente tratado con cada paciente control** (todos los pares posibles) y decide **quién "gana"** siguiendo una **jerarquía de importancia** clínica:
+
+1.  **Muerte**: gana quien **sobrevive más tiempo** (si el seguimiento lo permite comparar).
+2.  Si empatan, **falla renal**: gana quien tarda más en llegar a diálisis.
+3.  Si empatan, **TFGe a 24 meses**: gana quien tiene el mayor cambio de TFGe (mejor función).
+
+$$
+\text{Win ratio} = \frac{\text{pares en los que gana el tratado}}{\text{pares en los que gana el control}}
+$$
+
+Un win ratio > 1 favorece al tratamiento. Lo implementamos en R (no requiere paquetes):
+
+```{r}
+#| label: win-ratio
+win_ratio <- function(datos) {
+  t <- filter(datos, brazo == "Bicarbonato"); c <- filter(datos, brazo == "Placebo")
+  nt <- nrow(t); nc <- nrow(c)
+
+  ## Matrices de pares: filas = pacientes tratados, columnas = pacientes control
+  M <- function(x_t, x_c) list(t = matrix(x_t, nt, nc), c = matrix(rep(x_c, each = nt), nt, nc))
+  tiempo <- M(t$tiempo_meses, c$tiempo_meses)
+
+  ## Nivel con eventos de tiempo: pierde quien tiene el evento y el otro sigue en seguimiento más tiempo
+  ganador_evento <- function(tipo) {
+    ev <- M(t$estado == tipo, c$estado == tipo)
+    list(gana_t = ev$c & (tiempo$c <= tiempo$t) & !(ev$t & (tiempo$t < tiempo$c)),
+         gana_c = ev$t & (tiempo$t <= tiempo$c) & !(ev$c & (tiempo$c < tiempo$t)))
+  }
+  n1 <- ganador_evento(2)                                    # 1. muerte
+  n2 <- ganador_evento(1)                                    # 2. falla renal
+  g1_t <- n1$gana_t & !n1$gana_c;  g1_c <- n1$gana_c & !n1$gana_t
+  libre <- !(g1_t | g1_c)
+  g2_t <- n2$gana_t & !n2$gana_c & libre;  g2_c <- n2$gana_c & !n2$gana_t & libre
+  libre <- libre & !(g2_t | g2_c)
+
+  ## 3. TFGe a 24 meses: el mayor cambio gana (pares aún empatados y con dato en ambos)
+  d <- M(t$dif24, c$dif24)
+  valido <- libre & !is.na(d$t) & !is.na(d$c)
+  g3_t <- valido & (d$t > d$c);  g3_c <- valido & (d$c > d$t)
+
+  gt <- c(muerte = sum(g1_t), falla_renal = sum(g2_t), tfge = sum(g3_t))
+  gc <- c(muerte = sum(g1_c), falla_renal = sum(g2_c), tfge = sum(g3_c))
+  list(por_nivel = rbind(gana_tratado = gt, gana_control = gc), pares = nt * nc,
+       win_ratio = sum(gt) / sum(gc))
+}
+wr <- win_ratio(eca)
+wr$por_nivel
+c(pares = wr$pares, win_ratio = wr$win_ratio)
+```
+
+Los pares que se deciden en cada nivel de la jerarquía:
+
+-   **Muerte**: decide cerca del 19 % de los pares y casi **empata** (≈ 10 200 victorias del tratado vs. 9 300 del control): sin efecto claro sobre la mortalidad.
+-   **Falla renal**: decide el nivel más grande (≈ 41 % de los pares) y gana el tratado con más frecuencia (≈ 23 800 vs. 18 000).
+-   **TFGe a 24 meses**: se decide ahí el ≈ 25 % que quedaba empatado, también con ventaja del tratado (≈ 16 000 vs. 9 900).
+
+El tratado "gana" **`r sprintf("%.0f", 100 * sum(wr$por_nivel[1, ]) / wr$pares)` %** de los pares y el control **`r sprintf("%.0f", 100 * sum(wr$por_nivel[2, ]) / wr$pares)` %**: **win ratio ≈ `r sprintf("%.2f", wr$win_ratio)`**. Se necesita un IC:
+
+### IC por *bootstrap*
+
+```{r}
+#| label: wr-boot
+set.seed(3)
+wr_boot <- replicate(300, {
+  d <- eca |> group_by(brazo) |> slice_sample(prop = 1, replace = TRUE) |> ungroup()
+  win_ratio(d)$win_ratio
+})
+c(win_ratio = wr$win_ratio, quantile(wr_boot, c(0.025, 0.975))) |> round(2)
+```
+
+El *win ratio* ≈ 1.35 (IC ~1.1-1.7) **excluye 1**, mientras que el HR del compuesto (0.80; IC 0.62-1.04) lo incluye. No es una contradicción: el *win ratio* **aprovecha el tercer nivel** (la TFGe a 24 meses, una variable continua con mucha información), que el análisis de tiempo hasta el primer evento ignora. Pero también depende de la **jerarquía elegida**, que debe ser **preespecificada**: no puede diseñarse después de ver cuál da el mejor resultado.
+
+::: {.callout-note}
+## Ventajas y límites del *win ratio*
+
+**Ventajas**: respeta la **jerarquía clínica**, usa la **información de todos los componentes** (incluso uno continuo) y no exige riesgos proporcionales.
+**Límites**: la **jerarquía es subjetiva** (¿es una muerte siempre peor que una diálisis?), el **resultado depende del seguimiento** y es **difícil de traducir** a medidas absolutas (NNT). Por ser una razón de **pares**, no se interpreta como un RR. Se recomienda **acompañarlo** de los efectos sobre cada componente. Variantes: *win odds*, *net benefit*, *win difference*.
+:::
+
+## Qué reportar con compuestos
+
+::: {.callout-tip}
+## 💡 Checklist para desenlaces compuestos
+
+-   [ ] **Justificación clínica** del compuesto y **orden de importancia** de los componentes.
+-   [ ] Efecto sobre **cada componente** por separado, con IC.
+-   [ ] Eventos **por componente** y por brazo (la tabla de arriba).
+-   [ ] Si hay **muerte** como competidor: CIF o jerarquía (*win ratio*), no solo Kaplan-Meier (Cap. 9.5).
+-   [ ] **Preespecificar** el compuesto: evita agregar o quitar componentes después de ver los datos.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   Un **compuesto** gana potencia pero mezcla eventos de **distinta gravedad**: reporta siempre **cada componente**.
+-   **Tiempo hasta el primer evento** (Kaplan-Meier, Cox) es el análisis estándar; con riesgos competitivos, usa CIF (9.5).
+-   El ***win ratio*** compara **todos los pares** tratado-control con una **jerarquía** (muerte → falla renal → TFGe) y resume quién gana más a menudo.
+-   Su IC se obtiene por *bootstrap*; es un complemento, no un sustituto del HR por componente.
+:::
+
+## Ejercicio
+
+1.  Cambia la jerarquía del *win ratio*: **falla renal primero y muerte después**. ¿Cambia el resultado?
+2.  Calcula la **CIF** de falla renal a 24 meses en cada brazo (con `cmprsk::cuminc`) y compárala con el HR cause-specific.
+3.  Define un compuesto con **tres componentes** de tu especialidad y escribe una frase justificando el **orden jerárquico**.
+
+## Nota editorial
+
+-   Capítulo redactado con asistencia de IA y revisado por el autor. Los datos del ECA son **simulados**; el escenario clínico es **ilustrativo** y no reproduce ningún ensayo real.
