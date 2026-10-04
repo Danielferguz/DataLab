@@ -2211,6 +2211,433 @@
     ]
   },
   {
+    "objectID": "capitulos/Capítulo6.html",
+    "href": "capitulos/Capítulo6.html",
+    "title": "Capítulo 6: Muestreo",
+    "section": "",
+    "text": "Referencias\nPara poder comprobar cada idea, trabajaremos con una región simulada de unos 75 000 adultos en la que conocemos la prevalencia verdadera de ERC. Así podremos ver qué tan cerca (o lejos) queda cada diseño de la verdad.\nAl finalizar este capítulo podrás:\nPrerrequisitos: Caps. 4 y 5. Prepara: Cap. 7 (estadística descriptiva) y Cap. 20 (tamaño de muestra).",
+    "crumbs": [
+      "Capítulo 6: Muestreo"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.html#referencias",
+    "href": "capitulos/Capítulo6.html#referencias",
+    "title": "Capítulo 6: Muestreo",
+    "section": "",
+    "text": "Lumley T. Complex Surveys: A Guide to Analysis Using R. Wiley; 2010.\nLohr SL. Sampling: Design and Analysis. 3rd ed. CRC Press; 2021.\nHernán MA, Robins JM. Causal Inference: What If. Cap. 8 (sesgo de selección).\nvon Elm E, et al. STROBE statement. Lancet. 2007;370:1453-1457.",
+    "crumbs": [
+      "Capítulo 6: Muestreo"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.1.html",
+    "href": "capitulos/Capítulo6.1.html",
+    "title": "Población, marco y muestra",
+    "section": "",
+    "text": "Tres conjuntos que no se deben confundir\nY dos números que tampoco se deben confundir:",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>26</span>  <span class='chapter-title'>Población, marco y muestra</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.1.html#tres-conjuntos-que-no-se-deben-confundir",
+    "href": "capitulos/Capítulo6.1.html#tres-conjuntos-que-no-se-deben-confundir",
+    "title": "Población, marco y muestra",
+    "section": "",
+    "text": "Población objetivo: a quiénes queremos que apliquen las conclusiones (todos los adultos de la región).\n\nMarco muestral: la lista o mecanismo desde donde realmente podemos elegir (padrón de hogares, listado de unidades de diálisis, registro de laboratorio). Rara vez coincide con la población objetivo.\n\nMuestra: las personas que efectivamente se midieron.\n\n\n\n\nParámetro: el valor verdadero en la población (por ejemplo, la prevalencia real de ERC). Casi nunca se conoce.\n\nEstimador / estadístico: el valor calculado en la muestra (la prevalencia observada). Es nuestro intento de acertar al parámetro.\n\n\n\n\n\n\n\nAdvertencia⚠️ El marco puede dejar gente fuera\n\n\n\nSi el marco es “pacientes con una creatinina registrada en el laboratorio del hospital”, quedan fuera quienes nunca se midieron: precisamente muchos con ERC no diagnosticada. Ninguna fórmula estadística arregla un marco que no cubre a la población objetivo (error de cobertura).",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>26</span>  <span class='chapter-title'>Población, marco y muestra</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.1.html#nuestra-región-simulada",
+    "href": "capitulos/Capítulo6.1.html#nuestra-región-simulada",
+    "title": "Población, marco y muestra",
+    "section": "Nuestra región simulada",
+    "text": "Nuestra región simulada\nCargamos las funciones que simulan la región (R/simular_encuesta_erc.R). Es una región con 600 conglomerados (comunidades o sectores censales), 360 urbanos y 240 rurales. Cada adulto tiene edad, sexo, diabetes, hipertensión y ERC. Todos los datos son simulados.\n\nlibrary(tidyverse)\nsource(\"R/simular_encuesta_erc.R\")\n\npob &lt;- simular_poblacion_erc()\nglimpse(pob)\n\nRows: 75,307\nColumns: 8\n$ id       &lt;int&gt; 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18…\n$ cluster  &lt;int&gt; 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1…\n$ area     &lt;chr&gt; \"Urbano\", \"Urbano\", \"Urbano\", \"Urbano\", \"Urbano\", \"Urbano\", \"…\n$ edad     &lt;dbl&gt; 18, 59, 24, 43, 39, 43, 68, 37, 34, 23, 34, 29, 52, 33, 51, 4…\n$ sexo     &lt;chr&gt; \"F\", \"F\", \"F\", \"M\", \"M\", \"M\", \"M\", \"F\", \"F\", \"M\", \"F\", \"M\", \"…\n$ diabetes &lt;int&gt; 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0…\n$ hta      &lt;int&gt; 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0…\n$ erc      &lt;int&gt; 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0…\n\n\nComo tenemos a toda la población, podemos calcular el parámetro verdadero. En la vida real esto es imposible: por eso se toma una muestra.\n\nN &lt;- nrow(pob)\nprev_verdadera &lt;- mean(pob$erc)\n\npob |&gt;\n  group_by(area) |&gt;\n  summarise(adultos = n(), con_erc = sum(erc), prevalencia = mean(erc)) |&gt;\n  bind_rows(tibble(area = \"Total\", adultos = N, con_erc = sum(pob$erc), prevalencia = prev_verdadera))\n\n# A tibble: 3 × 4\n  area   adultos con_erc prevalencia\n  &lt;chr&gt;    &lt;int&gt;   &lt;int&gt;       &lt;dbl&gt;\n1 Rural    21564    2165      0.100 \n2 Urbano   53743    3535      0.0658\n3 Total    75307    5700      0.0757\n\n\nLa prevalencia verdadera es 7.6 %: más alta en la zona rural que en la urbana.",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>26</span>  <span class='chapter-title'>Población, marco y muestra</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.1.html#una-muestra-un-resultado",
+    "href": "capitulos/Capítulo6.1.html#una-muestra-un-resultado",
+    "title": "Población, marco y muestra",
+    "section": "Una muestra, un resultado",
+    "text": "Una muestra, un resultado\nTomemos una muestra aleatoria simple (MAS) de 300 adultos: cada adulto tiene la misma probabilidad de ser elegido.\n\nset.seed(2025)\nmuestra &lt;- slice_sample(pob, n = 300)\n\np_hat &lt;- mean(muestra$erc)\np_hat\n\n[1] 0.08333333\n\n\nCon 300 adultos obtuvimos 8.3 %. ¿Cuánto nos podemos equivocar? Para una proporción, el error estándar es\n\\[\nEE(\\hat p) = \\sqrt{\\frac{\\hat p\\,(1-\\hat p)}{n}}\\;\\sqrt{1-\\frac{n}{N}}\n\\]\nEl último factor, la corrección por población finita, solo importa cuando la muestra es una fracción grande de la población (aquí es casi 1). El IC del 95 % más usado es \\(\\hat p \\pm 1.96 \\cdot EE\\); el método de Wilson (el de prop.test) funciona mejor con proporciones pequeñas:\n\nn &lt;- nrow(muestra)\nee &lt;- sqrt(p_hat * (1 - p_hat) / n)\nc(p_hat = p_hat, EE = ee, IC_inf = p_hat - 1.96 * ee, IC_sup = p_hat + 1.96 * ee)\n\n     p_hat         EE     IC_inf     IC_sup \n0.08333333 0.01595712 0.05205738 0.11460929 \n\nprop.test(sum(muestra$erc), n)$conf.int      # Wilson con corrección de continuidad\n\n[1] 0.05571207 0.12204049\nattr(,\"conf.level\")\n[1] 0.95",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>26</span>  <span class='chapter-title'>Población, marco y muestra</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.1.html#muchas-muestras-la-distribución-muestral",
+    "href": "capitulos/Capítulo6.1.html#muchas-muestras-la-distribución-muestral",
+    "title": "Población, marco y muestra",
+    "section": "Muchas muestras: la distribución muestral",
+    "text": "Muchas muestras: la distribución muestral\nSi repetimos el muestreo muchas veces, cada muestra da un estimador distinto. Esa variación aleatoria es el error de muestreo. La simulamos con 2 000 muestras de tamaños 100, 300, 1 000 y 3 000:\n\nset.seed(1)\ntamanos &lt;- c(100, 300, 1000, 3000)\n\ndist &lt;- map_dfr(tamanos, \\(n) {\n  tibble(n = n, estimado = replicate(2000, mean(sample(pob$erc, n))))\n}) |&gt;\n  mutate(n = factor(n, levels = tamanos, labels = paste(\"n =\", tamanos)))\n\nggplot(dist, aes(estimado)) +\n  geom_histogram(bins = 40, fill = \"#0072B2\", alpha = 0.75) +\n  geom_vline(xintercept = prev_verdadera, color = \"#D55E00\", linewidth = 1) +\n  facet_wrap(~ n, nrow = 1) +\n  scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +\n  labs(x = \"Prevalencia estimada de ERC\", y = \"Número de muestras\",\n       caption = \"Línea naranja = prevalencia verdadera. Datos simulados.\") +\n  theme_minimal(base_size = 11)\n\n\n\n\n\n\n\n\ndist |&gt;\n  group_by(n) |&gt;\n  summarise(media = mean(estimado), desv_est = sd(estimado)) |&gt;\n  mutate(across(c(media, desv_est), \\(x) round(100 * x, 2)))\n\n# A tibble: 4 × 3\n  n        media desv_est\n  &lt;fct&gt;    &lt;dbl&gt;    &lt;dbl&gt;\n1 n = 100   7.52     2.62\n2 n = 300   7.64     1.58\n3 n = 1000  7.58     0.81\n4 n = 3000  7.57     0.48\n\n\nTres lecciones que se ven en el gráfico:\n\n\nLas muestras acertan “en promedio”: el centro cae sobre la línea (el estimador es insesgado con muestreo aleatorio).\n\nCon muestras pequeñas el resultado puede estar muy lejos de la verdad: un solo estudio es una sola flecha.\n\nEl error disminuye con la raíz del tamaño de muestra: para reducir el error a la mitad hay que cuadruplicar n. Duplicar la muestra no basta.",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>26</span>  <span class='chapter-title'>Población, marco y muestra</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.1.html#qué-significa-realmente-un-ic-del-95",
+    "href": "capitulos/Capítulo6.1.html#qué-significa-realmente-un-ic-del-95",
+    "title": "Población, marco y muestra",
+    "section": "¿Qué significa realmente un IC del 95 %?",
+    "text": "¿Qué significa realmente un IC del 95 %?\nEl IC no dice “hay 95 % de probabilidad de que la verdad esté dentro de este intervalo”. Dice que, si repitiéramos el estudio muchas veces, el 95 % de los intervalos construidos así contendrían la verdad. Lo vemos con 40 estudios independientes de n = 300:\n\nset.seed(5)\nestudios &lt;- map_dfr(1:40, \\(i) {\n  x &lt;- sample(pob$erc, 300)\n  ci &lt;- prop.test(sum(x), 300)$conf.int\n  tibble(estudio = i, p = mean(x), inf = ci[1], sup = ci[2])\n}) |&gt;\n  mutate(cubre = inf &lt;= prev_verdadera & sup &gt;= prev_verdadera)\n\nggplot(estudios, aes(y = estudio, x = p, xmin = inf, xmax = sup, color = cubre)) +\n  geom_pointrange(size = 0.35) +\n  geom_vline(xintercept = prev_verdadera, color = \"grey30\", linetype = \"dashed\") +\n  scale_color_manual(values = c(`TRUE` = \"#0072B2\", `FALSE` = \"#D55E00\"),\n                     labels = c(`TRUE` = \"Contiene la verdad\", `FALSE` = \"No la contiene\"), name = NULL) +\n  scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +\n  labs(x = \"Prevalencia estimada (IC 95 %)\", y = \"Estudio\",\n       caption = \"Datos simulados.\") +\n  theme_minimal(base_size = 11) + theme(legend.position = \"bottom\")\n\n\n\n\n\n\nmean(estudios$cubre)\n\n[1] 0.975\n\n\nCon 40 estudios es normal que 1 o 2 intervalos (en promedio el 5 %) no contengan la verdad.",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>26</span>  <span class='chapter-title'>Población, marco y muestra</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.1.html#error-aleatorio-y-error-sistemático",
+    "href": "capitulos/Capítulo6.1.html#error-aleatorio-y-error-sistemático",
+    "title": "Población, marco y muestra",
+    "section": "Error aleatorio y error sistemático",
+    "text": "Error aleatorio y error sistemático\n\n\n\n\n\n\n\n\nError aleatorio\nError sistemático (sesgo)\n\n\n\nOrigen\nAzar del muestreo\nCómo se eligió o midió\n\n\nSe reduce con\nMás tamaño de muestra\nNada que dependa de n\n\n\nSe describe con\nEE, IC\nDiseño, análisis de sesgos\n\n\nEjemplo\nUna muestra rural tuvo más ERC por azar\nSolo se midió a quien acudió a la clínica\n\n\n\n\n\n\n\n\n\nAdvertencia⚠️ Una muestra enorme y sesgada es peor que una pequeña y bien elegida\n\n\n\nUn IC estrecho alrededor del valor equivocado da falsa seguridad. En 6.4 lo comprobaremos con la clínica de nefrología.",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>26</span>  <span class='chapter-title'>Población, marco y muestra</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.1.html#validez-interna-y-externa",
+    "href": "capitulos/Capítulo6.1.html#validez-interna-y-externa",
+    "title": "Población, marco y muestra",
+    "section": "Validez interna y externa",
+    "text": "Validez interna y externa\n\n\nValidez interna: ¿la comparación dentro del estudio es correcta? (se estudia con los Caps. 3, 10, 11 y 12).\n\nValidez externa (generalizabilidad): ¿el resultado vale para otra población? Depende de cómo se muestreó y de si el efecto cambia entre poblaciones.\n\nUn ECA con muy buena validez interna puede tener poca validez externa si reclutó solo pacientes jóvenes y sin comorbilidad. Para estimar frecuencias (prevalencia) la muestra aleatoria es esencial; para estimar efectos causales la aleatorización o el ajuste importan más que la representatividad, pero la representatividad define a quién se aplica el efecto.\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\n\nPoblación objetivo ≠ marco ≠ muestra. Revisa quién queda fuera del marco.\nEl parámetro es fijo y desconocido; el estimador cambia de muestra en muestra.\nEl error estándar mide la variación aleatoria y baja con \\(\\sqrt{n}\\) (cuadruplicar n para reducir a la mitad).\nEl IC 95 % describe el procedimiento: 95 de cada 100 intervalos contendrían la verdad.\nMás n no corrige un sesgo de selección ni de medición.",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>26</span>  <span class='chapter-title'>Población, marco y muestra</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.1.html#ejercicio",
+    "href": "capitulos/Capítulo6.1.html#ejercicio",
+    "title": "Población, marco y muestra",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nRepite el cálculo de la distribución muestral con n = 500 y verifica que la desviación estándar coincide con \\(\\sqrt{p(1-p)/n}\\).\nCalcula el IC 95 % de la prevalencia rural con una MAS de 300 adultos (usa filter(area == \"Rural\") antes de muestrear). ¿Es más ancho que el global? ¿Por qué?\nCon tus propias palabras: ¿por qué un IC angosto no garantiza que la estimación sea cercana a la verdad?",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>26</span>  <span class='chapter-title'>Población, marco y muestra</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.2.html",
+    "href": "capitulos/Capítulo6.2.html",
+    "title": "Diseños de muestreo",
+    "section": "",
+    "text": "Probabilística o no probabilística\nEn un muestreo probabilístico cada persona de la población tiene una probabilidad conocida y mayor que cero de ser elegida. Eso permite calcular el error y estimar sin sesgo. En uno no probabilístico (conveniencia, bola de nieve, “los que vienen a consulta”) no se conocen esas probabilidades y no se puede cuantificar el sesgo.",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>27</span>  <span class='chapter-title'>Diseños de muestreo</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.2.html#probabilística-o-no-probabilística",
+    "href": "capitulos/Capítulo6.2.html#probabilística-o-no-probabilística",
+    "title": "Diseños de muestreo",
+    "section": "",
+    "text": "Diseño\nCómo se elige\nCuándo conviene\n\n\n\n\nAleatorio simple (MAS)\nSorteo directo del listado\nHay un listado completo y pequeño\n\n\nSistemático\nUn punto al azar y luego 1 de cada k\n\nListado ordenado (registro de diálisis)\n\n\nEstratificado\nMAS dentro de grupos (estratos)\nGrupos con distinta frecuencia; asegurar subgrupos pequeños\n\n\nPor conglomerados\nSe sortean grupos y se miden todos (o parte)\nNo hay listado de personas, pero sí de comunidades, hospitales, unidades\n\n\nBietápico / polietápico\nConglomerados y luego personas dentro\nEncuestas nacionales (ENSANUT, NHANES)",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>27</span>  <span class='chapter-title'>Diseños de muestreo</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.2.html#cómo-se-hace-en-r",
+    "href": "capitulos/Capítulo6.2.html#cómo-se-hace-en-r",
+    "title": "Diseños de muestreo",
+    "section": "Cómo se hace en R",
+    "text": "Cómo se hace en R\nCon dplyr, cada diseño es una pequeña función. Trabajamos con la región simulada (pob) y un tamaño de muestra de 1 500 adultos.\n\nlibrary(tidyverse)\nsource(\"R/simular_encuesta_erc.R\")\n\npob &lt;- simular_poblacion_erc()\nN &lt;- nrow(pob); n &lt;- 1500\npob &lt;- pob |&gt;\n  mutate(gedad = cut(edad, c(17, 39, 59, 100), labels = c(\"18-39\", \"40-59\", \"60+\")),\n         tam = ave(erc, cluster, FUN = length))        # tamaño de la comunidad (marco)\n\n## Cada función devuelve la muestra con una columna `peso` = inversa de la probabilidad de selección\n## (1 en los diseños donde todos tienen igual probabilidad).\n\n## 1. Aleatorio simple\nmuestra_mas &lt;- function() slice_sample(pob, n = n) |&gt; mutate(peso = 1)\n\n## 2. Sistemático: un punto de partida al azar y 1 de cada k\nmuestra_sis &lt;- function() {\n  k &lt;- floor(N / n); inicio &lt;- sample(k, 1)\n  pob[seq(inicio, N, by = k), ] |&gt; mutate(peso = 1)\n}\n\n## 3. Estratificado proporcional (por grupo de edad)\nmuestra_estrat &lt;- function() {\n  pob |&gt; group_by(gedad) |&gt; slice_sample(prop = n / N) |&gt; ungroup() |&gt; mutate(peso = 1)\n}\n\n## 4. Por conglomerados (en dos etapas): 60 comunidades y 25 adultos en cada una\nmuestra_cong &lt;- function(n_cl = 60, por_cl = 25) {\n  ids &lt;- sample(unique(pob$cluster), n_cl)\n  pob |&gt; filter(cluster %in% ids) |&gt; group_by(cluster) |&gt; slice_sample(n = por_cl) |&gt; ungroup() |&gt;\n    mutate(peso = (n_distinct(pob$cluster) / n_cl) * tam / por_cl)     # (1 / prob. de la comunidad) x (1 / prob. dentro de ella)\n}\n\nEn el diseño por conglomerados, un adulto de una comunidad pequeña tiene más probabilidad de salir (se eligen 25 de pocos) que uno de una comunidad grande. Para estimar sin sesgo hay que ponderar por peso; por eso todas las funciones devuelven esa columna.\n\n\n\n\n\n\nTip💡 Tip práctico: reproducibilidad\n\n\n\nSiempre fija la semilla (set.seed()) antes de sortear y guarda las IDs sorteadas. Así cualquiera puede reproducir tu muestra y auditar el sorteo.",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>27</span>  <span class='chapter-title'>Diseños de muestreo</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.2.html#qué-diseño-estima-mejor-experimento-de-muestreo-repetido",
+    "href": "capitulos/Capítulo6.2.html#qué-diseño-estima-mejor-experimento-de-muestreo-repetido",
+    "title": "Diseños de muestreo",
+    "section": "¿Qué diseño estima mejor? Experimento de muestreo repetido",
+    "text": "¿Qué diseño estima mejor? Experimento de muestreo repetido\nComo conocemos la población completa, podemos sacar 500 muestras de cada diseño y ver (a) si el estimador cae en promedio sobre la verdad y (b) cuánto varía de una muestra a otra.\n\nset.seed(1)\nreps &lt;- 500\nprev_verdadera &lt;- mean(pob$erc)\n\nestimar &lt;- function(f) replicate(reps, { m &lt;- f(); weighted.mean(m$erc, m$peso) })\nresultados &lt;- tibble(\n  diseno = c(\"Aleatorio simple\", \"Sistemático\", \"Estratificado (edad)\", \"Conglomerados (60 × 25)\"),\n  est = list(estimar(muestra_mas), estimar(muestra_sis), estimar(muestra_estrat), estimar(muestra_cong))\n)\n\n## Error estándar teórico de una MAS del mismo tamaño: referencia para el efecto de diseño\nee_mas &lt;- sqrt(prev_verdadera * (1 - prev_verdadera) / n * (1 - n / N))\n\nresumen &lt;- resultados |&gt;\n  mutate(media = map_dbl(est, mean), desv_est = map_dbl(est, sd)) |&gt;\n  select(diseno, media, desv_est) |&gt;\n  mutate(sesgo = media - prev_verdadera,\n         efecto_diseno = (desv_est / ee_mas)^2)\n\nresumen |&gt; mutate(across(c(media, desv_est, sesgo), \\(x) round(100 * x, 2)),\n                  efecto_diseno = round(efecto_diseno, 2))\n\n# A tibble: 4 × 5\n  diseno                  media desv_est sesgo efecto_diseno\n  &lt;chr&gt;                   &lt;dbl&gt;    &lt;dbl&gt; &lt;dbl&gt;         &lt;dbl&gt;\n1 Aleatorio simple         7.62     0.71  0.05          1.1 \n2 Sistemático              7.54     0.55 -0.03          0.66\n3 Estratificado (edad)     7.54     0.68 -0.02          1.02\n4 Conglomerados (60 × 25)  7.49     0.8  -0.08          1.42\n\n\nEn porcentaje (la prevalencia verdadera es 7.57 %):\n\nresultados |&gt;\n  unnest(est) |&gt;\n  mutate(diseno = factor(diseno, levels = resultados$diseno)) |&gt;\n  ggplot(aes(est, diseno)) +\n  geom_boxplot(fill = \"#56B4E9\", alpha = 0.6, outlier.size = 0.8) +\n  geom_vline(xintercept = prev_verdadera, color = \"#D55E00\", linewidth = 1) +\n  scale_x_continuous(labels = scales::percent_format(accuracy = 0.1)) +\n  labs(x = \"Prevalencia estimada de ERC (500 muestras por diseño)\", y = NULL,\n       caption = \"Línea naranja = prevalencia verdadera. Datos simulados.\") +\n  theme_minimal(base_size = 11)\n\n\n\n\n\n\n\nLo que enseña el experimento:\n\n\nTodos los diseños probabilísticos son aproximadamente insesgados: la media de las estimaciones cae sobre la verdad.\n\nEstratificar por una variable relacionada con el desenlace (aquí la edad: la prevalencia pasa de 3 % a 16 % entre los grupos extremos) reduce el error respecto de la MAS (aquí modestamente; la ganancia crece cuanto más difiera el desenlace entre estratos). Si el estrato no se relaciona con el desenlace, no se gana nada.\n\nLos conglomerados aumentan el error: medir 25 vecinos de la misma comunidad aporta menos información que medir 25 personas distintas. Se hace por logística y costo, y se paga con una muestra efectiva menor.\nEl sistemático se comporta aquí mejor que la MAS porque el listado está ordenado por conglomerado (equivale a estratificar sin querer). Cuidado: si el listado tiene un patrón periódico que coincide con k (por ejemplo, una cita cada 7 días con turno fijo), el sistemático puede sesgar.",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>27</span>  <span class='chapter-title'>Diseños de muestreo</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.2.html#estratificar-proporcional-o-desproporcionado",
+    "href": "capitulos/Capítulo6.2.html#estratificar-proporcional-o-desproporcionado",
+    "title": "Diseños de muestreo",
+    "section": "Estratificar: proporcional o desproporcionado",
+    "text": "Estratificar: proporcional o desproporcionado\n\n\nProporcional: cada estrato aporta a la muestra en proporción a su tamaño. Mejora la precisión y no requiere ponderar.\n\nDesproporcionado (sobremuestreo): se toman más personas de un grupo pequeño de interés (zona rural, pacientes en diálisis, personas mayores de 80) para tener precisión dentro de ese grupo. El costo es que las personas ya no tienen la misma probabilidad de selección, y el análisis debe usar pesos (6.3).\n\nEjemplo: la zona rural es solo el 29 % de los adultos. Con 1 500 personas en MAS, ¿cuántas rurales esperamos? Unas 430. Si queremos comparar urbano y rural, reservamos 750 y 750:\n\npob |&gt; count(area) |&gt; mutate(proporcion = n / sum(n), esperados_en_1500 = round(1500 * proporcion))\n\n# A tibble: 2 × 4\n  area       n proporcion esperados_en_1500\n  &lt;chr&gt;  &lt;int&gt;      &lt;dbl&gt;             &lt;dbl&gt;\n1 Rural  21564      0.286               430\n2 Urbano 53743      0.714              1070\n\nmuestra_desprop &lt;- pob |&gt; group_by(area) |&gt; slice_sample(n = 750) |&gt; ungroup()\ncount(muestra_desprop, area)\n\n# A tibble: 2 × 2\n  area       n\n  &lt;chr&gt;  &lt;int&gt;\n1 Rural    750\n2 Urbano   750\n\n## peso = inversa de la probabilidad de selección = N_estrato / n_estrato\npob |&gt; count(area, name = \"N_h\") |&gt; mutate(n_h = 750, peso = N_h / n_h)\n\n# A tibble: 2 × 4\n  area     N_h   n_h  peso\n  &lt;chr&gt;  &lt;int&gt; &lt;dbl&gt; &lt;dbl&gt;\n1 Rural  21564   750  28.8\n2 Urbano 53743   750  71.7\n\n\nCada persona rural “representa” a 29 adultos; cada persona urbana, a 72. Estos son los pesos de muestreo.",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>27</span>  <span class='chapter-title'>Diseños de muestreo</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.2.html#conglomerados-efecto-de-diseño-y-correlación-intraclase",
+    "href": "capitulos/Capítulo6.2.html#conglomerados-efecto-de-diseño-y-correlación-intraclase",
+    "title": "Diseños de muestreo",
+    "section": "Conglomerados: efecto de diseño y correlación intraclase",
+    "text": "Conglomerados: efecto de diseño y correlación intraclase\nPersonas de la misma comunidad se parecen entre sí (mismo acceso a salud, dieta, exposiciones). Esa semejanza se mide con el coeficiente de correlación intraclase (ICC, \\(\\rho\\)). Con conglomerados de tamaño promedio \\(\\bar m\\), el efecto de diseño (deff) es:\n\\[\n\\text{deff} \\approx 1 + (\\bar m - 1)\\,\\rho\n\\]\nEs el factor por el que se multiplica la varianza respecto de una MAS del mismo tamaño. El tamaño de muestra efectivo es \\(n_{ef} = n/\\text{deff}\\).\n\n## ICC aproximado con análisis de varianza de un factor (ERC como 0/1)\na &lt;- aov(erc ~ factor(cluster), data = pob)\nms &lt;- summary(a)[[1]]$`Mean Sq`\nm_prom &lt;- mean(table(pob$cluster))\nicc &lt;- (ms[1] - ms[2]) / (ms[1] + (m_prom - 1) * ms[2])\n\ndeff_teorico &lt;- 1 + (25 - 1) * icc\nc(icc = icc, deff_con_25_por_comunidad = deff_teorico, n_efectivo = n / deff_teorico)\n\n                      icc deff_con_25_por_comunidad                n_efectivo \n               0.02634444                1.63226656              918.96755033 \n\n## efecto de diseño observado en el experimento (con su propio error de simulación)\nresumen |&gt; filter(str_detect(diseno, \"Conglomerados\")) |&gt; pull(efecto_diseno)\n\n[1] 1.415651\n\n\nUn ICC de apenas 0.026 parece insignificante, pero con 25 personas por conglomerado el deff ronda 1.6: las 1 500 personas valen como unas 919. Cuantas más personas por conglomerado, mayor el costo estadístico; suele ser mejor más conglomerados con menos personas cada uno.\n\n\n\n\n\n\nAdvertencia⚠️ Los datos agrupados no son independientes\n\n\n\nAnalizar una encuesta por conglomerados con t.test() o glm() ordinarios subestima el error estándar (IC demasiado estrechos, p demasiado pequeños). Lo mismo ocurre con pacientes agrupados en centros o unidades de diálisis. Hay que incorporar el diseño (6.3, y modelos mixtos en el Cap. 14).\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nSolo el muestreo probabilístico permite estimar sin sesgo y cuantificar el error.\n\nEstratifica por variables relacionadas con el desenlace (más precisión) o para asegurar subgrupos pequeños (sobremuestreo, que exige pesos).\nLos conglomerados abaratan el trabajo de campo pero aumentan la varianza: deff = 1 + (m − 1)ρ.\nUn listado ordenado y un sistemático pueden coincidir con un patrón periódico: revisa el orden.\nEscribe el diseño como código reproducible con semilla.",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>27</span>  <span class='chapter-title'>Diseños de muestreo</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.2.html#ejercicio",
+    "href": "capitulos/Capítulo6.2.html#ejercicio",
+    "title": "Diseños de muestreo",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nCalcula el deff teórico si se midieran 10 personas por comunidad en lugar de 25 (1 + (10 − 1) * icc). Con 150 comunidades (también 1 500 personas), ¿mejora la precisión?\nHaz un diseño estratificado por área con 300 urbanos y 1 200 rurales y verifica que, sin pesos, la prevalencia estimada está sesgada. Corrígela con los pesos N_h/n_h.\nEscribe un muestreo sistemático donde el listado esté ordenado por edad. ¿Qué ventaja da ordenar así?",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>27</span>  <span class='chapter-title'>Diseños de muestreo</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.3.html",
+    "href": "capitulos/Capítulo6.3.html",
+    "title": "Muestras complejas con survey",
+    "section": "",
+    "text": "¿Por qué hace falta un paquete especial?\nUna encuesta real casi nunca es una MAS. Suele combinar tres elementos, y los tres cambian el análisis:\nEl paquete survey (Thomas Lumley) incorpora los tres. Se define una vez el diseño y luego se usan funciones análogas a las de siempre: svymean(), svytotal(), svyby(), svyglm().",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>28</span>  <span class='chapter-title'>Muestras complejas con `survey`</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.3.html#por-qué-hace-falta-un-paquete-especial",
+    "href": "capitulos/Capítulo6.3.html#por-qué-hace-falta-un-paquete-especial",
+    "title": "Muestras complejas con survey",
+    "section": "",
+    "text": "Elemento del diseño\nQué hace\nQué se pierde si se ignora\n\n\n\n\nPesos (weights)\nCada persona representa a un número distinto de adultos\n\nSesgo en las estimaciones\n\n\n\nConglomerados (PSU)\nPersonas agrupadas en comunidades\nEE demasiado pequeño\n\n\n\nEstratos\nMuestreo separado por grupo\nEE demasiado grande (se pierde precisión)",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>28</span>  <span class='chapter-title'>Muestras complejas con `survey`</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.3.html#la-encuesta-de-erc",
+    "href": "capitulos/Capítulo6.3.html#la-encuesta-de-erc",
+    "title": "Muestras complejas con survey",
+    "section": "La encuesta de ERC",
+    "text": "La encuesta de ERC\nencuesta_erc.csv (simulada) tiene 1 500 adultos: 30 comunidades urbanas y 30 rurales (muestreo bietápico estratificado), con 25 adultos sorteados en cada comunidad. Las zonas rurales se sobremuestrearon: hay el mismo número de comunidades en ambas áreas aunque la zona urbana tiene más habitantes.\n\nlibrary(tidyverse)\nlibrary(survey)\n\nenc &lt;- read_csv(\"Bases/encuesta_erc.csv\")\nglimpse(enc)\n\nRows: 1,500\nColumns: 11\n$ id        &lt;dbl&gt; 1799, 1929, 1877, 1850, 1882, 1832, 1917, 1865, 1935, 1844, …\n$ cluster   &lt;dbl&gt; 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, …\n$ area      &lt;chr&gt; \"Urbano\", \"Urbano\", \"Urbano\", \"Urbano\", \"Urbano\", \"Urbano\", …\n$ edad      &lt;dbl&gt; 37, 47, 50, 43, 73, 28, 45, 45, 25, 65, 50, 18, 54, 18, 53, …\n$ sexo      &lt;chr&gt; \"F\", \"F\", \"M\", \"M\", \"F\", \"F\", \"M\", \"M\", \"M\", \"F\", \"M\", \"F\", …\n$ diabetes  &lt;dbl&gt; 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, …\n$ hta       &lt;dbl&gt; 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, …\n$ erc       &lt;dbl&gt; 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, …\n$ peso      &lt;dbl&gt; 68.64, 68.64, 68.64, 68.64, 68.64, 68.64, 68.64, 68.64, 68.6…\n$ tam       &lt;dbl&gt; 143, 143, 143, 143, 143, 143, 143, 143, 143, 143, 143, 143, …\n$ N_conglom &lt;dbl&gt; 360, 360, 360, 360, 360, 360, 360, 360, 360, 360, 360, 360, …\n\n\n\n\ncluster: comunidad (unidad primaria de muestreo).\n\narea: estrato (urbano o rural).\n\npeso: inversa de la probabilidad de selección = \\(1/(p_1 \\times p_2)\\), con \\(p_1\\) la probabilidad de elegir la comunidad y \\(p_2\\) la de elegir al adulto dentro de ella.\n\ntam, N_conglom: datos auxiliares usados para calcular el peso.\n\n\nenc |&gt;\n  group_by(area) |&gt;\n  summarise(adultos = n(), comunidades = n_distinct(cluster),\n            peso_medio = mean(peso), adultos_representados = sum(peso))\n\n# A tibble: 2 × 5\n  area   adultos comunidades peso_medio adultos_representados\n  &lt;chr&gt;    &lt;int&gt;       &lt;int&gt;      &lt;dbl&gt;                 &lt;dbl&gt;\n1 Rural      750          30       29.0                 21784\n2 Urbano     750          30       71.1                 53304\n\n\nUn adulto rural representa a unos 29 adultos de la región y uno urbano a unos 71. La suma de pesos (≈ 75 000) estima el tamaño de la población.",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>28</span>  <span class='chapter-title'>Muestras complejas con `survey`</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.3.html#paso-1-declarar-el-diseño",
+    "href": "capitulos/Capítulo6.3.html#paso-1-declarar-el-diseño",
+    "title": "Muestras complejas con survey",
+    "section": "Paso 1: declarar el diseño",
+    "text": "Paso 1: declarar el diseño\n\ndis &lt;- svydesign(\n  ids     = ~cluster,    # unidades primarias de muestreo (comunidades)\n  strata  = ~area,       # estratos\n  weights = ~peso,       # pesos de muestreo\n  data    = enc,\n  nest    = TRUE         # los id de comunidad se repiten entre estratos: anidar\n)\ndis\n\nStratified 1 - level Cluster Sampling design (with replacement)\nWith (60) clusters.\nsvydesign(ids = ~cluster, strata = ~area, weights = ~peso, data = enc, \n    nest = TRUE)\n\n\n\n\n\n\n\n\nTip💡 Tip práctico: qué poner en cada argumento\n\n\n\n\n\nids: la primera etapa del muestreo (comunidad, hospital, unidad de diálisis). Si es MAS sin agrupar, ids = ~1.\n\nstrata: la variable usada para estratificar. Si no hubo, se omite.\n\nweights: la columna de pesos. Los publica la encuesta (ENSANUT, NHANES) con la base.\n\nnest = TRUE cuando los códigos de conglomerado se repiten dentro de distintos estratos.\nCon encuestas públicas, lee el manual para saber cuáles son las variables de diseño: usar la equivocada es un error silencioso.",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>28</span>  <span class='chapter-title'>Muestras complejas con `survey`</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.3.html#paso-2-estimar-con-el-diseño",
+    "href": "capitulos/Capítulo6.3.html#paso-2-estimar-con-el-diseño",
+    "title": "Muestras complejas con survey",
+    "section": "Paso 2: estimar con el diseño",
+    "text": "Paso 2: estimar con el diseño\nPrevalencia\n\nest &lt;- svymean(~erc, dis, deff = TRUE)\nest\n\n        mean       SE   DEff\nerc 0.092133 0.010132 1.8771\n\nconfint(est)\n\n         2.5 %    97.5 %\nerc 0.07227536 0.1119906\n\n\nCon muestras de proporciones pequeñas, el IC logit de svyciprop() evita límites fuera de [0, 1] y suele preferirse:\n\nic_logit &lt;- svyciprop(~I(erc == 1), dis, method = \"logit\")\nic_logit\n\n                     2.5% 97.5%\nI(erc == 1) 0.0921 0.0738  0.11\n\nconfint(ic_logit)\n\n                  2.5%     97.5%\nI(erc == 1) 0.07375927 0.1145177\n\n\nComparar con el análisis “ingenuo”\n\np_ingenua &lt;- mean(enc$erc)\nee_ingenuo &lt;- sqrt(p_ingenua * (1 - p_ingenua) / nrow(enc))\n\ntibble(\n  metodo = c(\"Ingenuo (sin pesos, MAS)\", \"Con el diseño (survey)\"),\n  prevalencia = c(p_ingenua, coef(est)),\n  EE = c(ee_ingenuo, SE(est)),\n  IC_inf = prevalencia - 1.96 * EE,\n  IC_sup = prevalencia + 1.96 * EE\n) |&gt; mutate(across(where(is.numeric), \\(x) round(100 * x, 2)))\n\n# A tibble: 2 × 5\n  metodo                   prevalencia    EE IC_inf IC_sup\n  &lt;chr&gt;                          &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;\n1 Ingenuo (sin pesos, MAS)        9.4   0.75   7.92   10.9\n2 Con el diseño (survey)          9.21  1.01   7.23   11.2\n\n\nDos efectos distintos pueden aparecer:\n\n\nEl punto puede cambiar (sesgo por no ponderar): el análisis ingenuo da demasiado peso a la zona rural (la mitad de la muestra, pero solo el 29 % de la población). Aquí el cambio es pequeño porque la prevalencia rural y urbana no difieren tanto; con estratos muy distintos, ignorar los pesos puede equivocar bastante.\n\nEl error estándar cambia casi siempre: con el diseño es mayor, porque las personas de una misma comunidad no aportan información independiente (deff = 1.88). El IC ingenuo es demasiado optimista.\n\n\n\n\n\n\n\nImportante🎯 Regla de oro\n\n\n\nSi tu base viene de una encuesta con diseño complejo, todo análisis (descriptivo, regresión, tablas) debe pasar por el diseño. Un mean() o glm() sin pesos entrega una estimación para la muestra, no para la población.\n\n\nTotales\n¿Cuántos adultos de la región tienen ERC? El total estimado, con su IC:\n\ntot &lt;- svytotal(~erc, dis)\ntot\n\n     total     SE\nerc 6918.1 774.11\n\nconfint(tot)\n\n       2.5 %   97.5 %\nerc 5400.845 8435.315\n\n\nPor subgrupos con svyby()\n\n\npor_area &lt;- svyby(~erc, ~area, dis, svymean, vartype = c(\"se\", \"ci\"))\npor_area\n\n         area        erc         se       ci_l      ci_u\nRural   Rural 0.10031583 0.01457920 0.07174112 0.1288905\nUrbano Urbano 0.08878883 0.01297592 0.06335649 0.1142212\n\nenc &lt;- enc |&gt; mutate(gedad = cut(edad, c(17, 39, 59, 100), labels = c(\"18-39\", \"40-59\", \"60+\")))\ndis &lt;- update(dis, gedad = enc$gedad)             # agrega variables al diseño sin perder pesos\nsvyby(~erc, ~gedad, dis, svymean, vartype = \"ci\")\n\n      gedad        erc       ci_l       ci_u\n18-39 18-39 0.03124567 0.01079933 0.05169202\n40-59 40-59 0.08203797 0.05876959 0.10530635\n60+     60+ 0.20264077 0.14653398 0.25874755\n\n\n\n\n\n\n\n\nAdvertencia⚠️ Subpoblaciones: usa subset() sobre el diseño, no filter() sobre los datos\n\n\n\nSi quieres solo a los mayores de 60 años, no elimines filas de la base antes de crear el diseño: se pierde información de conglomerados y estratos y el EE sale mal. Filtra el objeto de diseño:\ndis_60 &lt;- subset(dis, edad &gt;= 60)\nsvymean(~erc, dis_60)",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>28</span>  <span class='chapter-title'>Muestras complejas con `survey`</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.3.html#regresión-con-el-diseño",
+    "href": "capitulos/Capítulo6.3.html#regresión-con-el-diseño",
+    "title": "Muestras complejas con survey",
+    "section": "Regresión con el diseño",
+    "text": "Regresión con el diseño\nsvyglm() ajusta modelos lineales generalizados teniendo en cuenta pesos y conglomerados. Para un desenlace binario se usa la familia quasibinomial (evita avisos por pesos no enteros; los coeficientes son los mismos que con binomial).\n\nm_svy &lt;- svyglm(erc ~ diabetes + hta + I(edad / 10) + area, design = dis, family = quasibinomial)\n\ntab &lt;- cbind(coef(m_svy), confint(m_svy))\nround(exp(tab[-1, ]), 2) |&gt; `colnames&lt;-`(c(\"OR\", \"IC_inf\", \"IC_sup\"))\n\n             OR IC_inf IC_sup\ndiabetes   4.24   2.47   7.28\nhta        2.05   1.18   3.57\nI(edad/10) 1.52   1.31   1.77\nareaUrbano 0.99   0.63   1.57\n\n\nComparado con el modelo sin diseño:\n\nm_ing &lt;- glm(erc ~ diabetes + hta + I(edad / 10) + area, data = enc, family = binomial)\nround(exp(cbind(OR = coef(m_ing), confint.default(m_ing)))[-1, ], 2)\n\n             OR 2.5 % 97.5 %\ndiabetes   3.56  2.16   5.88\nhta        1.95  1.26   3.00\nI(edad/10) 1.55  1.36   1.77\nareaUrbano 1.00  0.69   1.44\n\n\nLos OR son parecidos; los IC del modelo con diseño suelen ser más anchos para las variables que varían entre comunidades.\n\n\n\n\n\n\nNota¿Pesos en una regresión? Una discusión abierta\n\n\n\nCuando se estima un parámetro poblacional descriptivo (prevalencia, totales), los pesos son indispensables. Para estimar asociaciones con un modelo bien especificado que incluye las variables de selección (aquí area), un modelo sin pesos es válido y más eficiente, pero con conglomerados hay que corregir el EE de todos modos (errores robustos por conglomerado, o modelos mixtos). Los pesos protegen frente a una mala especificación. En la práctica con encuestas oficiales: se analiza con el diseño.",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>28</span>  <span class='chapter-title'>Muestras complejas con `survey`</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.3.html#alternativas-cuando-no-hay-survey",
+    "href": "capitulos/Capítulo6.3.html#alternativas-cuando-no-hay-survey",
+    "title": "Muestras complejas con survey",
+    "section": "Alternativas cuando no hay survey\n",
+    "text": "Alternativas cuando no hay survey\n\nSi trabajas con datos agrupados (pacientes en centros) pero sin pesos, puedes obtener errores estándar robustos por conglomerado con sandwich y lmtest:\n\nlibrary(sandwich)\nlibrary(lmtest)\n\nm_glm &lt;- glm(erc ~ diabetes + hta + I(edad / 10) + area, data = enc, family = binomial)\ncoeftest(m_glm, vcov = vcovCL(m_glm, cluster = ~cluster))\n\n\nz test of coefficients:\n\n              Estimate Std. Error  z value  Pr(&gt;|z|)    \n(Intercept) -4.8452292  0.4363366 -11.1043 &lt; 2.2e-16 ***\ndiabetes     1.2702043  0.2331228   5.4486 5.075e-08 ***\nhta          0.6667434  0.2291661   2.9094  0.003621 ** \nI(edad/10)   0.4380237  0.0648335   6.7561 1.417e-11 ***\nareaUrbano  -0.0031651  0.2289369  -0.0138  0.988969    \n---\nSignif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>28</span>  <span class='chapter-title'>Muestras complejas con `survey`</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.3.html#peculiaridades-que-conviene-conocer",
+    "href": "capitulos/Capítulo6.3.html#peculiaridades-que-conviene-conocer",
+    "title": "Muestras complejas con survey",
+    "section": "Peculiaridades que conviene conocer",
+    "text": "Peculiaridades que conviene conocer\n\n\nGrados de libertad: en encuestas, no son \\(n-1\\) sino conglomerados − estratos (aquí 60 − 2 = 58). survey lo usa en los IC de svymean con degf(dis).\n\nUn solo conglomerado en un estrato (lonely PSU): la varianza no se puede calcular; se configura con options(survey.lonely.psu = \"adjust\") y se discute.\n\nPesos replicados (BRR, jackknife): algunas encuestas públicas los entregan en lugar de cluster/strata; se usan con svrepdesign().\n\nPost-estratificación y calibración: ajustar los pesos para que reproduzcan totales conocidos del censo (edad × sexo) con postStratify() o calibrate().\n\n\ndegf(dis)\n\n[1] 58\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nUna encuesta compleja tiene pesos, conglomerados y estratos; los tres entran al análisis.\nDeclara el diseño una vez con svydesign() y estima con svymean(), svytotal(), svyby() y svyglm().\nIgnorar el diseño produce sesgo (por no ponderar) y EE subestimados (por ignorar los conglomerados).\nPara subpoblaciones: subset(diseño, ...), nunca filtrar la base antes.\nEl efecto de diseño (deff) resume cuánto se pierde en precisión.\nSin survey, usa EE robustos por conglomerado (vcovCL).",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>28</span>  <span class='chapter-title'>Muestras complejas con `survey`</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.3.html#ejercicio",
+    "href": "capitulos/Capítulo6.3.html#ejercicio",
+    "title": "Muestras complejas con survey",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nEstima la prevalencia de diabetes y de hipertensión con el diseño, con IC. Compáralas con las estimaciones ingenuas.\nCalcula la prevalencia de ERC en mujeres de 60 años o más, usando subset(). ¿Cuántos adultos de la región representan?\nAjusta un modelo con una interacción diabetes × área y evalúa con regTermTest(m, ~diabetes:area) si es significativa.",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>28</span>  <span class='chapter-title'>Muestras complejas con `survey`</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.4.html",
+    "href": "capitulos/Capítulo6.4.html",
+    "title": "Sesgo de selección y no respuesta",
+    "section": "",
+    "text": "La clínica de nefrología como “muestra”\nVolvamos a la pregunta inicial: ¿qué pasa si estimamos la prevalencia de ERC con quienes consultan en una clínica de nefrología? Simulamos que la probabilidad de consultar aumenta si la persona tiene ERC, diabetes, hipertensión o más edad (algo muy plausible: se deriva a quien tiene algo).\nlibrary(tidyverse)\nlibrary(survey)\nsource(\"R/simular_encuesta_erc.R\")\nsource(\"R/funciones_epi.R\")\n\npob &lt;- simular_poblacion_erc()\nclinica &lt;- simular_consulta_clinica(pob)        # quienes consultan: muestra de conveniencia\n\nprev_verdadera &lt;- mean(pob$erc)\nset.seed(3)\nmas &lt;- slice_sample(pob, n = nrow(clinica))     # MAS del mismo tamaño que la clínica\n\ntibble(\n  fuente = c(\"Población (verdad)\", \"Clínica de nefrología\", \"MAS del mismo tamaño\"),\n  n = c(nrow(pob), nrow(clinica), nrow(mas)),\n  prevalencia_ERC = c(prev_verdadera, mean(clinica$erc), mean(mas$erc))\n) |&gt; mutate(prevalencia_ERC = round(100 * prevalencia_ERC, 1))\n\n# A tibble: 3 × 3\n  fuente                    n prevalencia_ERC\n  &lt;chr&gt;                 &lt;int&gt;           &lt;dbl&gt;\n1 Población (verdad)    75307             7.6\n2 Clínica de nefrología   281            57.3\n3 MAS del mismo tamaño    281             5.7\nLa clínica “encuentra” una prevalencia de más de la mitad, cuando en la población es menor de 10 %. No es un error de cálculo: es sesgo de selección. Y notemos que la muestra es pequeña pero el problema no se arregla con más pacientes: 3 000 pacientes de la misma clínica darían el mismo resultado equivocado, solo que con un IC más estrecho.",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>29</span>  <span class='chapter-title'>Sesgo de selección y no respuesta</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.4.html#un-sesgo-que-también-deforma-las-asociaciones",
+    "href": "capitulos/Capítulo6.4.html#un-sesgo-que-también-deforma-las-asociaciones",
+    "title": "Sesgo de selección y no respuesta",
+    "section": "Un sesgo que también deforma las asociaciones",
+    "text": "Un sesgo que también deforma las asociaciones\nEl sesgo de selección no solo cambia las frecuencias: puede distorsionar la relación entre variables. Comparemos el OR de diabetes para ERC en la población y en la clínica:\n\nor_dm &lt;- function(d) {\n  m &lt;- glm(erc ~ diabetes + hta + I(edad / 10), data = d, family = binomial)\n  c(OR = exp(coef(m)[\"diabetes\"]), exp(confint.default(m)[\"diabetes\", ]))\n}\nbind_rows(\n  `Población` = or_dm(pob), `Clínica` = or_dm(clinica), .id = \"fuente\"\n) |&gt; mutate(across(where(is.numeric), \\(x) round(x, 2)))\n\n# A tibble: 2 × 4\n  fuente    OR.diabetes `2.5 %` `97.5 %`\n  &lt;chr&gt;           &lt;dbl&gt;   &lt;dbl&gt;    &lt;dbl&gt;\n1 Población        2.59    2.39     2.81\n2 Clínica          1.31    0.72     2.39\n\n\nEn la clínica, el OR de diabetes se atenúa (de ~2.6 a ~1.3). ¿Por qué? Porque ingresar a la clínica es efecto común de la diabetes y de la ERC: entre quienes consultan, quien no tiene diabetes necesita tener otra razón (ERC) para estar ahí. Es el sesgo del colisionador (Berkson) del Cap. 3.\n\ndibujar_dag(\n  tribble(~nombre, ~x, ~y, ~etiqueta, ~rol,\n          \"D\", 1, 1.6, \"Diabetes\", \"exposicion\",\n          \"E\", 1, 0.4, \"ERC\", \"desenlace\",\n          \"S\", 2, 1.0, \"Consulta en\\nla clínica\", \"colisionador\"),\n  tribble(~de, ~a, \"D\", \"S\", \"E\", \"S\", \"D\", \"E\"),\n  tam_texto = 3.4, expandir = c(0.25, 0.25)\n)\n\n\n\n\n\n\n\nEstudiar solo a quienes tienen \\(S = 1\\) equivale a condicionar en un colisionador: abre un camino espurio entre diabetes y ERC.\n\n\n\n\n\n\nImportante🎯 Selección = colisionador (de nuevo)\n\n\n\nLo que en el Cap. 3 era un diagrama, aquí es un número que cambia. Siempre que la inclusión en el estudio dependa de la exposición y del desenlace (o de causas de ambos), el análisis está condicionado en un colisionador. La respuesta no es “ajustar más”, sino cambiar el diseño o usar métodos de ponderación por la probabilidad de selección (Cap. 12 y 19).",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>29</span>  <span class='chapter-title'>Sesgo de selección y no respuesta</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.4.html#formas-de-sesgo-de-selección-en-nefrología",
+    "href": "capitulos/Capítulo6.4.html#formas-de-sesgo-de-selección-en-nefrología",
+    "title": "Sesgo de selección y no respuesta",
+    "section": "Formas de sesgo de selección en nefrología",
+    "text": "Formas de sesgo de selección en nefrología\n\n\n\n\n\n\n\nForma\nEjemplo\nDirección típica\n\n\n\nMuestra de conveniencia / de referencia\nSolo pacientes de un hospital terciario\nPrevalencias exageradas; efectos atenuados o inflados\n\n\nSesgo del voluntario\nSolo quienes aceptan una pesquisa gratuita\nMás sanos, más conscientes\n\n\n\nSesgo del sobreviviente (prevalent user)\nPacientes ya en hemodiálisis hace años\nQuedan los que sobrevivieron; efecto inicial desaparece\n\n\nPérdida durante el seguimiento\nNo regresan quienes empeoran o se mudan\nDesenlaces subestimados\n\n\nSesgo de detección\nSe mide creatinina a quien ya parece enfermo\nERC “más frecuente” donde se busca\n\n\nNo respuesta\nRechazan la encuesta\nDepende de quién y por qué",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>29</span>  <span class='chapter-title'>Sesgo de selección y no respuesta</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.4.html#no-respuesta-en-una-encuesta-probabilística",
+    "href": "capitulos/Capítulo6.4.html#no-respuesta-en-una-encuesta-probabilística",
+    "title": "Sesgo de selección y no respuesta",
+    "section": "No respuesta en una encuesta probabilística",
+    "text": "No respuesta en una encuesta probabilística\nAun con un diseño probabilístico impecable, no todos responden. Si quienes no responden son diferentes, la muestra efectiva ya no es aleatoria. Simulamos que responder es menos probable con ERC, mayor edad y zona rural (el 27 % no respondió):\n\nenc &lt;- read_csv(\"Bases/encuesta_erc.csv\") |&gt;\n  mutate(gedad = cut(edad, c(17, 39, 59, 100), labels = c(\"18-39\", \"40-59\", \"60+\")))\nenc &lt;- simular_no_respuesta(enc)               # agrega la columna `respondio`\n\nmean(enc$respondio)                            # tasa de respuesta\n\n[1] 0.7293333\n\nenc |&gt; group_by(gedad) |&gt; summarise(tasa_respuesta = mean(respondio))\n\n# A tibble: 3 × 2\n  gedad tasa_respuesta\n  &lt;fct&gt;          &lt;dbl&gt;\n1 18-39          0.825\n2 40-59          0.728\n3 60+            0.618\n\n\nEn la vida real no conoces el estado de ERC de quienes no respondieron; aquí sí (simulación), así que veremos cuánto se pierde.\nTres análisis\n\ndis_ref &lt;- svydesign(ids = ~cluster, strata = ~area, weights = ~peso, data = enc, nest = TRUE)\n\nresp &lt;- enc |&gt; filter(respondio == 1)\n\n## (a) Solo respondientes, con los pesos originales\ndis_a &lt;- svydesign(ids = ~cluster, strata = ~area, weights = ~peso, data = resp, nest = TRUE)\n\n## (b) Pesos ajustados por no respuesta: dentro de cada celda área × edad se divide\n##     el peso por la tasa de respuesta de la celda\nenc &lt;- enc |&gt; group_by(area, gedad) |&gt; mutate(tasa_celda = mean(respondio)) |&gt; ungroup()\nresp &lt;- enc |&gt; filter(respondio == 1) |&gt; mutate(peso_aj = peso / tasa_celda)\ndis_b &lt;- svydesign(ids = ~cluster, strata = ~area, weights = ~peso_aj, data = resp, nest = TRUE)\n\ntibble(\n  analisis = c(\"Encuesta completa (inaccesible en la práctica)\",\n               \"(a) Solo respondientes, pesos originales\",\n               \"(b) Respondientes, pesos ajustados\"),\n  prevalencia = c(coef(svymean(~erc, dis_ref)), coef(svymean(~erc, dis_a)), coef(svymean(~erc, dis_b))),\n  EE = c(SE(svymean(~erc, dis_ref)), SE(svymean(~erc, dis_a)), SE(svymean(~erc, dis_b)))\n) |&gt; mutate(across(where(is.numeric), \\(x) round(100 * x, 2)))\n\n# A tibble: 3 × 3\n  analisis                                       prevalencia    EE\n  &lt;chr&gt;                                                &lt;dbl&gt; &lt;dbl&gt;\n1 Encuesta completa (inaccesible en la práctica)        9.21  1.01\n2 (a) Solo respondientes, pesos originales              5.96  0.89\n3 (b) Respondientes, pesos ajustados                    6.3   0.91\n\n\nLa referencia no es la verdad de la región (7.6 %) sino la encuesta completa (9.2 %), que ya tiene su propio error de muestreo. El sesgo atribuible a la no respuesta es la diferencia entre (a) o (b) y esa referencia: más de tres puntos de prevalencia.\nEl ajuste de pesos (b) corrige parte del sesgo, porque recupera a los grupos de edad y área que respondieron menos. Pero no lo elimina: dentro de cada celda, los que tienen ERC siguen respondiendo menos. El ajuste solo corrige lo que observamos (edad y área); si la no respuesta depende del propio desenlace (ERC), el sesgo persiste.\n\n\n\n\n\n\nAdvertencia⚠️ Ajustar no es lo mismo que corregir\n\n\n\n\n\nDatos faltantes al azar condicionado en variables observadas: el ajuste (ponderar o imputar) funciona.\n\nNo respuesta que depende del desenlace (los enfermos rechazan o no pueden asistir): ninguna ponderación basada en variables observadas lo arregla. Hay que reducir la no respuesta (insistir, visitas domiciliarias), medir una submuestra de no respondientes y declarar la limitación.\nEsto conecta con el Cap. 13 (datos faltantes) y con el análisis de sensibilidad.\n\n\n\nLímites en el peor de los casos\nCuando no podemos modelar la no respuesta, un enfoque honesto es calcular límites: ¿cuál sería la prevalencia si ninguno de los no respondientes tuviera ERC, y si todos la tuvieran?\n\ntasa_resp &lt;- weighted.mean(enc$respondio, enc$peso)\np_resp &lt;- coef(svymean(~erc, dis_a))\n\nc(prevalencia_en_respondientes = p_resp,\n  limite_inferior = p_resp * tasa_resp,               # nadie de los no respondientes tiene ERC\n  limite_superior = p_resp * tasa_resp + (1 - tasa_resp))   # todos la tienen\n\nprevalencia_en_respondientes.erc              limite_inferior.erc \n                      0.05964183                       0.04523972 \n             limite_superior.erc \n                      0.28671639 \n\n\nLos límites son muy anchos, y eso es una lección: con 27 % de no respuesta, los datos por sí solos no determinan la prevalencia. Hay que sumar supuestos explícitos (y probarlos con análisis de sensibilidad).",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>29</span>  <span class='chapter-title'>Sesgo de selección y no respuesta</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.4.html#y-si-la-muestra-no-es-representativa-pero-igual-queremos-un-efecto-causal",
+    "href": "capitulos/Capítulo6.4.html#y-si-la-muestra-no-es-representativa-pero-igual-queremos-un-efecto-causal",
+    "title": "Sesgo de selección y no respuesta",
+    "section": "¿Y si la muestra no es representativa pero igual queremos un efecto causal?",
+    "text": "¿Y si la muestra no es representativa pero igual queremos un efecto causal?\nDistinguir dos objetivos:\n\n\n\n\n\n\nObjetivo\n¿Exige muestra representativa?\n\n\n\nPrevalencia, incidencia, utilización de servicios\n\nSí (muestreo probabilístico y pesos)\n\n\nEfecto causal dentro de los participantes\nNo necesariamente: importa cómo se formaron los grupos (aleatorización o ajuste) y que la selección no dependa conjuntamente de exposición y desenlace\n\n\n\n\nEfecto causal en otra población (transportabilidad)\nSe necesitan datos de ambas poblaciones y ponderar\n\n\n\nUn ECA con criterios de inclusión estrictos sigue siendo válido internamente; a quién se aplica es una pregunta de validez externa.\n\n\n\n\n\n\nTip💡 Cómo reducir el sesgo de selección antes de recolectar\n\n\n\n\nDefine con precisión la población objetivo y el marco.\nUsa muestreo probabilístico siempre que el objetivo sea descriptivo.\nPlanifica seguimiento de no respondientes y registra los motivos.\nRecoge variables auxiliares (edad, sexo, área) de todos los elegidos para poder ajustar.\nDocumenta el diagrama de flujo (elegibles → invitados → respondieron → analizados), como pide STROBE.\n\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nUna muestra de conveniencia (quienes consultan) no estima prevalencias: más pacientes no arreglan el sesgo.\nLa selección que depende de exposición y desenlace es un colisionador y puede distorsionar asociaciones, no solo frecuencias.\nLa no respuesta crea sesgo si los que no responden difieren; se ajusta con pesos por variables observadas, pero solo corrige esa parte.\nLos límites en el peor caso muestran cuánto determinan (o no) los datos.\nEl mejor remedio es el diseño: marco, aleatoriedad, seguimiento y registro del flujo.",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>29</span>  <span class='chapter-title'>Sesgo de selección y no respuesta</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.4.html#ejercicio",
+    "href": "capitulos/Capítulo6.4.html#ejercicio",
+    "title": "Sesgo de selección y no respuesta",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nRepite la comparación población vs. clínica con hipertensión como exposición. ¿El OR se atenúa también?\nCambia la simulación de no respuesta para que no dependa de la ERC (en simular_no_respuesta, quita el término - 1.0 * m$erc). ¿Qué pasa con el análisis (a) y con el ajustado (b)?\nDibuja el DAG de un estudio en que se incluyen solo pacientes hospitalizados y se estudia la relación entre tabaquismo y ERC. ¿Qué tipo de sesgo aparece?",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>29</span>  <span class='chapter-title'>Sesgo de selección y no respuesta</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.5.html",
+    "href": "capitulos/Capítulo6.5.html",
+    "title": "Caso integrado y tamaño de muestra",
+    "section": "",
+    "text": "Caso: prevalencia de ERC en la región\nPregunta: ¿Cuál es la prevalencia de ERC en los adultos de la región y qué factores se asocian? Reunimos todo el capítulo en un flujo de trabajo reproducible.",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>30</span>  <span class='chapter-title'>Caso integrado y tamaño de muestra</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.5.html#caso-prevalencia-de-erc-en-la-región",
+    "href": "capitulos/Capítulo6.5.html#caso-prevalencia-de-erc-en-la-región",
+    "title": "Caso integrado y tamaño de muestra",
+    "section": "",
+    "text": "1. Diseño y marco (se escribe antes de recolectar)\n\n\n\n\n\n\nElemento\nDecisión\n\n\n\nPoblación objetivo\nAdultos ≥ 18 años residentes de la región\n\n\nMarco\nLista de 600 comunidades (360 urbanas, 240 rurales), con su tamaño\n\n\nDiseño\nBietápico estratificado: 30 comunidades por estrato y 25 adultos por comunidad\n\n\nSobremuestreo\nZona rural (casi el doble de su proporción poblacional) para estimar por área\n\n\nDesenlace\nERC (TFGe &lt; 60 o albuminuria ≥ 30 mg/g persistente)\n\n\nAnálisis\n\nsurvey, con pesos de muestreo y ajuste por no respuesta\n\n\n2. Estimaciones con el diseño\n\nlibrary(tidyverse)\nlibrary(survey)\n\nenc &lt;- read_csv(\"Bases/encuesta_erc.csv\") |&gt;\n  mutate(gedad = cut(edad, c(17, 39, 59, 100), labels = c(\"18-39\", \"40-59\", \"60+\")),\n         sexo = factor(sexo, c(\"F\", \"M\"), c(\"Mujer\", \"Hombre\")))\n\ndis &lt;- svydesign(ids = ~cluster, strata = ~area, weights = ~peso, data = enc, nest = TRUE)\n\n\nprev_por &lt;- function(var) {\n  svyby(~erc, as.formula(paste(\"~\", var)), dis, svymean, vartype = \"ci\") |&gt;\n    as_tibble() |&gt;\n    rename(nivel = 1, prevalencia = erc, inf = ci_l, sup = ci_u) |&gt;\n    mutate(variable = var, nivel = as.character(nivel))\n}\n\ntabla &lt;- bind_rows(\n  tibble(variable = \"Total\", nivel = \"Región\",\n         prevalencia = coef(svymean(~erc, dis)),\n         inf = confint(svymean(~erc, dis))[1], sup = confint(svymean(~erc, dis))[2]),\n  prev_por(\"area\"), prev_por(\"sexo\"), prev_por(\"gedad\")\n)\n\ntabla |&gt; mutate(across(c(prevalencia, inf, sup), \\(x) round(100 * x, 1)))\n\n# A tibble: 8 × 5\n  variable nivel  prevalencia   inf   sup\n  &lt;chr&gt;    &lt;chr&gt;        &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;\n1 Total    Región         9.2   7.2  11.2\n2 area     Rural         10     7.2  12.9\n3 area     Urbano         8.9   6.3  11.4\n4 sexo     Mujer          8.4   6.1  10.6\n5 sexo     Hombre        10.1   7    13.2\n6 gedad    18-39          3.1   1.1   5.2\n7 gedad    40-59          8.2   5.9  10.5\n8 gedad    60+           20.3  14.7  25.9\n\nggplot(tabla, aes(prevalencia, fct_rev(fct_inorder(paste(variable, nivel, sep = \": \"))), xmin = inf, xmax = sup)) +\n  geom_pointrange(color = \"#0072B2\") +\n  scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +\n  labs(x = \"Prevalencia de ERC (IC 95 %)\", y = NULL, caption = \"Datos simulados.\") +\n  theme_minimal(base_size = 11)\n\n\n\n\n\n\n\n3. Factores asociados\n\nm &lt;- svyglm(erc ~ diabetes + hta + I(edad / 10) + sexo + area, design = dis, family = quasibinomial)\n\nres &lt;- cbind(OR = exp(coef(m)), exp(confint(m)))\ncolnames(res) &lt;- c(\"OR\", \"IC_inf\", \"IC_sup\")\nround(res[-1, ], 2)\n\n             OR IC_inf IC_sup\ndiabetes   4.28   2.49   7.34\nhta        2.08   1.20   3.61\nI(edad/10) 1.52   1.31   1.77\nsexoHombre 1.28   0.80   2.03\nareaUrbano 0.99   0.62   1.57\n\n\nInterpretación descriptiva: en esta región, la diabetes y la hipertensión se asocian con mayor odds de ERC, y por cada 10 años de edad el odds crece. No diremos que “la diabetes causa ERC con un OR de 4”: es una asociación ajustada, y la causalidad exige los marcos de los capítulos 3 y 12. (Ver el Cap. 8 sobre la falacia de la Tabla 2: no interpretar todos los coeficientes de un modelo como efectos.)",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>30</span>  <span class='chapter-title'>Caso integrado y tamaño de muestra</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.5.html#tamaño-de-muestra-para-estimar-una-prevalencia",
+    "href": "capitulos/Capítulo6.5.html#tamaño-de-muestra-para-estimar-una-prevalencia",
+    "title": "Caso integrado y tamaño de muestra",
+    "section": "Tamaño de muestra para estimar una prevalencia",
+    "text": "Tamaño de muestra para estimar una prevalencia\nPara estimar una proporción \\(p\\) con precisión absoluta \\(d\\) (semiamplitud del IC) y confianza del 95 %:\n\\[\nn_0 = \\frac{z^2\\,p\\,(1-p)}{d^2}\n\\]\ny, si el diseño tiene conglomerados, se multiplica por el efecto de diseño, y se agrega una reserva por no respuesta:\n\\[\nn = \\frac{n_0 \\times \\text{deff}}{\\text{tasa de respuesta}}\n\\]\n\nn_prevalencia &lt;- function(p, d, deff = 1, resp = 1, z = 1.96) {\n  ceiling(z^2 * p * (1 - p) / d^2 * deff / resp)\n}\n\n## Esperamos ~8 % y queremos ±2 puntos de precisión\nn_prevalencia(p = 0.08, d = 0.02)                        # MAS\n\n[1] 707\n\nn_prevalencia(p = 0.08, d = 0.02, deff = 1.6)            # conglomerados 25 x comunidad\n\n[1] 1131\n\nn_prevalencia(p = 0.08, d = 0.02, deff = 1.6, resp = 0.75)  # y 25 % de no respuesta\n\n[1] 1508\n\n\nTres reglas de la práctica:\n\nLa precisión pide proporciones esperadas; si no se tiene idea de \\(p\\), usar \\(p = 0.5\\) es el caso más conservador (pero muy caro si la verdadera es 8 %).\nPara estimar la prevalencia por subgrupos (rural/urbano), el cálculo debe hacerse por subgrupo.\nEl deff se toma de una encuesta piloto o de la literatura con un diseño parecido.\n\nLas cuentas de comparación de grupos y de poder estadístico están en el Cap. 20.\n\ngrid &lt;- expand_grid(d = c(0.01, 0.02, 0.03), deff = c(1, 1.6, 2.5)) |&gt;\n  mutate(n = map2_dbl(d, deff, \\(d, f) n_prevalencia(0.08, d, f)))\n\nggplot(grid, aes(factor(d * 100), n, fill = factor(deff))) +\n  geom_col(position = \"dodge\") +\n  scale_fill_brewer(palette = \"Blues\", name = \"Efecto de diseño\") +\n  labs(x = \"Precisión deseada (± puntos porcentuales)\", y = \"Tamaño de muestra\",\n       caption = \"Prevalencia esperada 8 %.\") +\n  theme_minimal(base_size = 11)",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>30</span>  <span class='chapter-title'>Caso integrado y tamaño de muestra</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.5.html#lista-de-verificación-para-reportar-una-encuesta",
+    "href": "capitulos/Capítulo6.5.html#lista-de-verificación-para-reportar-una-encuesta",
+    "title": "Caso integrado y tamaño de muestra",
+    "section": "Lista de verificación para reportar una encuesta",
+    "text": "Lista de verificación para reportar una encuesta\n\n\n\n\n\n\nTip💡 Qué debe decir tu artículo o informe\n\n\n\n\nPoblación objetivo y marco muestral.\nDiseño: estratos, conglomerados, etapas y cómo se sorteó (semilla).\nTamaño de muestra previsto y cálculo (incluye deff y no respuesta).\nTasa de respuesta y diagrama de flujo; cómo se trató la no respuesta.\nPesos: cómo se construyeron y qué se ajustó.\nSoftware y paquete (survey, versión) y el objeto de diseño declarado.\nEstimaciones con IC, no solo porcentajes; n no ponderado y estimación ponderada.\nLimitaciones: cobertura, no respuesta, mediciones.\n\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nUn análisis de encuesta ordenado: diseño → pesos → svydesign → estimaciones con IC → modelos con el diseño.\nLos resultados de un modelo en datos de encuesta son asociaciones; la causalidad se trabaja aparte.\nEl tamaño de muestra para una prevalencia es \\(z^2 p(1-p)/d^2\\), multiplicado por el efecto de diseño y dividido por la tasa de respuesta.\nReporta el diseño, los pesos, la respuesta y las limitaciones.",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>30</span>  <span class='chapter-title'>Caso integrado y tamaño de muestra</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.5.html#ejercicio",
+    "href": "capitulos/Capítulo6.5.html#ejercicio",
+    "title": "Caso integrado y tamaño de muestra",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nCalcula el tamaño de muestra para estimar una prevalencia esperada de 3 % de ERC avanzada con ±1 punto, deff 2 y 80 % de respuesta.\nAgrega a la tabla del caso la prevalencia de ERC por diabetes (sí/no) con IC.\nEscribe un párrafo de Métodos para el estudio de esta región siguiendo la lista de verificación.",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>30</span>  <span class='chapter-title'>Caso integrado y tamaño de muestra</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo6.5.html#nota-editorial",
+    "href": "capitulos/Capítulo6.5.html#nota-editorial",
+    "title": "Caso integrado y tamaño de muestra",
+    "section": "Nota editorial",
+    "text": "Nota editorial\n\nCapítulo redactado con asistencia de IA y revisado por el autor. Todos los datos son simulados; la región, la clínica y la encuesta son ficticias.",
+    "crumbs": [
+      "Capítulo 6: Muestreo",
+      "<span class='chapter-number'>30</span>  <span class='chapter-title'>Caso integrado y tamaño de muestra</span>"
+    ]
+  },
+  {
     "objectID": "capitulos/Apéndice-resumen.html",
     "href": "capitulos/Apéndice-resumen.html",
     "title": "Apéndice: cuadros de resumen y plantillas",

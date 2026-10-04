@@ -1,0 +1,153 @@
+# Caso integrado y tamaño de muestra
+
+## Caso: prevalencia de ERC en la región
+
+Pregunta: *¿Cuál es la prevalencia de ERC en los adultos de la región y qué factores se asocian?* Reunimos todo el capítulo en un flujo de trabajo reproducible.
+
+### 1. Diseño y marco (se escribe antes de recolectar)
+
+| Elemento | Decisión |
+|---|---|
+| Población objetivo | Adultos ≥ 18 años residentes de la región |
+| Marco | Lista de 600 comunidades (360 urbanas, 240 rurales), con su tamaño |
+| Diseño | Bietápico estratificado: 30 comunidades por estrato y 25 adultos por comunidad |
+| Sobremuestreo | Zona rural (casi el doble de su proporción poblacional) para estimar por área |
+| Desenlace | ERC (TFGe < 60 o albuminuria ≥ 30 mg/g persistente) |
+| Análisis | `survey`, con pesos de muestreo y ajuste por no respuesta |
+
+### 2. Estimaciones con el diseño
+
+```{r}
+#| label: setup-65
+library(tidyverse)
+library(survey)
+
+enc <- read_csv("Bases/encuesta_erc.csv") |>
+  mutate(gedad = cut(edad, c(17, 39, 59, 100), labels = c("18-39", "40-59", "60+")),
+         sexo = factor(sexo, c("F", "M"), c("Mujer", "Hombre")))
+
+dis <- svydesign(ids = ~cluster, strata = ~area, weights = ~peso, data = enc, nest = TRUE)
+```
+
+```{r}
+#| label: tabla-prev
+#| fig-width: 8
+#| fig-height: 4
+prev_por <- function(var) {
+  svyby(~erc, as.formula(paste("~", var)), dis, svymean, vartype = "ci") |>
+    as_tibble() |>
+    rename(nivel = 1, prevalencia = erc, inf = ci_l, sup = ci_u) |>
+    mutate(variable = var, nivel = as.character(nivel))
+}
+
+tabla <- bind_rows(
+  tibble(variable = "Total", nivel = "Región",
+         prevalencia = coef(svymean(~erc, dis)),
+         inf = confint(svymean(~erc, dis))[1], sup = confint(svymean(~erc, dis))[2]),
+  prev_por("area"), prev_por("sexo"), prev_por("gedad")
+)
+
+tabla |> mutate(across(c(prevalencia, inf, sup), \(x) round(100 * x, 1)))
+
+ggplot(tabla, aes(prevalencia, fct_rev(fct_inorder(paste(variable, nivel, sep = ": "))), xmin = inf, xmax = sup)) +
+  geom_pointrange(color = "#0072B2") +
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(x = "Prevalencia de ERC (IC 95 %)", y = NULL, caption = "Datos simulados.") +
+  theme_minimal(base_size = 11)
+```
+
+### 3. Factores asociados
+
+```{r}
+#| label: modelo-caso
+m <- svyglm(erc ~ diabetes + hta + I(edad / 10) + sexo + area, design = dis, family = quasibinomial)
+
+res <- cbind(OR = exp(coef(m)), exp(confint(m)))
+colnames(res) <- c("OR", "IC_inf", "IC_sup")
+round(res[-1, ], 2)
+```
+
+Interpretación **descriptiva**: en esta región, la diabetes y la hipertensión se asocian con mayor odds de ERC, y por cada 10 años de edad el odds crece. **No** diremos que "la diabetes causa ERC con un OR de 4": es una asociación ajustada, y la causalidad exige los marcos de los capítulos 3 y 12. (Ver el Cap. 8 sobre la *falacia de la Tabla 2*: no interpretar todos los coeficientes de un modelo como efectos.)
+
+## Tamaño de muestra para estimar una prevalencia
+
+Para estimar una proporción $p$ con precisión absoluta $d$ (semiamplitud del IC) y confianza del 95 %:
+
+$$
+n_0 = \frac{z^2\,p\,(1-p)}{d^2}
+$$
+
+y, si el diseño tiene conglomerados, se multiplica por el **efecto de diseño**, y se agrega una **reserva por no respuesta**:
+
+$$
+n = \frac{n_0 \times \text{deff}}{\text{tasa de respuesta}}
+$$
+
+```{r}
+#| label: tamano-prev
+n_prevalencia <- function(p, d, deff = 1, resp = 1, z = 1.96) {
+  ceiling(z^2 * p * (1 - p) / d^2 * deff / resp)
+}
+
+## Esperamos ~8 % y queremos ±2 puntos de precisión
+n_prevalencia(p = 0.08, d = 0.02)                        # MAS
+n_prevalencia(p = 0.08, d = 0.02, deff = 1.6)            # conglomerados 25 x comunidad
+n_prevalencia(p = 0.08, d = 0.02, deff = 1.6, resp = 0.75)  # y 25 % de no respuesta
+```
+
+Tres reglas de la práctica:
+
+-   La precisión pide **proporciones esperadas**; si no se tiene idea de $p$, usar $p = 0.5$ es el caso más conservador (pero muy caro si la verdadera es 8 %).
+-   Para estimar la prevalencia **por subgrupos** (rural/urbano), el cálculo debe hacerse **por subgrupo**.
+-   El *deff* se toma de una **encuesta piloto o de la literatura** con un diseño parecido.
+
+Las cuentas de comparación de grupos y de poder estadístico están en el Cap. 20.
+
+```{r}
+#| label: curva-n
+#| fig-width: 7
+#| fig-height: 3.8
+grid <- expand_grid(d = c(0.01, 0.02, 0.03), deff = c(1, 1.6, 2.5)) |>
+  mutate(n = map2_dbl(d, deff, \(d, f) n_prevalencia(0.08, d, f)))
+
+ggplot(grid, aes(factor(d * 100), n, fill = factor(deff))) +
+  geom_col(position = "dodge") +
+  scale_fill_brewer(palette = "Blues", name = "Efecto de diseño") +
+  labs(x = "Precisión deseada (± puntos porcentuales)", y = "Tamaño de muestra",
+       caption = "Prevalencia esperada 8 %.") +
+  theme_minimal(base_size = 11)
+```
+
+## Lista de verificación para reportar una encuesta
+
+::: {.callout-tip}
+## 💡 Qué debe decir tu artículo o informe
+
+-   [ ] **Población objetivo** y **marco** muestral.
+-   [ ] **Diseño**: estratos, conglomerados, etapas y cómo se sorteó (semilla).
+-   [ ] **Tamaño de muestra** previsto y cálculo (incluye *deff* y no respuesta).
+-   [ ] **Tasa de respuesta** y **diagrama de flujo**; cómo se trató la no respuesta.
+-   [ ] **Pesos**: cómo se construyeron y qué se ajustó.
+-   [ ] **Software y paquete** (`survey`, versión) y el **objeto de diseño** declarado.
+-   [ ] Estimaciones con **IC**, no solo porcentajes; *n* no ponderado **y** estimación ponderada.
+-   [ ] **Limitaciones**: cobertura, no respuesta, mediciones.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   Un análisis de encuesta ordenado: **diseño → pesos → `svydesign` → estimaciones con IC → modelos con el diseño**.
+-   Los resultados de un modelo en datos de encuesta son **asociaciones**; la causalidad se trabaja aparte.
+-   El tamaño de muestra para una prevalencia es $z^2 p(1-p)/d^2$, multiplicado por el **efecto de diseño** y dividido por la **tasa de respuesta**.
+-   Reporta el diseño, los pesos, la respuesta y las limitaciones.
+:::
+
+## Ejercicio
+
+1.  Calcula el tamaño de muestra para estimar una prevalencia esperada de **3 %** de ERC avanzada con ±1 punto, *deff* 2 y 80 % de respuesta.
+2.  Agrega a la tabla del caso la prevalencia de ERC por **diabetes** (sí/no) con IC.
+3.  Escribe un párrafo de **Métodos** para el estudio de esta región siguiendo la lista de verificación.
+
+## Nota editorial
+
+-   Capítulo redactado con asistencia de IA y revisado por el autor. Todos los datos son **simulados**; la región, la clínica y la encuesta son ficticias.
