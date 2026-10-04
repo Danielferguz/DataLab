@@ -1,0 +1,162 @@
+# Importar datos
+
+Los datos de nefrología llegan en formatos diversos: el registro del servicio en **Excel**, el laboratorio en **CSV**, bases de investigación en **Stata** o **SPSS**. Este subcapítulo muestra cómo leer cada formato y, sobre todo, cómo **revisar lo que se importó** antes de analizar.
+
+```{r}
+#| label: setup-43
+library(tidyverse)
+library(readxl)     # Excel
+library(haven)      # Stata, SPSS, SAS
+```
+
+::: {.callout-important}
+## 🎯 En resumen: qué función usar
+
+| Formato | Función | Paquete |
+|---|---|---|
+| CSV (coma) | `read_csv()` | `readr` (tidyverse) |
+| CSV (punto y coma, coma decimal) | `read_csv2()` | `readr` |
+| Texto con otro separador | `read_delim(delim = "\t")` | `readr` |
+| Excel (`.xlsx`, `.xls`) | `read_excel(hoja)` | `readxl` |
+| Stata (`.dta`) | `read_dta()` | `haven` |
+| SPSS (`.sav`) | `read_sav()` | `haven` |
+| R (`.rds`) | `read_rds()` | `readr` |
+:::
+
+## CSV: el formato más seguro
+
+```{r}
+#| label: csv
+ckd <- read_csv("Bases/ckd_isglt2.csv")
+ckd
+```
+
+`read_csv()` te informa cuántas filas y columnas leyó y qué **tipo** asignó a cada una. **Léelo siempre**: si una columna numérica aparece como `chr` (texto), algo anda mal (ver 4.5 y Cap. 5).
+
+### CSV de Latinoamérica y Europa: `;` y coma decimal
+
+Con frecuencia el Excel exporta CSV con `;` como separador y `,` como decimal. Si usas `read_csv()` los números quedan como texto. Usa `read_csv2()`:
+
+```{r}
+#| label: csv2
+read_csv2("Bases/ejemplo_pacientes_puntoycoma.csv") |> head(3)
+```
+
+::: {.callout-tip}
+## 💡 Tip práctico: especificar las columnas
+
+Para evitar sorpresas, indica tú el tipo de cada columna y qué valores significan "faltante":
+
+```r
+read_csv("Bases/ckd_isglt2.csv",
+         col_types = cols(id = col_integer(), sexo = col_factor(), uacr = col_double()),
+         na = c("", "NA", "999", "-"))
+```
+:::
+
+## Excel
+
+```{r}
+#| label: excel
+excel_sheets("Bases/ejemplo_pacientes.xlsx")                 # ¿qué hojas tiene?
+
+datos_xl <- read_excel("Bases/ejemplo_pacientes.xlsx", sheet = "datos")
+dic_xl   <- read_excel("Bases/ejemplo_pacientes.xlsx", sheet = "diccionario")
+dic_xl
+```
+
+::: {.callout-warning}
+## ⚠️ Excel esconde problemas
+
+-   **Fechas** guardadas como números de serie o como texto.
+-   **Celdas combinadas**, encabezados en varias filas, colores con significado ("rojo = fallecido").
+-   Columnas numéricas con **un texto** (`"ND"`, `"<0.5"`) que las convierte enteras en texto.
+-   Varias hojas con la misma estructura (una por año).
+
+Cuando puedas, pide los datos en **CSV** y un **diccionario de datos**. Si debes usar Excel, usa `skip = 3` para saltar filas de título y `range = "A4:J200"` para leer un rango.
+:::
+
+## Stata y SPSS (con etiquetas)
+
+`haven` conserva las **etiquetas** de variables y de valores que se definieron en Stata o SPSS:
+
+```{r}
+#| label: haven
+datos_dta <- read_dta("Bases/ejemplo_pacientes.dta")
+datos_sav <- read_sav("Bases/ejemplo_pacientes.sav")
+
+datos_dta |> select(id, sexo, isglt2, tfg_basal) |> head(3)
+```
+
+Las columnas etiquetadas aparecen como `<dbl+lbl>`. Para usarlas en R conviértelas a **factor** con `as_factor()`:
+
+```{r}
+#| label: haven-factor
+datos_dta |>
+  mutate(sexo = as_factor(sexo), isglt2 = as_factor(isglt2)) |>
+  count(sexo, isglt2)
+
+attr(datos_dta$tfg_basal, "label")        # la etiqueta de la variable queda como atributo
+```
+
+## Revisar lo que importaste (siempre)
+
+Antes de cualquier análisis, una revisión de cinco minutos evita errores de semanas:
+
+```{r}
+#| label: revision
+dim(ckd)                       # filas x columnas: ¿coincide con lo esperado?
+glimpse(ckd)                   # tipos de cada variable
+summary(ckd)                   # mínimos, máximos, faltantes
+```
+
+```{r}
+#| label: revision-faltantes
+colSums(is.na(ckd))            # faltantes por columna
+sum(duplicated(ckd$id))        # ¿IDs repetidos?
+count(ckd, sexo)               # categorías: ¿hay variantes o errores de tipeo?
+```
+
+::: {.callout-tip}
+## 💡 Tip práctico: lista de verificación al importar
+
+1.  ¿El **número de filas** coincide con el número de pacientes esperado?
+2.  ¿Cada columna tiene el **tipo** correcto (número, texto, fecha)?
+3.  ¿Los **mínimos y máximos** son clínicamente plausibles (edad 250, PAS 0, TFGe negativa)?
+4.  ¿Los **faltantes** están codificados como `NA` (no como `999` o `"-"`)?
+5.  ¿Hay **IDs duplicados**?
+6.  ¿Las categorías están escritas de **una sola manera**?
+:::
+
+## Guardar y exportar
+
+```{r}
+#| label: exportar
+#| eval: false
+write_csv(ckd, "datos/procesados/ckd_limpio.csv")   # CSV: universal
+write_rds(ckd, "datos/procesados/ckd_limpio.rds")   # RDS: conserva tipos y factores (solo R)
+```
+
+::: {.callout-warning}
+## ⚠️ Privacidad de datos clínicos
+
+-   **Nunca** subas a un repositorio público, a un servicio en la nube ni a una herramienta de IA datos con **identificadores** (nombre, DNI, historia clínica, fecha de nacimiento exacta).
+-   Trabaja con un **código de paciente** y guarda la tabla de equivalencias aparte y protegida.
+-   Cumple las normas de tu institución y del comité de ética.
+:::
+
+::: {.callout-important}
+## 🎯 Para llevarte
+
+-   Cada formato tiene su función; CSV es el más seguro.
+-   `read_csv2()` para CSV con `;` y coma decimal.
+-   Con `haven`, usa `as_factor()` para convertir etiquetas a factores.
+-   **Revisa siempre**: dimensiones, tipos, rangos, faltantes y duplicados.
+-   Protege los datos identificables.
+:::
+
+## Ejercicio
+
+1.  Lee `ejemplo_pacientes.xlsx` y calcula cuántos pacientes iniciaron iSGLT2 y cuál es su TFGe media.
+2.  Lee `ejemplo_pacientes_puntoycoma.csv` con `read_csv()` y con `read_csv2()` y compara el tipo de `hba1c`.
+3.  Escribe, como comentario, tres problemas que revisarías en una base nueva de tu servicio.

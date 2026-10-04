@@ -1,0 +1,140 @@
+# Fechas y tiempos
+
+Las fechas son una fuente constante de errores: formatos mezclados, números de serie de Excel, años con dos dígitos. El paquete `lubridate` (parte del tidyverse) las maneja.
+
+```{r}
+#| label: setup-53
+library(tidyverse)
+library(lubridate)
+source("R/funciones_epi.R")
+
+registro <- read_csv("Bases/registro_nefro_sucio.csv") |> rename_with(limpiar_nombres)
+registro |> select(id_paciente, fecha_nac, fecha_de_ingreso) |> head(6)
+```
+
+Aunque parecen fechas, son **texto**: en esta base unos están como `dd/mm/aaaa` y otros como `aaaa-mm-dd`.
+
+## Leer fechas: el orden importa
+
+`lubridate` ofrece una función por **orden** de los componentes: `dmy()`, `mdy()`, `ymd()`.
+
+```{r}
+#| label: dmy
+dmy("17/05/2024")          # día-mes-año
+ymd("2024-05-17")          # año-mes-día
+mdy("05/17/2024")          # mes-día-año (estilo estadounidense)
+dmy("17-may-24")           # también acepta nombres de mes (según idioma del sistema)
+```
+
+::: {.callout-warning}
+## ⚠️ La ambigüedad más peligrosa: `03/04/2024`
+
+¿3 de abril o 4 de marzo? **R no puede saberlo**: depende del formato de la fuente. Pregunta siempre cómo se registraron las fechas. Si todas las fechas con día ≤ 12 son ambiguas, revisa las que tienen día > 12 (por ejemplo, `25/03/2024` solo puede ser día-mes) para deducir el formato.
+:::
+
+## Formatos mezclados: `parse_date_time()`
+
+Cuando una misma columna mezcla formatos, indica una lista de órdenes posibles; se prueban en orden:
+
+```{r}
+#| label: mixtas
+registro <- registro |>
+  mutate(
+    fecha_nac        = as_date(parse_date_time(fecha_nac,        orders = c("dmy", "ymd"))),
+    fecha_de_ingreso = as_date(parse_date_time(fecha_de_ingreso, orders = c("dmy", "ymd")))
+  )
+
+registro |> select(id_paciente, fecha_nac, fecha_de_ingreso) |> head(4)
+sum(is.na(registro$fecha_nac))        # 0 = todas se pudieron leer
+```
+
+::: {.callout-tip}
+## 💡 Tip práctico: verifica que no se perdieron fechas
+
+Después de convertir, cuenta los `NA` **nuevos**. Si hay, muestra los textos originales que fallaron (`filter(is.na(fecha_convertida))`) para ver qué formato no previste.
+:::
+
+### Fechas de Excel guardadas como número
+
+Excel almacena fechas como el **número de días desde el 30/12/1899**. Si al importar ves números como `45432`:
+
+```{r}
+#| label: excel
+as_date(45432, origin = "1899-12-30")
+```
+
+## Extraer componentes y hacer cálculos
+
+```{r}
+#| label: componentes
+registro |>
+  mutate(anio_ingreso = year(fecha_de_ingreso),
+         mes_ingreso  = month(fecha_de_ingreso, label = TRUE, abbr = TRUE),
+         trimestre    = quarter(fecha_de_ingreso)) |>
+  count(anio_ingreso)
+```
+
+### Edad desde las fechas (y comparar con la registrada)
+
+La edad registrada puede contener errores; la calculada desde las fechas es más confiable.
+
+```{r}
+#| label: edad
+registro <- registro |>
+  mutate(edad_calc = as.integer(floor(time_length(interval(fecha_nac, fecha_de_ingreso), "years"))),
+         dif_edad  = edad - edad_calc)
+
+count(registro, dif_edad)               # 0 = coincide
+registro |> filter(dif_edad != 0) |> select(id_paciente, edad, edad_calc, fecha_nac, fecha_de_ingreso)
+```
+
+Cinco filas difieren: **cuatro con 100 años de más** (error de digitación: tres pacientes, uno de ellos con la fila duplicada; los duplicados los resolvemos en 5.5) y **una con un año de diferencia**, que es solo redondeo del cálculo original. **Se corrige usando la edad calculada desde las fechas.**
+
+### Tiempos de seguimiento
+
+```{r}
+#| label: seguimiento
+fecha_corte <- ymd("2024-06-30")
+
+registro |>
+  mutate(meses_seguimiento = time_length(interval(fecha_de_ingreso, fecha_corte), "months")) |>
+  summarise(mediana = median(meses_seguimiento),
+            q1 = quantile(meses_seguimiento, .25), q3 = quantile(meses_seguimiento, .75)) |>
+  mutate(across(everything(), ~ round(., 1)))
+```
+
+::: {.callout-warning}
+## ⚠️ Restar fechas con `-` vs. `time_length()`
+
+`fecha2 - fecha1` devuelve **días**. Para años o meses reales usa `time_length(interval(f1, f2), "years")`: divide por 365.25 solo si no necesitas exactitud; con `interval()` se respeta el calendario.
+:::
+
+## Comprobaciones de coherencia temporal
+
+Una fecha puede estar bien escrita y ser imposible:
+
+```{r}
+#| label: coherencia
+registro |>
+  summarise(
+    ingreso_antes_nacimiento = sum(fecha_de_ingreso < fecha_nac),
+    nacimiento_futuro        = sum(fecha_nac > today()),
+    ingreso_fuera_de_rango   = sum(fecha_de_ingreso < ymd("2022-01-01") | fecha_de_ingreso > ymd("2024-12-31"))
+  )
+```
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   Las fechas llegan como **texto**: conviértelas con `dmy()`, `ymd()` o `parse_date_time(orders = c(...))`.
+-   Pregunta el **formato de origen**: `03/04` es ambiguo.
+-   Tras convertir, **cuenta los `NA`** que aparecieron.
+-   Calcula edades y tiempos con `time_length(interval(...), "years")`; compara con lo registrado.
+-   Revisa la **coherencia**: ingreso antes del nacimiento, fechas futuras, fuera del periodo del estudio.
+:::
+
+## Ejercicio
+
+1.  ¿Cuántos pacientes ingresaron en cada trimestre de 2023?
+2.  Calcula la edad al ingreso y verifica cuántas edades registradas difieren.
+3.  Crea la variable `tiempo_desde_ingreso_meses` al 30/06/2024 y haz un histograma.

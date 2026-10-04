@@ -93,3 +93,60 @@ dibujar_dag <- function(nodos, aristas, encoger = 0.14, tam_texto = 3.6, expandi
     ggplot2::theme_void(base_size = 12) +
     ggplot2::theme(legend.position = "bottom")
 }
+
+# ------------------------------------------------------------------------
+# Funciones nefrológicas (Cap. 5)
+# ------------------------------------------------------------------------
+
+#' Limpia nombres de columnas: minúsculas, sin tildes, sin símbolos, con guion bajo
+limpiar_nombres <- function(x) {
+  x |>
+    stringi::stri_trans_general("Latin-ASCII") |>
+    tolower() |>
+    gsub(pattern = "[^a-z0-9]+", replacement = "_") |>
+    gsub(pattern = "^_|_$", replacement = "")
+}
+
+#' Conversión de creatinina sérica (1 mg/dL = 88.4 µmol/L)
+umol_a_mgdl <- function(x) x / 88.4
+mgdl_a_umol <- function(x) x * 88.4
+
+#' TFGe por CKD-EPI 2021 con creatinina (sin raza), mL/min/1.73 m2
+#' @param creat_mgdl creatinina sérica en mg/dL
+#' @param edad años   @param sexo "F" o "M"
+ckd_epi_2021 <- function(creat_mgdl, edad, sexo) {
+  mujer  <- sexo == "F"
+  kappa  <- ifelse(mujer, 0.7, 0.9)
+  alfa   <- ifelse(mujer, -0.241, -0.302)
+  cociente <- creat_mgdl / kappa
+  142 * pmin(cociente, 1)^alfa * pmax(cociente, 1)^-1.200 * 0.9938^edad * ifelse(mujer, 1.012, 1)
+}
+
+#' Categoría G de KDIGO según TFGe
+categoria_g <- function(tfg) {
+  cut(tfg, breaks = c(-Inf, 15, 30, 45, 60, 90, Inf), right = FALSE,
+      labels = c("G5", "G4", "G3b", "G3a", "G2", "G1"), ordered_result = TRUE) |>
+    factor(levels = c("G1", "G2", "G3a", "G3b", "G4", "G5"), ordered = TRUE)
+}
+
+#' Categoría A de KDIGO según UACR (mg/g)
+categoria_a <- function(uacr) {
+  cut(uacr, breaks = c(-Inf, 30, 300, Inf), right = FALSE,
+      labels = c("A1", "A2", "A3"), ordered_result = TRUE)
+}
+
+#' Riesgo KDIGO (mapa de calor): bajo, moderado, alto, muy alto
+riesgo_kdigo <- function(g, a) {
+  tabla <- rbind(
+    G1  = c("Bajo", "Moderado", "Alto"),
+    G2  = c("Bajo", "Moderado", "Alto"),
+    G3a = c("Moderado", "Alto", "Muy alto"),
+    G3b = c("Alto", "Muy alto", "Muy alto"),
+    G4  = c("Muy alto", "Muy alto", "Muy alto"),
+    G5  = c("Muy alto", "Muy alto", "Muy alto"))
+  colnames(tabla) <- c("A1", "A2", "A3")
+  out <- rep(NA_character_, length(g))
+  ok <- !is.na(g) & !is.na(a)
+  out[ok] <- tabla[cbind(as.character(g[ok]), as.character(a[ok]))]
+  factor(out, levels = c("Bajo", "Moderado", "Alto", "Muy alto"), ordered = TRUE)
+}

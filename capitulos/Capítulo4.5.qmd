@@ -1,0 +1,134 @@
+# Errores, avisos y cómo pedir ayuda
+
+Todo el que programa ve errores a diario. La diferencia entre principiantes y expertos no es que los expertos no se equivoquen, sino que **saben leer el mensaje** y qué hacer a continuación.
+
+```{r}
+#| label: setup-45
+library(tidyverse)
+ckd <- read_csv("Bases/ckd_isglt2.csv", show_col_types = FALSE)
+
+# Función auxiliar: ejecuta código que falla y muestra el mensaje sin detener el documento
+ver_error <- function(codigo) {
+  r <- tryCatch(eval(parse(text = codigo)), error = function(e) conditionMessage(e),
+                warning = function(w) paste("AVISO:", conditionMessage(w)))
+  cat(r, "\n")
+}
+```
+
+## Error, aviso y mensaje: no son lo mismo
+
+| Tipo | Qué significa | ¿Qué hago? |
+|---|---|---|
+| **Error** (`Error in…`) | R **no pudo** ejecutar la orden | Hay que corregirlo: nada se calculó |
+| **Aviso** (`Warning`) | R calculó, pero algo es sospechoso | Entender por qué; puede invalidar el resultado |
+| **Mensaje** (`Message`) | Información (p. ej., qué columnas leyó) | Leerlo; normalmente no requiere acción |
+
+## Los diez errores más frecuentes
+
+Mira los mensajes reales de cada uno:
+
+```{r}
+#| label: errores
+# 1. Objeto no encontrado: error de tipeo o no se ejecutó la línea que lo crea
+ver_error("mean(tfg_basa)")
+
+# 2. Función no encontrada: falta cargar el paquete o hay un error de tipeo
+ver_error("read_dta('x.dta')")
+
+# 3. Columna que no existe (o mal escrita)
+ver_error("ckd |> select(creatinina)")
+
+# 4. Operación con texto en lugar de número
+ver_error("'1,8' + 1")
+
+# 5. Paréntesis/comillas sin cerrar o coma de más
+ver_error("mean(c(1, 2, 3")
+
+# 6. Archivo no encontrado: ruta incorrecta o carpeta de trabajo equivocada
+ver_error("read_csv('datos/no_existe.csv')")
+
+# 7. Aviso: convertir texto a número con valores no numéricos
+ver_error("as.numeric(c('1.2', '<0.5', '3'))")
+
+# 8. Aviso: usar = en lugar de == dentro de un filtro
+ver_error("ckd |> filter(isglt2 = 1)")
+
+# 9. Promedio con faltantes devuelve NA (no es error pero engaña)
+ver_error("print(mean(c(1.2, NA, 3.4)))")
+
+# 10. Longitudes distintas en una comparación
+ver_error("c(1, 2, 3) + c(1, 2)")
+```
+
+::: {.callout-tip}
+## 💡 Tip práctico: cómo leer un error
+
+1.  Lee **la última línea** del mensaje: suele decir *qué* pasó.
+2.  Mira **en qué línea y función** ocurrió (RStudio la marca en rojo).
+3.  Pregúntate: *¿el objeto existe?, ¿está bien escrito?, ¿es del tipo que esperaba?* (`class()`, `str()`).
+4.  Ejecuta **el código paso a paso** (selecciona una línea y `Ctrl/Cmd + Enter`) hasta encontrar dónde falla.
+:::
+
+## Sé detective: tres comandos que resuelven la mayoría de problemas
+
+```{r}
+#| label: detective
+str(ckd$uacr)          # ¿qué tipo y qué valores tiene esta columna?
+names(ckd)             # ¿cómo se llaman exactamente las columnas?
+head(ckd, 3)           # ¿cómo se ven las primeras filas?
+```
+
+## Cómo pedir ayuda (a una persona o a una IA)
+
+Una buena pregunta tiene un **ejemplo mínimo reproducible**: el menor código que muestra el problema **con datos que se pueden compartir**. Frecuentemente, al armarlo encuentras la solución.
+
+```{r}
+#| label: reprex
+#| eval: false
+# Plantilla: ejemplo mínimo reproducible
+library(tidyverse)
+
+datos <- tibble(                      # datos ficticios, no reales
+  tfg = c(95, 62, NA, 33),
+  sexo = c("M", "F", "F", "M")
+)
+
+datos |> summarise(media = mean(tfg))   # Devuelve NA; ¿cómo ignorar el faltante?
+
+sessionInfo()   # versión de R y de los paquetes: úsalo al pedir ayuda
+```
+
+Al pedir ayuda incluye siempre: **qué querías hacer**, **el código**, **el mensaje de error completo** y **`sessionInfo()`**.
+
+::: {.callout-warning}
+## ⚠️ Privacidad al pedir ayuda
+
+-   **No pegues datos reales de pacientes** (ni siquiera "solo unas filas") en foros ni en asistentes de IA.
+-   Crea datos ficticios con `tibble()` que reproduzcan el problema.
+-   Las respuestas de una IA pueden **sonar seguras y estar equivocadas**: verifica con un ejemplo pequeño cuyo resultado conoces antes de usar el código en tu análisis real.
+:::
+
+## Dónde buscar ayuda
+
+| Recurso | Para qué |
+|---|---|
+| `?funcion` en RStudio | Documentación oficial y ejemplos de la función |
+| Viñetas del paquete (`vignette("nombre")`) | Guías de uso con ejemplos |
+| *R for Data Science* (r4ds.hadley.nz) | Aprender tidyverse |
+| Stack Overflow, Posit Community | Preguntas ya respondidas |
+| Tu grupo de estudio | La ayuda más rápida suele ser un colega |
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   **Error** = no se ejecutó; **aviso** = ejecutó pero sospecha; **mensaje** = información.
+-   Lee la **última línea** del error y revisa nombres, tipos y rutas.
+-   Ejecuta **paso a paso** para encontrar dónde falla.
+-   Pide ayuda con un **ejemplo mínimo reproducible con datos ficticios**.
+-   **Nunca** compartas datos reales de pacientes.
+:::
+
+## Ejercicio
+
+1.  Provoca a propósito tres errores distintos de la lista y explica con tus palabras qué significa cada mensaje.
+2.  Escribe un ejemplo mínimo reproducible para la pregunta: *"¿Por qué `mean(ckd$tfg_basal)` me da `NA` en mi base?"*.

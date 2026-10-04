@@ -158,7 +158,32 @@ CRAN y GitHub están bloqueados en este entorno, así que solo puedo verificar e
 
 ---
 
-## 7. Decisiones que necesito de ti
+## 7. Tus materiales de Drive: qué contienen y dónde encajan
+
+Inventario de las dos carpetas compartidas (`Epidemiología` y `Estadística/Programa de formación`). Los `.Rmd` solo se pueden descargar como base64 desde el conector de Drive, así que **no puedo leer su código**; sí puedo leer PDF/PPTX/DOCX. Para integrar tu código, **sube los `.R`, `.Rmd`, `.qmd` y las bases `.csv` pequeñas al repo** (carpeta `mis_codigos/`).
+
+| Tu carpeta | Capítulo del libro |
+|---|---|
+| Epi: Semana 1 tipo_estudios · 2 medidas_frecuencia · 3 medidas_asociación · 4 confusión/sesgo/missclassification (E-value, episensr) · 5 epidemiología básica con R (estandarización, linelist) · 6 descripción/predicción/causalidad · 7-10 causalidad, DAG, colisionador (`DAG ejemplo.qmd`, `collier.Rmd`) · 24 "No solo es confusión" | Caps. 1, 2, 3, 10 |
+| Estadística: Semana 1 introR · 2 limpieza_manejo · 3 análisis desc./bivariado | Caps. 4, 5, 7, 8.1 |
+| Semana 6 reg_lineal · 7 reg_logistic · 8 reg_poisson · 9 reg_resumen · 10 resumen · 20 Select_step | Cap. 8 (y selección de variables en 8.5 / 17) |
+| Semana 11 sample_size · 12 svy_ENDES | Caps. 20 y 6 |
+| Semana 13 Multilevel · 14 logistic_cond_GEE · 15 Series_temp_Geoespa | Caps. 14 y 15 (+ regresión logística condicional, 8.3) |
+| Semana 17 ECA · 18 ECNA · 19 métodos de ajuste de confusión · 22 Matching_PS_IPW · 23 Métodos_G · 24 Confusión no observada | Caps. 11, 12, 19 |
+| Semana 27 interacción · 28 mediación | Caps. 8.4 y 18 |
+| `prediction models` · `Supervivencia` · `Target Trial Emulation` (+ zip `steroids-trial-emulation`) | Caps. 16-17, 9, 12.1 |
+
+**Temas adicionales que tus materiales sugieren y que incorporaré:** regresión logística condicional (casos y controles pareados), selección de variables paso a paso (y por qué desaconsejarla), análisis geoespacial (como subcapítulo opcional del 15), encuestas complejas con diseño (ENDES: se simulará una equivalente) y ensayos clínicos **no** aleatorizados (ECNA).
+
+---
+
+## 8. Decisiones (respondidas por ti)
+
+Orden propuesto: ✅ aprobado · Temas nuevos: ✅ incluidos · Publicación: solo GitHub Pages (`docs/`, reemplazando la carpeta anterior en cada render con `./publicar.sh`) · Extensión: capítulos tan largos como haga falta.
+
+---
+
+## 9. Decisiones previas (histórico)
 
 1. **Orden.** ¿Apruebas el orden propuesto (R y datos *antes* de los análisis de ECA/EO), o prefieres el de tu índice original (R en el puesto 6)? Esto implica renumerar los archivos `Capítulo4…20.qmd` (hoy son placeholders vacíos).
 2. **Temas nuevos.** ¿Incluyo todos los de §3 (9, 10 ampliado, 13 adelantado, 14 longitudinal, 19, 23)?

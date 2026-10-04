@@ -1,0 +1,112 @@
+# Datos ordenados (*tidy data*)
+
+## Tres reglas
+
+Una base está **ordenada** cuando:
+
+1.  Cada **variable** es una **columna**.
+2.  Cada **observación** es una **fila**.
+3.  Cada **valor** ocupa una **celda**.
+
+La mayoría de las funciones de R (y de los capítulos siguientes) esperan esta forma.
+
+::: {.callout-warning}
+## ⚠️ Lo que hace Excel "cómodo" para humanos y malo para el análisis
+
+-   Una columna por visita (`creat_basal`, `creat_6m`, `creat_12m`): es **formato ancho**; para modelar pendientes se necesita **largo**.
+-   Varias tablas en una misma hoja, celdas combinadas, notas al pie.
+-   Colores con significado ("rojo = fallecido").
+-   Un valor y su unidad en la misma celda (`"1.2 mg/dL"`).
+:::
+
+```{r}
+#| label: setup-51
+library(tidyverse)
+source("R/funciones_epi.R")
+
+registro <- read_csv("Bases/registro_nefro_sucio.csv")
+glimpse(registro)
+```
+
+Observa los problemas ya desde la importación: `Creatinina` quedó como **texto** (`chr`) porque algunas celdas usan coma decimal o dicen `ND`; las fechas también son texto; los nombres de columna tienen espacios, mayúsculas, puntos y paréntesis.
+
+## Nombres de columnas
+
+Los nombres con espacios y símbolos obligan a escribir comillas invertidas (`` `Fecha Nac.` ``) en cada línea. Convenciones recomendadas: **minúsculas, sin tildes, con guion bajo**.
+
+```{r}
+#| label: nombres
+names(registro)
+
+registro <- registro |> rename_with(limpiar_nombres)    # función del libro (R/funciones_epi.R)
+names(registro)
+```
+
+::: {.callout-tip}
+## 💡 Tip práctico
+
+`limpiar_nombres()` hace lo mismo que `janitor::clean_names()`: minúsculas, quita tildes y reemplaza cualquier símbolo por `_`. Hazlo **inmediatamente después de importar**.
+:::
+
+## Formato ancho y largo
+
+El archivo `lab_visitas_ancho.csv` guarda la creatinina de cada paciente en tres visitas, una columna por visita:
+
+```{r}
+#| label: ancho
+lab_ancho <- read_csv("Bases/lab_visitas_ancho.csv")
+head(lab_ancho, 4)
+```
+
+Para graficar la evolución o modelarla, cada **medición** debe ser una fila. `pivot_longer()` convierte de ancho a largo:
+
+```{r}
+#| label: largo
+lab_largo <- lab_ancho |>
+  pivot_longer(cols = starts_with("creat_"),
+               names_to = "visita", names_prefix = "creat_",
+               values_to = "creat_mgdl") |>
+  mutate(visita = factor(visita, levels = c("basal", "6m", "12m")))
+
+head(lab_largo, 6)
+```
+
+```{r}
+#| label: fig-evolucion
+#| fig-cap: "Evolución de la creatinina en 12 pacientes (formato largo permite un gráfico de líneas por paciente)."
+#| fig-width: 7
+#| fig-height: 3.6
+lab_largo |>
+  filter(id %in% unique(id)[1:12]) |>
+  ggplot(aes(visita, creat_mgdl, group = id)) +
+  geom_line(alpha = 0.6) + geom_point() +
+  labs(x = "Visita", y = "Creatinina (mg/dL)") +
+  theme_minimal(base_size = 13)
+```
+
+La operación inversa, `pivot_wider()`, vuelve a formato ancho (útil para tablas de presentación):
+
+```{r}
+#| label: ancho-de-nuevo
+lab_largo |>
+  pivot_wider(names_from = visita, values_from = creat_mgdl, names_prefix = "creat_") |>
+  head(3)
+```
+
+::: {.callout-important}
+## 🎯 En resumen
+
+| Quiero… | Formato | Función |
+|---|---|---|
+| Modelar, graficar mediciones repetidas | **Largo** (una fila por medición) | `pivot_longer()` |
+| Tabla para presentar o una fila por paciente | **Ancho** | `pivot_wider()` |
+| Nombres cómodos para programar | minúsculas, `_`, sin tildes | `limpiar_nombres()` |
+
+**Regla:** una fila = una unidad de análisis. Si analizas pacientes → una fila por paciente; si analizas mediciones → una fila por medición.
+:::
+
+## Ejercicio
+
+1.  Importa `registro_nefro_sucio.csv` y renombra las columnas. ¿Cuáles quedaron con `_`?
+2.  Convierte `lab_visitas_ancho.csv` a formato largo y calcula la creatinina media por visita.
+3.  Dibuja la evolución de la creatinina media por visita.

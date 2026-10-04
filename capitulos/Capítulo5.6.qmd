@@ -1,0 +1,200 @@
+# Unir tablas y construir la base final
+
+Los datos de un estudio casi nunca viven en una sola tabla: el registro de pacientes, el laboratorio y los medicamentos suelen ser archivos distintos. Este subcapítulo une las tablas y cierra el capítulo con **la base final** y su **verificación contra la verdad**.
+
+```{r}
+#| label: setup-56
+library(tidyverse)
+source("R/funciones_epi.R")
+source("R/limpiar_registro.R")
+```
+
+## Tipos de unión (*joins*)
+
+Se unen dos tablas mediante una **llave** (aquí, `id`).
+
+| Función | Conserva | Úsala para… |
+|---|---|---|
+| `left_join(x, y)` | Todas las filas de `x` + coincidencias de `y` | Agregar información a una tabla principal |
+| `inner_join(x, y)` | Solo filas presentes en **ambas** | Análisis con datos completos en ambas fuentes |
+| `full_join(x, y)` | Todas las filas de **ambas** | Auditar qué falta en cada tabla |
+| `anti_join(x, y)` | Filas de `x` **sin** pareja en `y` | Encontrar pacientes sin laboratorio |
+| `semi_join(x, y)` | Filas de `x` **con** pareja en `y` | Filtrar por pertenencia |
+
+## Preparar las tablas
+
+```{r}
+#| label: preparar
+# Tabla principal: registro de pacientes (una fila por paciente), con lo hecho en 5.1 a 5.5
+registro <- read_csv("Bases/registro_nefro_sucio.csv") |>
+  limpiar_basico() |>
+  distinct() |>
+  group_by(id_paciente) |> slice_max(fecha_registro, n = 1, with_ties = FALSE) |> ungroup() |>
+  mutate(
+    creat = creatinina |> na_if("ND") |> str_replace(",", ".") |> as.numeric(),
+    creat_mgdl = if_else(unidad_creat == "umol/L", umol_a_mgdl(creat), creat),
+    edad = as.integer(floor(lubridate::time_length(lubridate::interval(fecha_nac, fecha_de_ingreso), "years"))),
+    pas = na_if(pas, 999), pas = if_else(pas > 260, NA_real_, pas),
+    uacr = na_if(uacr_mg_g, -1),
+    peso_kg = na_if(peso_kg, 0),
+    tfge = ckd_epi_2021(creat_mgdl, edad, sexo),
+    cat_g = categoria_g(tfge), cat_a = categoria_a(uacr), riesgo = riesgo_kdigo(cat_g, cat_a)
+  ) |>
+  rename(id = id_paciente)
+
+lab <- read_csv("Bases/lab_visitas_ancho.csv")             # creatinina en 3 visitas
+meds <- read_csv("Bases/medicamentos.csv")                 # un fármaco por fila
+
+c(registro = nrow(registro), lab = nrow(lab), meds = nrow(meds))
+```
+
+## Auditar antes de unir
+
+```{r}
+#| label: auditar
+anti_join(registro, lab, by = "id") |> nrow()      # pacientes del registro SIN laboratorio
+anti_join(lab, registro, by = "id") |> nrow()      # IDs de laboratorio que no existen en el registro
+anti_join(meds, registro, by = "id") |> nrow()     # IDs de medicamentos que no existen en el registro
+```
+
+Los pacientes sin laboratorio no son un error: el archivo de laboratorio cubre a ~90 % de la cohorte. Pero **debes saberlo** antes de unir, porque un `inner_join()` los eliminaría en silencio.
+
+```{r}
+#| label: union
+base <- registro |>
+  left_join(lab, by = "id")          # conserva TODOS los pacientes; sin laboratorio => NA
+
+c(filas_antes = nrow(registro), filas_despues = nrow(base))
+sum(is.na(base$creat_12m))
+```
+
+::: {.callout-warning}
+## ⚠️ El número de filas debe tener sentido
+
+Antes y después de un `join`, **compara el número de filas**. Si crece, hay **llaves repetidas** en la tabla que unes (una relación "muchos a muchos") y se multiplicaron filas. R avisa con `Warning: Detected an unexpected many-to-many relationship`: **no lo ignores**.
+:::
+
+## Muchas filas por paciente → una fila por paciente
+
+`medicamentos.csv` tiene un fármaco por fila. Para unirlo a una tabla de **una fila por paciente** primero se pasa a **indicadores** con `pivot_wider()`:
+
+```{r}
+#| label: meds-ancho
+meds_ancho <- meds |>
+  mutate(usa = 1L) |>
+  pivot_wider(names_from = farmaco, values_from = usa, values_fill = 0L,
+              names_prefix = "usa_") |>
+  rename_with(limpiar_nombres)
+
+head(meds_ancho, 4)
+```
+
+```{r}
+#| label: union-meds
+base <- base |>
+  left_join(meds_ancho, by = "id") |>
+  mutate(across(starts_with("usa_"), ~ replace_na(.x, 0L)))      # sin registro de fármacos = no usa
+
+base |> count(usa_isglt2) |> mutate(pct = scales::percent(n / sum(n), 0.1))
+```
+
+::: {.callout-warning}
+## ⚠️ "Sin registro" no siempre significa "no usa"
+
+Rellenar con 0 asume que la tabla de medicamentos es **completa**. Si solo registra a quienes tienen receta, quien no aparece puede ser un **dato faltante**. Confirma cómo se capturó.
+:::
+
+## De formato ancho a largo: la evolución de la creatinina
+
+```{r}
+#| label: evolucion
+evolucion <- base |>
+  select(id, creat_basal, creat_6m, creat_12m) |>
+  pivot_longer(-id, names_to = "visita", names_prefix = "creat_", values_to = "creat") |>
+  mutate(visita = factor(visita, levels = c("basal", "6m", "12m")))
+
+evolucion |> group_by(visita) |> summarise(n = sum(!is.na(creat)), mediana = median(creat, na.rm = TRUE))
+```
+
+## Verificación contra la verdad
+
+Como la base sucia se generó a partir de una base limpia, **podemos comprobar** si nuestra limpieza recuperó la verdad:
+
+```{r}
+#| label: verdad
+verdad <- read_csv("Bases/registro_nefro_verdad.csv")
+
+comparacion <- base |>
+  select(id, sexo, fecha_nac, fecha_de_ingreso, edad, peso_kg, creat_mgdl, uacr, pas, diagnostico, dm) |>
+  inner_join(verdad, by = "id", suffix = c("", "_verdad"))
+
+tibble(
+  variable = c("sexo", "fecha de nacimiento", "fecha de ingreso", "edad", "peso", "creatinina (mg/dL)",
+               "UACR", "PAS", "diagnóstico", "diabetes"),
+  discrepancias = c(sum(comparacion$sexo != comparacion$sexo_verdad),
+                    sum(comparacion$fecha_nac != comparacion$fecha_nac_verdad),
+                    sum(comparacion$fecha_de_ingreso != comparacion$fecha_ingreso),
+                    sum(comparacion$edad != comparacion$edad_verdad),
+                    sum(comparacion$peso_kg != comparacion$peso_verdad, na.rm = TRUE),
+                    sum(abs(comparacion$creat_mgdl - comparacion$creat_mgdl_verdad) > 0.02, na.rm = TRUE),
+                    sum(comparacion$uacr != comparacion$uacr_verdad, na.rm = TRUE),
+                    sum(comparacion$pas != comparacion$pas_verdad, na.rm = TRUE),
+                    sum(comparacion$diagnostico != comparacion$diagnostico_verdad),
+                    sum(comparacion$dm != comparacion$diabetes))
+)
+```
+
+La limpieza recuperó **casi todo**. Quedan dos excepciones que conviene entender:
+
+-   **Edad (1 paciente):** la base "verdad" calculó la edad dividiendo los días entre 365.25; nuestro cálculo por calendario (`interval()`) es el correcto y difiere en un año en un paciente muy cercano a su cumpleaños.
+-   **PAS (4 pacientes):** mirémoslos:
+
+```{r}
+#| label: pas-discrepancias
+comparacion |>
+  filter(pas != pas_verdad) |>
+  transmute(id, pas_limpia = pas, pas_verdad)
+```
+
+Esas diferencias son **actualizaciones legítimas** que quedaron registradas con fecha posterior al valor original: la base "verdad" no las incluye. Esto ilustra que una limpieza puede ser **correcta** y diferir de la fuente original cuando los datos se actualizan; lo importante es que la **regla esté escrita y sea revisable**.
+
+## Guardar la base final
+
+```{r}
+#| label: guardar
+#| eval: false
+base |> write_rds("datos/procesados/registro_limpio.rds")     # conserva factores y fechas
+base |> write_csv("datos/procesados/registro_limpio.csv")
+diccionario |> write_csv("datos/procesados/diccionario.csv")
+```
+
+## Lista de verificación final de limpieza
+
+::: {.callout-tip}
+## 💡 Antes de dar por terminada la limpieza
+
+-   [ ] Datos crudos **intactos** y limpieza **solo con código**.
+-   [ ] Nombres de columna estandarizados; categorías unificadas (`count()` de cada categórica).
+-   [ ] Fechas convertidas; `NA` nuevos revisados; coherencia temporal verificada.
+-   [ ] **Una sola unidad** para cada medición; función clínica validada con un caso a mano.
+-   [ ] Faltantes disfrazados convertidos a `NA`; **valores imposibles** tratados según causa.
+-   [ ] **Duplicados** resueltos con regla escrita; ID discordantes devueltos a la fuente.
+-   [ ] Número de filas **antes y después** de cada `join` coincide con lo esperado.
+-   [ ] **Diario de limpieza** y **diccionario de datos** guardados.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   `left_join()` agrega información conservando la tabla principal; `inner_join()` elimina en silencio a quien no coincide; `anti_join()` te dice **quién falta**.
+-   **Audita antes de unir** y compara el **número de filas** antes y después.
+-   Una tabla de "muchas filas por paciente" se vuelve **indicadores** con `pivot_wider()`.
+-   La limpieza se **verifica**: en datos simulados contra la verdad; en datos reales, con reglas, conteos y revisión con la fuente.
+-   El código de limpieza **es parte del estudio**: guárdalo, léelo y compártelo.
+:::
+
+## Ejercicio
+
+1.  Une `base` con una tabla de dos filas por paciente inventada y observa el aviso de relación muchos a muchos.
+2.  ¿Cuántos pacientes usan **iSGLT2 y IECA/ARA-II** a la vez?
+3.  Calcula la **variación de creatinina entre basal y 12 meses** y su mediana por categoría de riesgo KDIGO.

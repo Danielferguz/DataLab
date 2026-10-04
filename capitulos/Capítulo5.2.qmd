@@ -1,0 +1,166 @@
+# Manipular datos con `dplyr`
+
+Las cinco funciones básicas de `dplyr` resuelven casi todo el trabajo diario. Todas se encadenan con el *pipe* `|>`.
+
+| Función | Hace | Ejemplo clínico |
+|---|---|---|
+| `select()` | Elige columnas | Quedarme con id, edad, creatinina |
+| `filter()` | Elige filas | Solo pacientes con diabetes |
+| `mutate()` | Crea o modifica columnas | Pasar creatinina a mg/dL |
+| `arrange()` | Ordena filas | De mayor a menor UACR |
+| `summarise()` + `group_by()` | Resume por grupos | TFGe media por categoría |
+
+```{r}
+#| label: setup-52
+library(tidyverse)
+source("R/funciones_epi.R")
+
+registro <- read_csv("Bases/registro_nefro_sucio.csv") |> rename_with(limpiar_nombres)
+```
+
+## Las cinco funciones en acción
+
+```{r}
+#| label: cinco-verbos
+registro |>
+  select(id_paciente, sexo, edad, pas, pad) |>          # columnas
+  filter(edad >= 70, pas < 900) |>                      # filas (pas 999 = faltante: lo vemos en 5.5)
+  arrange(desc(pas)) |>                                 # orden
+  head(5)
+```
+
+```{r}
+#| label: resumir
+registro |>
+  filter(pas < 900) |>
+  group_by(diagnostico) |>
+  summarise(n = n(), pas_media = mean(pas, na.rm = TRUE), .groups = "drop")
+```
+
+El resumen anterior muestra el primer problema: **el mismo diagnóstico aparece escrito de varias formas**, por lo que se reparte en filas distintas. Lo corregimos a continuación.
+
+## Unificar categorías de texto
+
+### Paso 1: inspeccionar
+
+```{r}
+#| label: inspeccionar
+count(registro, sexo)
+count(registro, diagnostico)
+count(registro, dm)
+```
+
+### Paso 2: normalizar el texto (`stringr`)
+
+Tres funciones resuelven la mayoría de los casos:
+
+| Función | Hace |
+|---|---|
+| `str_trim()` / `str_squish()` | Quita espacios al inicio, al final y repetidos |
+| `str_to_lower()` | Convierte a minúsculas |
+| `str_detect()` | Detecta un patrón de texto (devuelve `TRUE/FALSE`) |
+
+```{r}
+#| label: normalizar
+registro <- registro |>
+  mutate(
+    id_paciente = str_trim(id_paciente),                         # " P125" -> "P125"
+    sexo_txt = str_to_lower(str_trim(sexo)),
+    sexo = case_when(
+      sexo_txt %in% c("f", "femenino")             ~ "F",
+      sexo_txt %in% c("m", "masculino", "hombre")  ~ "M"        # lo que no encaja queda NA
+    ),
+    dm = if_else(str_to_lower(dm) %in% c("sí", "si"), "Sí", "No")
+  ) |>
+  select(-sexo_txt)
+
+count(registro, sexo)
+count(registro, dm)
+```
+
+::: {.callout-warning}
+## ⚠️ Cuidado con `case_when()`: lo que no coincide queda `NA`
+
+Si agregas `TRUE ~ "Otro"` como última línea, **todo lo no previsto** pasa a "Otro" y pierdes la alerta de un valor inesperado. Para variables como `sexo`, es preferible dejar que lo inesperado aparezca como `NA` y revisarlo con `count(..., sexo)`.
+:::
+
+### Paso 3: diagnóstico con varias escrituras
+
+Cuando las variantes son muchas, normaliza primero (minúsculas, sin tildes ni espacios) y luego busca una **palabra clave**:
+
+```{r}
+#| label: diagnostico
+registro <- registro |>
+  mutate(
+    dx_norm = diagnostico |> str_squish() |> str_to_lower() |>
+      stringi::stri_trans_general("Latin-ASCII"),               # quita tildes
+    diagnostico = case_when(
+      str_detect(dx_norm, "diabet")   ~ "ERC diabética",
+      str_detect(dx_norm, "hipertens") ~ "ERC hipertensiva",
+      str_detect(dx_norm, "glomerul")  ~ "Glomerulopatía",
+      dx_norm == "otro"                ~ "Otro"
+    )
+  ) |>
+  select(-dx_norm)
+
+count(registro, diagnostico)
+```
+
+```{r}
+#| label: sin-na
+sum(is.na(registro$diagnostico))     # 0: todas las variantes quedaron cubiertas
+```
+
+## Crear y modificar columnas con `mutate()`
+
+```{r}
+#| label: mutate
+registro |>
+  mutate(
+    imc = peso_kg / (talla_cm / 100)^2,                        # kg/m²
+    hta = pas >= 140 | pad >= 90,                              # lógico
+    edad_70 = if_else(edad >= 70, "70 o más", "menor de 70")
+  ) |>
+  select(id_paciente, peso_kg, talla_cm, imc, hta, edad_70) |>
+  head(4)
+```
+
+Fíjate que el IMC de un paciente con peso `0` (error de digitación) da `0`: lo trataremos en 5.5.
+
+### `across()`: la misma operación en varias columnas
+
+```{r}
+#| label: across
+registro |>
+  summarise(across(c(edad, pas, pad), list(media = ~ mean(.x, na.rm = TRUE),
+                                          maximo = ~ max(.x, na.rm = TRUE))))
+```
+
+El máximo de PAS (`1400`) delata un error de digitación. **Resumir con frecuencia es la primera forma de detectar errores.**
+
+::: {.callout-tip}
+## 💡 Tip práctico: receta de cuatro líneas para revisar una variable
+
+```r
+registro |> count(variable)                       # categorías
+registro |> summarise(min(x), max(x), mean(x))    # rango
+registro |> filter(is.na(x))                      # faltantes
+registro |> filter(x < 0 | x > limite)            # imposibles
+```
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   Cinco verbos: `select`, `filter`, `mutate`, `arrange`, `summarise` (+ `group_by`). Se encadenan con `|>`.
+-   Antes de analizar, **cuenta las categorías** (`count()`): las variantes de escritura parten un grupo en varios.
+-   Normaliza texto con `str_trim`, `str_to_lower` y quita tildes; luego unifica con `case_when()` + `str_detect()`.
+-   Deja que lo inesperado aparezca como `NA` en lugar de absorberlo en "Otro".
+-   **Resumir** (mínimos, máximos, tablas) es la mejor forma de encontrar errores.
+:::
+
+## Ejercicio
+
+1.  Crea una variable `grupo_edad` con tres categorías (< 50, 50–69, ≥ 70) usando `case_when()`.
+2.  ¿Cuántos pacientes hay por `sexo` y `diagnostico`? Usa `count(sexo, diagnostico)`.
+3.  Agrega al `case_when()` de `diagnostico` una categoría que no existe en los datos y verifica qué pasa con `NA`.

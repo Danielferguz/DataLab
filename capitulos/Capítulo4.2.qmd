@@ -1,0 +1,171 @@
+# Objetos, funciones y paquetes
+
+## Objetos: guardar un valor con un nombre
+
+Con `<-` guardas un resultado en un **objeto** para usarlo después. Léelo como "se guarda en".
+
+```{r}
+#| label: objetos
+creatinina <- 1.8                       # mg/dL
+edad <- 67                              # años
+
+creatinina * 88.4                       # µmol/L
+```
+
+Un objeto puede contener **varios valores** (un *vector*) con `c()`:
+
+```{r}
+#| label: vectores
+creat <- c(0.9, 1.1, 1.8, 2.4, 3.1)     # creatinina de cinco pacientes (mg/dL)
+
+creat * 88.4                            # operaciones sobre todo el vector
+mean(creat)                             # promedio
+creat > 2                               # ¿quiénes superan 2 mg/dL?
+sum(creat > 2)                          # ¿cuántos?
+```
+
+::: {.callout-tip}
+## 💡 Tip práctico: nombres de objetos
+
+Usa nombres **descriptivos, en minúscula y sin espacios ni tildes**: `tfg_basal`, `datos_ckd`. Evita `x1`, `base nueva`, `Resultados Final(2)`.
+:::
+
+## Tipos de datos
+
+R distingue el tipo de cada variable, y muchos errores vienen de ahí:
+
+| Tipo | Ejemplo clínico | Cómo se ve |
+|---|---|---|
+| **Numérico** (`numeric`) | Creatinina, edad, HbA1c | `1.8` |
+| **Entero** (`integer`) | Número de hospitalizaciones | `3L` |
+| **Texto** (`character`) | Nombre del diagnóstico | `"Nefropatía diabética"` |
+| **Factor** (`factor`) | Categorías: estadio G3a, G3b… | niveles definidos |
+| **Lógico** (`logical`) | Fallecido sí/no | `TRUE` / `FALSE` |
+| **Fecha** (`Date`) | Fecha de inicio de diálisis | `2024-05-17` |
+
+```{r}
+#| label: tipos
+class(1.8)
+class("G3a")
+class(TRUE)
+class(as.Date("2024-05-17"))
+
+estadio <- factor(c("G3a", "G3b", "G4", "G3a"),
+                  levels = c("G3a", "G3b", "G4"))   # el orden de niveles importa
+table(estadio)
+```
+
+## Tablas de datos: `data.frame` y `tibble`
+
+Una **base de datos** es una tabla donde cada **fila** es un paciente (o una visita) y cada **columna** una variable. En el tidyverse se llama *tibble*.
+
+```{r}
+#| label: tibble
+library(tidyverse)
+
+pacientes <- tibble(
+  id        = 1:5,
+  edad      = c(58, 71, 64, 80, 49),
+  creat     = c(0.9, 1.1, 1.8, 2.4, 3.1),
+  diabetes  = c(TRUE, FALSE, TRUE, TRUE, FALSE)
+)
+pacientes
+```
+
+Para acceder a una columna se usa `$`; para filtrar o crear columnas, las funciones de `dplyr` (Cap. 5):
+
+```{r}
+#| label: acceso
+pacientes$creat                         # una columna
+pacientes[2, ]                          # la fila 2
+pacientes |> filter(diabetes)           # solo pacientes con diabetes
+```
+
+## Funciones: la unidad de trabajo
+
+Una **función** recibe *argumentos* (entre paréntesis) y devuelve un resultado: `nombre_funcion(argumento1, argumento2)`.
+
+```{r}
+#| label: funciones
+round(mean(pacientes$creat), 2)         # funciones anidadas
+mean(c(1, NA, 3), na.rm = TRUE)         # el argumento na.rm ignora los faltantes
+```
+
+### El operador *pipe* `|>`
+
+El *pipe* lee como "y luego": pasa el resultado de la izquierda como primer argumento de la función de la derecha. Hace el código legible como una receta.
+
+```{r}
+#| label: pipe
+# Sin pipe: se lee de dentro hacia fuera
+round(mean(pacientes$creat[pacientes$diabetes]), 2)
+
+# Con pipe: se lee de izquierda a derecha
+pacientes |>
+  filter(diabetes) |>
+  summarise(creat_media = mean(creat)) |>
+  mutate(creat_media = round(creat_media, 2))
+```
+
+### Crear tus propias funciones
+
+Si repites un cálculo, escríbelo una vez como función. Ejemplo: clasificar la TFGe en categorías **G** de KDIGO.
+
+```{r}
+#| label: funcion-propia
+categoria_g <- function(tfg) {
+  case_when(
+    tfg >= 90 ~ "G1",
+    tfg >= 60 ~ "G2",
+    tfg >= 45 ~ "G3a",
+    tfg >= 30 ~ "G3b",
+    tfg >= 15 ~ "G4",
+    tfg <  15 ~ "G5"
+  )
+}
+
+categoria_g(c(95, 62, 47, 33, 20, 8))
+```
+
+## Paquetes: instalar una vez, cargar cada sesión
+
+```{r}
+#| label: paquetes
+#| eval: false
+install.packages("survival")   # se instala UNA vez en tu computadora
+library(survival)              # se carga CADA sesión en que lo uses
+survival::Surv                 # alternativa: usar una función sin cargar el paquete (paquete::función)
+```
+
+::: {.callout-warning}
+## ⚠️ Cuidado: conflictos de nombres
+
+Dos paquetes pueden tener funciones con el mismo nombre (por ejemplo, `filter()` existe en `dplyr` y en `stats`). Si algo se comporta distinto a lo esperado, usa `dplyr::filter()` para indicar de cuál paquete hablas.
+:::
+
+## Pedir ayuda sobre una función
+
+```{r}
+#| label: ayuda
+#| eval: false
+?mean               # ayuda de la función mean
+help("t.test")      # lo mismo
+example(mean)       # ejemplos de uso
+```
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   `<-` guarda un valor en un objeto; `c()` crea vectores.
+-   Los **tipos** (numérico, texto, factor, fecha) importan: revísalos siempre.
+-   Una base es un *tibble*: filas = pacientes, columnas = variables.
+-   `|>` encadena pasos: "y luego".
+-   Si repites algo, **escribe una función**.
+-   **Instalar** (`install.packages`) una vez; **cargar** (`library`) en cada sesión.
+:::
+
+## Ejercicio
+
+1.  Crea un vector con las TFGe de seis pacientes y calcula su mediana y cuántos tienen TFGe < 60.
+2.  Aplica `categoria_g()` a ese vector y haz una tabla con `table()`.
+3.  Escribe una función `umol_a_mgdl()` que convierta creatinina de µmol/L a mg/dL.
