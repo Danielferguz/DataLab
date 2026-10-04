@@ -1,0 +1,192 @@
+# Riesgos competitivos
+
+## El problema: la muerte impide la diálisis
+
+En ERC avanzada, un paciente puede **morir antes de llegar a diálisis**. La muerte es un **evento competitivo**: una vez que ocurre, **el evento de interés (falla renal) ya no puede suceder**. Esto es especialmente frecuente en **adultos mayores**, donde la mortalidad supera la progresión.
+
+| Evento | Qué pasa con el paciente | Tratamiento en el análisis |
+|---|---|---|
+| **Censura** (pérdida, fin del estudio) | Sigue en riesgo de tener el evento, pero no lo observamos | Se retira del denominador |
+| **Evento competitivo** (muerte) | **Ya no puede** tener el evento de interés | **No** debe tratarse como censura sin pensarlo |
+
+::: {.callout-warning}
+## ⚠️ Censurar la muerte sobrestima el riesgo
+
+Tratar la muerte como censura (lo que hicimos con `1 - KM` en 9.2) equivale a **suponer que esos pacientes podrían haber llegado a diálisis si hubieran vivido**. Eso hace que el riesgo de diálisis aparezca **mayor** que el real: el estimador responde a *"¿cuál sería el riesgo de diálisis si nadie muriera?"*, un mundo hipotético que casi nunca es la pregunta clínica.
+:::
+
+```{r}
+#| label: setup-95
+library(tidyverse)
+library(survival)
+library(cmprsk)
+library(broom)
+source("R/simular_cohorte_pronostico.R")
+
+coh <- read_csv("Bases/cohorte_pronostico.csv") |>
+  mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")),
+         dm = factor(dm, levels = 0:1, labels = c("Sin DM", "Con DM")))
+count(coh, estado)
+```
+
+## 1 − Kaplan-Meier vs. incidencia acumulada
+
+La **incidencia acumulada** (*cumulative incidence function*, CIF) estima la **probabilidad real de tener el evento antes del tiempo *t***, teniendo en cuenta que la muerte lo impide.
+
+```{r}
+#| label: cif
+ci <- cuminc(ftime = coh$tiempo_meses, fstatus = coh$estado, cencode = 0)
+
+meses <- c(12, 36, 60)
+km <- survfit(Surv(tiempo_meses, estado == 1) ~ 1, data = coh)
+cif_krt   <- timepoints(ci, meses)$est["1 1", ]
+cif_muerte <- timepoints(ci, meses)$est["1 2", ]
+uno_menos_km <- 1 - summary(km, times = meses)$surv
+
+## "Verdad": cohorte enorme simulada sin censura (sólo posible porque simulamos)
+v <- simular_cohorte_pronostico(60000, semilla = 99, censura = FALSE)
+verdad_krt <- sapply(meses, \(m) mean(v$estado == 1 & v$tiempo_meses <= m))
+
+tibble(meses = meses,
+       `1 - Kaplan-Meier` = uno_menos_km,
+       `Incidencia acumulada (CIF)` = cif_krt,
+       `Verdad (simulada)` = verdad_krt) |>
+  mutate(across(-meses, \(x) round(100 * x, 1)))
+```
+
+El **1 − KM** sobrestima el riesgo de falla renal (38.3 % a 60 meses frente a una verdad de 32.8 %), y la **CIF** lo recupera casi exactamente (34 %). La brecha crece con el tiempo y con la proporción de muertes competitivas. **Si hay riesgos competitivos y quieres estimar el riesgo de un evento, usa la CIF**.
+
+### Gráfico: ¿qué le pasa a cada paciente?
+
+```{r}
+#| label: graf-cif
+#| fig-width: 8
+#| fig-height: 4
+cif_df <- map_dfr(c(`Falla renal` = "1 1", Muerte = "1 2"), \(k) tibble(tiempo = ci[[k]]$time, riesgo = ci[[k]]$est),
+                  .id = "evento")
+
+ggplot(cif_df, aes(tiempo, riesgo, color = evento)) +
+  geom_step(linewidth = 1) +
+  scale_color_manual(values = c(`Falla renal` = "#0072B2", Muerte = "#D55E00"), name = NULL) +
+  scale_y_continuous(labels = scales::percent_format(), limits = c(0, 0.5)) +
+  labs(x = "Meses desde el inicio del seguimiento", y = "Incidencia acumulada",
+       caption = "Datos simulados.") +
+  theme_minimal(base_size = 11) + theme(legend.position = "bottom")
+```
+
+La suma de las dos CIF más la probabilidad de seguir "libre de ambos" es 100 %. A los 60 meses: 34 % falla renal, 22 % muerte, el resto sigue vivo y sin diálisis.
+
+## Comparar grupos: prueba de Gray
+
+El log-rank no es válido con riesgos competitivos. La **prueba de Gray** compara las **CIF** entre grupos:
+
+```{r}
+#| label: gray
+ci_dm <- cuminc(coh$tiempo_meses, coh$estado, group = coh$dm, cencode = 0)
+ci_dm$Tests
+```
+
+Hay diferencia en la CIF de falla renal (fila `1`) y en la de muerte (fila `2`) entre pacientes con y sin diabetes.
+
+```{r}
+#| label: graf-cif-dm
+#| fig-width: 8
+#| fig-height: 4
+cif_dm_df <- map_dfr(names(ci_dm)[names(ci_dm) != "Tests"], \(k) {
+  tibble(clave = k, tiempo = ci_dm[[k]]$time, riesgo = ci_dm[[k]]$est)
+}) |>
+  separate(clave, into = c("grupo", "causa"), sep = " ") |>
+  mutate(causa = recode(causa, `1` = "Falla renal", `2` = "Muerte"))
+
+ggplot(cif_dm_df, aes(tiempo, riesgo, color = grupo, linetype = causa)) +
+  geom_step(linewidth = 1) +
+  scale_color_manual(values = c(`Sin DM` = "#999999", `Con DM` = "#D55E00"), name = NULL) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(x = "Meses", y = "Incidencia acumulada", linetype = NULL, caption = "Datos simulados.") +
+  theme_minimal(base_size = 11) + theme(legend.position = "bottom")
+```
+
+## Modelos de regresión: dos preguntas, dos modelos
+
+Con riesgos competitivos existen **dos** modelos de regresión, que **responden preguntas distintas**:
+
+| | **Riesgo específico por causa** (*cause-specific hazard*) | **Fine-Gray** (*subdistribution hazard*) |
+|---|---|---|
+| Cómo se ajusta | Cox para cada causa, **censurando** las demás | `crr()` o `coxph` ponderado |
+| Pregunta | **Etiológica**: ¿cómo influye X en el *riesgo instantáneo* de falla renal **en quienes siguen vivos**? | **Pronóstica**: ¿cómo influye X en la **probabilidad acumulada** (CIF) de falla renal? |
+| El HR se interpreta como... | Efecto sobre el riesgo instantáneo de esa causa | Efecto sobre la CIF, mezclando efecto sobre la causa y sobre el competidor |
+| Mejor para | Efecto causal, mecanismos | Predicción del riesgo absoluto, calculadoras de riesgo |
+
+```{r}
+#| label: modelos-competitivos
+formula_rhs <- ~ dm + I((27 - tfg) / 10) + log2(uacr) + I(edad / 10) + sexo + albumina + fosforo + bicarbonato + ecv
+
+## Causa-específico: falla renal (censurando muertes) y muerte (censurando falla renal)
+cs_krt <- coxph(update(Surv(tiempo_meses, estado == 1) ~ ., formula_rhs), data = coh)
+cs_dth <- coxph(update(Surv(tiempo_meses, estado == 2) ~ ., formula_rhs), data = coh)
+
+## Fine-Gray para falla renal
+X <- model.matrix(formula_rhs, coh)[, -1]
+fg <- crr(coh$tiempo_meses, coh$estado, cov1 = X, failcode = 1, cencode = 0)
+
+nombres <- c("Diabetes", "TFGe, por 10 menos", "UACR, por duplicación", "Edad, por 10 años",
+             "Sexo masculino", "Albúmina, por 1 g/dL", "Fósforo, por 1 mg/dL", "Bicarbonato, por 1 mEq/L", "ECV previa")
+
+tibble(
+  variable = nombres,
+  `HR causa-específico: falla renal` = exp(coef(cs_krt)),
+  `HR Fine-Gray: falla renal` = exp(fg$coef),
+  `HR causa-específico: muerte` = exp(coef(cs_dth))
+) |> mutate(across(where(is.numeric), \(x) round(x, 2)))
+```
+
+Observa cómo los modelos **cuentan historias distintas**:
+
+-   **Edad**: **HR causa-específico de falla renal** = 0.80 (los mayores progresan algo menos) y **HR de muerte** = 1.80: la edad aumenta mucho el riesgo de morir. En **Fine-Gray**, el HR de la edad baja a ~0.75 porque quien muere ya no llega a diálisis: la edad reduce la CIF de falla renal por dos vías (menos progresión y más muerte).
+-   **TFGe y UACR**: aumentan el riesgo de falla renal (todas las columnas), pero casi no afectan la muerte.
+-   **Albúmina**: protege contra **ambas** cosas.
+
+::: {.callout-important}
+## 🎯 Qué modelo usar
+
+-   **¿Mecanismo o efecto de un tratamiento?** → riesgo específico por causa (y, mejor, riesgos acumulados estandarizados, Cap. 12).
+-   **¿Calculadora de riesgo o predicción?** → Fine-Gray o CIF predicha desde los modelos por causa.
+-   **Reporta ambos** si el objetivo es doble: son complementarios y juntos cuentan la historia completa.
+:::
+
+## Alternativa: eventos compuestos
+
+Si lo que importa al paciente es **"seguir vivo y sin diálisis"**, se define el **evento compuesto** *falla renal o muerte* y se analiza con KM/Cox:
+
+```{r}
+#| label: compuesto
+coh <- coh |> mutate(compuesto = as.integer(estado > 0))
+km_comp <- survfit(Surv(tiempo_meses, compuesto) ~ dm, data = coh)
+rs <- summary(km_comp, times = c(12, 36))
+tibble(grupo = as.character(rs$strata), meses = rs$time, libre_de_ambos = round(rs$surv, 3))
+```
+
+Ventajas: simple, sin competidores. Desventajas: mezcla eventos de **distinta gravedad e importancia** (una muerte no equivale a diálisis); el componente más frecuente domina; si el tratamiento afecta los componentes en **direcciones opuestas**, el compuesto oculta eso. Presenta siempre **cada componente por separado**.
+
+## Cuándo se puede ignorar el riesgo competitivo
+
+-   Si el evento competitivo es **raro** en el seguimiento (< 5-10 %).
+-   Si el objetivo es **etiológico** y se usa el HR causa-específico.
+-   Si el evento competitivo **no impide** el evento de interés (hospitalización recurrente).
+
+Tratarlos mal **no es inocuo**: el 1 − KM sobrestimó aquí el riesgo en 5 puntos (38.3 vs. 32.8 %).
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   Una **muerte antes de diálisis** es un **evento competitivo**, no una censura.
+-   Para el **riesgo absoluto** usa la **incidencia acumulada (CIF)**, no 1 − KM; para comparar CIF, la **prueba de Gray**.
+-   **Causa-específico** (etiología) y **Fine-Gray** (predicción) responden **preguntas distintas**; reporta cada causa.
+-   Un **evento compuesto** simplifica pero mezcla eventos de distinta gravedad; muestra siempre los componentes.
+:::
+
+## Ejercicio
+
+1.  Calcula la CIF de falla renal a 36 meses **por categoría de albuminuria** (A1-A3) con `cuminc()` y compárala con 1 − KM.
+2.  Estima la CIF en **mayores de 75 años** vs. menores de 75. ¿En qué grupo la diferencia entre 1 − KM y CIF es mayor? ¿Por qué?
+3.  Ajusta Fine-Gray para **muerte** (`failcode = 2`). ¿Qué variables se asocian?

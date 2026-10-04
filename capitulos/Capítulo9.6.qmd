@@ -1,0 +1,172 @@
+# Supervivencia media restringida (RMST)
+
+## Una medida más intuitiva que el HR
+
+El **HR** resume el efecto en un solo número, pero:
+
+-   Es difícil de explicar a un paciente ("el riesgo instantáneo se multiplica por 1.8").
+-   Solo tiene sentido si los **riesgos son proporcionales** (9.4).
+-   No dice cuánto tiempo se gana.
+
+La **supervivencia media restringida** (***restricted mean survival time***, RMST) es el **área bajo la curva de supervivencia hasta un tiempo $\tau$**: el **tiempo promedio libre del evento durante los primeros $\tau$ meses**.
+
+$$
+\text{RMST}(\tau) = \int_0^{\tau} S(t)\,dt
+$$
+
+La **diferencia de RMST** entre dos grupos se lee como **meses de vida libre del evento que se ganan (o pierden) durante $\tau$ meses**. No requiere proporcionalidad y se explica sin tecnicismos.
+
+```{r}
+#| label: setup-96
+library(tidyverse)
+library(survival)
+library(sandwich)
+library(lmtest)
+
+coh <- read_csv("Bases/cohorte_pronostico.csv") |>
+  mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")),
+         dm = factor(dm, levels = 0:1, labels = c("Sin DM", "Con DM")),
+         krt = as.integer(estado == 1))
+```
+
+## Calcular el RMST
+
+`summary(survfit, rmean = tau)` entrega el RMST y su error estándar. Elegimos $\tau$ = **36 meses**:
+
+```{r}
+#| label: rmst
+tau <- 36
+fit <- survfit(Surv(tiempo_meses, krt) ~ dm, data = coh)
+tab <- summary(fit, rmean = tau)$table
+tab[, c("records", "events", "rmean", "se(rmean)")]
+```
+
+Los pacientes **sin diabetes** pasan, en promedio, **31.7 de los primeros 36 meses sin falla renal**; los **con diabetes**, 26.4. La diferencia:
+
+```{r}
+#| label: dif-rmst
+est <- tab[, "rmean"]; ee <- tab[, "se(rmean)"]
+dif <- est[2] - est[1]
+ee_dif <- sqrt(sum(ee^2))
+
+c(diferencia_meses = unname(dif), ic_inf = unname(dif - 1.96 * ee_dif), ic_sup = unname(dif + 1.96 * ee_dif))
+```
+
+La diabetes **resta unos 5.3 meses (IC 4.4-6.2)** de tiempo libre de falla renal en los primeros 3 años. Se entiende al instante y no depende de que los riesgos sean proporcionales. Gráficamente es la **diferencia de áreas** entre las curvas:
+
+```{r}
+#| label: graf-rmst
+#| fig-width: 8
+#| fig-height: 4
+curvas <- tibble(
+  tiempo = fit$time, dm = rep(c("Sin DM", "Con DM"), fit$strata), S = fit$surv
+) |>
+  group_by(dm) |>
+  group_modify(\(d, k) bind_rows(tibble(tiempo = 0, S = 1), d |> select(tiempo, S))) |>
+  ungroup() |>
+  filter(tiempo <= tau)
+
+ggplot(curvas, aes(tiempo, S, color = dm, fill = dm)) +
+  geom_area(position = "identity", alpha = 0.15, stat = "identity") +
+  geom_step(linewidth = 1) +
+  scale_color_manual(values = c(`Sin DM` = "#999999", `Con DM` = "#D55E00"), name = NULL) +
+  scale_fill_manual(values = c(`Sin DM` = "#999999", `Con DM` = "#D55E00"), name = NULL) +
+  coord_cartesian(ylim = c(0.5, 1)) +
+  labs(x = "Meses", y = "Probabilidad libre de falla renal",
+       caption = "RMST = área bajo cada curva hasta 36 meses. Datos simulados.") +
+  theme_minimal(base_size = 11) + theme(legend.position = "bottom")
+```
+
+## ¿Qué $\tau$ elegir?
+
+-   Debe fijarse **antes de ver los datos**, por relevancia clínica (3 años, 5 años).
+-   No debe superar el **último tiempo con suficientes pacientes en riesgo** (en esta cohorte, menos de 40 en riesgo después de los 55 meses).
+-   Reporta **varios $\tau$** como análisis de sensibilidad:
+
+```{r}
+#| label: tau-sens
+map_dfr(c(12, 24, 36, 48), \(t) {
+  s <- summary(fit, rmean = t)$table
+  tibble(tau = t, rmst_sin_dm = s[1, "rmean"], rmst_con_dm = s[2, "rmean"],
+         diferencia = s[2, "rmean"] - s[1, "rmean"])
+}) |> mutate(across(-tau, \(x) round(x, 2)))
+```
+
+La pérdida **crece** con $\tau$ (de ~1 mes a 12 meses a ~7 meses a 48 meses), porque la diferencia entre curvas **se establece en los primeros 18 meses y luego se mantiene**: el área entre curvas sigue acumulándose mientras haya distancia.
+
+## RMST ajustado por covariables: pseudovalores
+
+Para ajustar por confusores sin proporcionalidad, el método de **pseudovalores** (Andersen) calcula para **cada paciente** un valor que representa su contribución al RMST y luego lo modela con una regresión lineal:
+
+$$
+\hat\theta_i = n\,\hat\theta - (n-1)\,\hat\theta_{(-i)}
+$$
+
+donde $\hat\theta_{(-i)}$ es el RMST estimado **sin el paciente *i***. Los coeficientes son **diferencias de meses libres de evento** ajustadas.
+
+```{r}
+#| label: pseudo
+rmst_uno <- function(t, e, tau) {
+  unname(summary(survfit(Surv(t, e) ~ 1), rmean = tau)$table["rmean"])
+}
+
+n <- nrow(coh)
+theta <- rmst_uno(coh$tiempo_meses, coh$krt, tau)
+theta_i <- vapply(seq_len(n), \(i) rmst_uno(coh$tiempo_meses[-i], coh$krt[-i], tau), numeric(1))
+coh$pseudo <- n * theta - (n - 1) * theta_i
+
+m_ps <- lm(pseudo ~ dm + I((27 - tfg) / 10) + log2(uacr) + I(edad / 10) + sexo +
+             albumina + fosforo + bicarbonato + ecv, data = coh)
+
+res <- coeftest(m_ps, vcov = vcovHC(m_ps, type = "HC3"))
+tibble(termino = rownames(res), diferencia_meses = res[, 1], ee = res[, 2],
+       ic_inf = res[, 1] - 1.96 * res[, 2], ic_sup = res[, 1] + 1.96 * res[, 2]) |>
+  filter(termino != "(Intercept)") |>
+  mutate(across(where(is.numeric), \(x) round(x, 2)))
+```
+
+::: {.callout-tip}
+## 💡 Cómo leer
+
+-   `dmCon DM` ≈ −3.7: **ajustada** por las demás variables, la diabetes se asocia con ~3.7 meses **menos** de tiempo libre de falla renal en los primeros 36 meses (frente a −5.3 sin ajustar: parte de la diferencia cruda se debía a la TFGe y UACR más desfavorables).
+-   Un paciente con **10 unidades menos de TFGe** pierde ~4.4 meses.
+-   Los errores estándar deben ser **robustos** (los pseudovalores no son independientes).
+:::
+
+## Cuándo preferir RMST
+
+| Situación | Mejor medida |
+|---|---|
+| Riesgos proporcionales claros | HR (Cox), complementado con riesgos a tiempo fijo |
+| **Riesgos no proporcionales** (curvas que convergen o se cruzan) | **RMST** o riesgos a tiempo fijo |
+| Comunicar a pacientes y decisores | **RMST** ("X meses más libres de diálisis") |
+| Evento muy raro o seguimiento corto | RMST con $\tau$ pequeño o diferencia de riesgos |
+| Riesgos competitivos | RMST del tiempo libre del compuesto, o tiempo perdido por causa (RMLT) |
+
+::: {.callout-warning}
+## ⚠️ Limitaciones
+
+-   **Depende de $\tau$** (por eso se fija a priori).
+-   Una diferencia de RMST pequeña puede ocultar un efecto que se concentra en un periodo.
+-   Es una **medida de asociación**: para un efecto causal se necesita el mismo control de confusión que para cualquier otro estimador (Caps. 3 y 12).
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   **RMST(τ)** = tiempo promedio libre del evento en los primeros τ meses; la **diferencia** = meses ganados o perdidos.
+-   No requiere **riesgos proporcionales**; es interpretable por clínicos y pacientes.
+-   Fija **τ a priori**, dentro de la zona con suficientes pacientes en riesgo, y haz análisis de sensibilidad.
+-   El ajuste por covariables se logra con **pseudovalores** + regresión lineal con errores robustos.
+-   Complementa (no reemplaza) al HR y a los riesgos acumulados.
+:::
+
+## Ejercicio
+
+1.  Calcula la diferencia de RMST a **24 meses** entre pacientes con TFGe < 20 y ≥ 20.
+2.  Compara el HR de Cox (9.3) con la diferencia de RMST para la **albuminuria A3 vs. A1**. ¿Cuál se explica mejor a un paciente?
+3.  Repite el modelo de pseudovalores a **τ = 24 meses**. ¿Cambian los coeficientes?
+
+## Nota editorial
+
+-   Capítulo redactado con asistencia de IA y revisado por el autor. Todos los datos son **simulados**.

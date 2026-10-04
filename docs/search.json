@@ -3690,6 +3690,521 @@
     ]
   },
   {
+    "objectID": "capitulos/Capítulo9.html",
+    "href": "capitulos/Capítulo9.html",
+    "title": "Capítulo 9: Análisis de supervivencia",
+    "section": "",
+    "text": "Referencias\nEste capítulo usa cohorte_pronostico (simulada): 3 000 adultos con ERC G3b-G5, con TFGe, albuminuria, diabetes, nutrición y laboratorio basales, y su evolución hasta falla renal (diálisis o trasplante), muerte o censura. Como la simulamos, conocemos los efectos verdaderos y podemos comprobar cada método.\nAl finalizar este capítulo podrás:\nPrerrequisitos: Caps. 2, 7 y 8. Prepara: Caps. 11, 12, 17 y 19.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.html#referencias",
+    "href": "capitulos/Capítulo9.html#referencias",
+    "title": "Capítulo 9: Análisis de supervivencia",
+    "section": "",
+    "text": "Kleinbaum DG, Klein M. Survival Analysis: A Self-Learning Text (3e). Springer; 2012.\nTherneau TM, Grambsch PM. Modeling Survival Data: Extending the Cox Model. Springer; 2000.\nAustin PC, Lee DS, Fine JP. Introduction to the analysis of survival data in the presence of competing risks. Circulation. 2016;133:601-609.\nHernán MA. The hazards of hazard ratios. Epidemiology. 2010;21:13-15.\nRoyston P, Parmar MKB. Restricted mean survival time: an alternative to the hazard ratio. BMC Med Res Methodol. 2013;13:152.\nHernán MA, Robins JM. Causal Inference: What If. Cap. 17 (supervivencia causal).",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.1.html",
+    "href": "capitulos/Capítulo9.1.html",
+    "title": "Tiempo hasta evento y censura",
+    "section": "",
+    "text": "Los tres ingredientes\nPara cada paciente se necesita:\nUn paciente censurado es aquel de quien solo sabemos que no había tenido el evento hasta cierto momento. Es información valiosa: “estuvo libre de diálisis durante 14 meses”.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>42</span>  <span class='chapter-title'>Tiempo hasta evento y censura</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.1.html#los-tres-ingredientes",
+    "href": "capitulos/Capítulo9.1.html#los-tres-ingredientes",
+    "title": "Tiempo hasta evento y censura",
+    "section": "",
+    "text": "Un origen del tiempo (tiempo cero): la fecha en que empieza el seguimiento (diagnóstico, ingreso a la cohorte, inicio del tratamiento).\n\nUn tiempo de seguimiento: desde el origen hasta el evento o hasta que se deja de observar.\n\nUn indicador de evento: 1 si el evento ocurrió, 0 si el paciente fue censurado.\n\n\n\n\n\n\n\n\n\nSituación\nTipo de censura\n¿Qué sabemos?\n\n\n\nTermina el estudio sin evento\n\nAdministrativa (derecha)\nEstuvo libre hasta el cierre\n\n\nSe muda o abandona el seguimiento\n\nPor pérdida (derecha)\nEstuvo libre hasta su último control\n\n\nMuere antes de la diálisis\n¿Censura o competidor?\nDepende del objetivo (ver 9.5)\n\n\nSe sabe que el evento ocurrió “entre dos visitas”\nPor intervalo\nEl evento ocurrió entre t₁ y t₂\n\n\nEntró al estudio ya con el evento ocurrido\n\nTruncamiento a la izquierda\nQuedan fuera quienes ya lo tuvieron\n\n\n\n\n\n\n\n\n\nAdvertencia⚠️ El supuesto clave: censura no informativa\n\n\n\nLos métodos clásicos suponen que quien es censurado tiene, en ese momento, el mismo riesgo que quienes siguen en observación. Si los que se pierden son justamente los que empeoran (se van a otro centro cuando están más graves), la censura es informativa y las estimaciones quedan sesgadas. Se mitiga con ajuste por las causas de la pérdida (ponderación por probabilidad de censura inversa; Cap. 19).",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>42</span>  <span class='chapter-title'>Tiempo hasta evento y censura</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.1.html#los-datos",
+    "href": "capitulos/Capítulo9.1.html#los-datos",
+    "title": "Tiempo hasta evento y censura",
+    "section": "Los datos",
+    "text": "Los datos\n\nlibrary(tidyverse)\nlibrary(survival)\n\ncoh &lt;- read_csv(\"Bases/cohorte_pronostico.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")),\n         dm = factor(dm, levels = 0:1, labels = c(\"Sin DM\", \"Con DM\")))\nglimpse(coh)\n\nRows: 3,000\nColumns: 12\n$ id           &lt;dbl&gt; 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17…\n$ edad         &lt;dbl&gt; 72, 53, 68, 65, 58, 36, 57, 54, 67, 60, 61, 57, 63, 63, 3…\n$ sexo         &lt;fct&gt; Hombre, Hombre, Mujer, Hombre, Mujer, Hombre, Hombre, Muj…\n$ dm           &lt;fct&gt; Sin DM, Sin DM, Sin DM, Con DM, Sin DM, Sin DM, Sin DM, S…\n$ ecv          &lt;dbl&gt; 0, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, …\n$ tfg          &lt;dbl&gt; 16.8, 24.5, 31.9, 26.4, 27.2, 37.2, 28.6, 15.2, 30.9, 34.…\n$ uacr         &lt;dbl&gt; 1738, 38, 81, 3763, 408, 308, 213, 314, 207, 434, 327, 80…\n$ albumina     &lt;dbl&gt; 3.5, 4.1, 5.0, 3.3, 4.2, 4.7, 3.7, 4.2, 4.3, 3.3, 4.6, 3.…\n$ fosforo      &lt;dbl&gt; 3.8, 4.2, 3.4, 2.8, 4.5, 3.8, 2.6, 4.9, 3.8, 3.4, 2.2, 3.…\n$ bicarbonato  &lt;dbl&gt; 24, 21, 20, 21, 25, 28, 19, 18, 20, 24, 22, 23, 18, 21, 2…\n$ tiempo_meses &lt;dbl&gt; 31, 60, 50, 13, 44, 25, 49, 12, 37, 54, 10, 13, 47, 6, 41…\n$ estado       &lt;dbl&gt; 2, 0, 0, 0, 0, 0, 0, 1, 0, 0, 2, 1, 1, 1, 0, 1, 1, 0, 0, …\n\n\n\n\ntiempo_meses: seguimiento en meses (máximo 60).\n\nestado: 0 = censurado, 1 = falla renal (diálisis o trasplante), 2 = muerte antes de la falla renal.\n\n\ncoh |&gt; count(estado) |&gt; mutate(porcentaje = round(100 * n / sum(n), 1),\n                                significado = c(\"Censurado\", \"Falla renal\", \"Muerte sin falla renal\"))\n\n# A tibble: 3 × 4\n  estado     n porcentaje significado           \n   &lt;dbl&gt; &lt;int&gt;      &lt;dbl&gt; &lt;chr&gt;                 \n1      0  1679       56   Censurado             \n2      1   839       28   Falla renal           \n3      2   482       16.1 Muerte sin falla renal\n\n\nPor ahora nos interesa la falla renal como evento (1) y trataremos las muertes como censura. En 9.5 veremos por qué eso puede ser un problema.\n\ncoh &lt;- coh |&gt; mutate(krt = as.integer(estado == 1))      # 1 = falla renal; 0 = no (censura o muerte)\ntable(coh$krt)\n\n\n   0    1 \n2161  839",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>42</span>  <span class='chapter-title'>Tiempo hasta evento y censura</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.1.html#el-objeto-surv",
+    "href": "capitulos/Capítulo9.1.html#el-objeto-surv",
+    "title": "Tiempo hasta evento y censura",
+    "section": "El objeto Surv()\n",
+    "text": "El objeto Surv()\n\nR guarda el tiempo y el evento juntos en un objeto Surv. El signo + indica censura:\n\nSurv(coh$tiempo_meses, coh$krt)[1:12]\n\n [1] 31+ 60+ 50+ 13+ 44+ 25+ 49+ 12  37+ 54+ 10+ 13 \n\n\nCada número es el tiempo de seguimiento en meses; el signo + marca a los censurados (el primero estuvo libre de falla renal hasta los 31 meses, cuando se dejó de observar) y los números sin + son pacientes que tuvieron falla renal (el octavo, a los 12 meses). Cuando un paciente tiene fechas (Cap. 5), el tiempo se calcula así:\n\ndatos &lt;- datos |&gt;\n  mutate(tiempo_meses = as.numeric(fecha_evento_o_censura - fecha_origen) / 30.4375,\n         evento = as.integer(!is.na(fecha_evento)))\n\n\n\n\n\n\n\nTip💡 Antes de analizar, revisa\n\n\n\n\nTiempos negativos o cero (error de fechas, o evento el mismo día del origen).\n\nMisma fecha de evento y censura (¿quién se censura primero?).\nPacientes con el evento antes del origen (no deberían estar en la cohorte).\nQue el origen sea el mismo concepto para todos (nada de “diagnóstico” para unos e “ingreso a nefrología” para otros).",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>42</span>  <span class='chapter-title'>Tiempo hasta evento y censura</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.1.html#seguimiento-y-persona-tiempo",
+    "href": "capitulos/Capítulo9.1.html#seguimiento-y-persona-tiempo",
+    "title": "Tiempo hasta evento y censura",
+    "section": "Seguimiento y persona-tiempo",
+    "text": "Seguimiento y persona-tiempo\nPara describir cuánto se siguió, la mediana de los tiempos observados subestima el seguimiento real (se corta cuando ocurre el evento). El método correcto es el Kaplan-Meier inverso, que invierte la definición de evento (la “censura” pasa a ser el evento):\n\nsurvfit(Surv(tiempo_meses, 1 - krt) ~ 1, data = coh)       # seguimiento mediano (KM inverso)\n\nCall: survfit(formula = Surv(tiempo_meses, 1 - krt) ~ 1, data = coh)\n\n        n events median 0.95LCL 0.95UCL\n[1,] 3000   2161     37      37      38\n\n\nLa tasa de incidencia (eventos por persona-tiempo) usa el total de tiempo observado, sin necesidad de curvas:\n\npa   &lt;- sum(coh$tiempo_meses) / 12          # persona-años\nev   &lt;- sum(coh$krt)\ntasa &lt;- 100 * ev / pa\nic   &lt;- 100 * poisson.test(ev, pa)$conf.int\n\nc(eventos = ev, persona_anios = round(pa), tasa_por_100_pa = tasa, ic_inf = ic[1], ic_sup = ic[2])\n\n        eventos   persona_anios tasa_por_100_pa          ic_inf          ic_sup \n      839.00000      7372.00000        11.38116        10.62397        12.17806 \n\n\nLa tasa es de aproximadamente 11 fallas renales por 100 persona-años. Es válida si el riesgo es aproximadamente constante en el tiempo; la curva de Kaplan-Meier (9.2) muestra cómo cambia.\n\n\n\n\n\n\nAdvertencia⚠️ ¿Por qué no basta con una proporción o una regresión logística?\n\n\n\n\n“El 28 % llegó a diálisis” confunde gente seguida 5 años con gente seguida 6 meses.\nDescartar a los censurados sesga (se quedan los que tuvieron el evento).\nContar a los censurados como “sin evento” subestima el riesgo.\nUna media de los tiempos solo con los que tuvieron el evento sobrestima la rapidez.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>42</span>  <span class='chapter-title'>Tiempo hasta evento y censura</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.1.html#sesgo-del-tiempo-inmortal",
+    "href": "capitulos/Capítulo9.1.html#sesgo-del-tiempo-inmortal",
+    "title": "Tiempo hasta evento y censura",
+    "section": "Sesgo del tiempo inmortal",
+    "text": "Sesgo del tiempo inmortal\nOtro error clásico: asignar a un grupo una porción de seguimiento en la que, por definición, no pudo tener el evento. Por ejemplo, definir “usuarios de iSGLT2” como quienes recibieron el fármaco en algún momento del seguimiento, y contar como “expuesto” el tiempo antes de la primera prescripción. Esos pacientes tuvieron que sobrevivir hasta recibirlo: ese tiempo es “inmortal”. El resultado: el fármaco parece protector aunque no lo sea. Se evita alineando el tiempo cero con el inicio del tratamiento (Cap. 12, target trial) o tratando la exposición como variable dependiente del tiempo.\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nCada paciente aporta tiempo y evento (1/0); el censurado aporta “libre hasta t”.\nLa censura no informativa es el supuesto central: quien sale del estudio se parece a quien queda.\nResume el seguimiento con KM inverso y la incidencia con tasa por persona-año y su IC de Poisson.\n\nSurv(tiempo, evento) es el punto de partida de todos los análisis (KM, Cox, riesgos competitivos).\nVigila el sesgo del tiempo inmortal: el tiempo cero debe coincidir con el inicio del seguimiento y de la exposición.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>42</span>  <span class='chapter-title'>Tiempo hasta evento y censura</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.1.html#ejercicio",
+    "href": "capitulos/Capítulo9.1.html#ejercicio",
+    "title": "Tiempo hasta evento y censura",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nCalcula la tasa de falla renal por 100 persona-años en pacientes con y sin diabetes. ¿Cómo se comparan?\nCalcula la tasa de muerte (estado = 2). ¿Es mayor o menor que la de falla renal?\n¿Qué porcentaje de pacientes está censurado antes de los 24 meses? ¿Qué problemas puede causar?",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>42</span>  <span class='chapter-title'>Tiempo hasta evento y censura</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.2.html",
+    "href": "capitulos/Capítulo9.2.html",
+    "title": "Kaplan-Meier y log-rank",
+    "section": "",
+    "text": "La curva de Kaplan-Meier\nEl estimador de Kaplan-Meier (KM) calcula la probabilidad de seguir libre del evento a lo largo del tiempo. En cada instante en que ocurre un evento, la curva baja en proporción a los pacientes que todavía estaban en riesgo; los censurados salen del denominador sin hacer bajar la curva.\n\\[\n\\hat S(t) = \\prod_{t_i \\le t}\\left(1 - \\frac{d_i}{n_i}\\right)\n\\]\ncon \\(d_i\\) eventos y \\(n_i\\) pacientes en riesgo en el instante \\(t_i\\).\nlibrary(tidyverse)\nlibrary(survival)\nlibrary(survminer)\nlibrary(broom)\n\ncoh &lt;- read_csv(\"Bases/cohorte_pronostico.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")),\n         dm = factor(dm, levels = 0:1, labels = c(\"Sin DM\", \"Con DM\")),\n         krt = as.integer(estado == 1))\n\nkm &lt;- survfit(Surv(tiempo_meses, krt) ~ 1, data = coh)\nkm\n\nCall: survfit(formula = Surv(tiempo_meses, krt) ~ 1, data = coh)\n\n        n events median 0.95LCL 0.95UCL\n[1,] 3000    839     NA      NA      NA\nLa mediana de supervivencia libre de falla renal es NA (no se alcanzó): menos del 50 % tuvo falla renal durante el seguimiento. Para describir la curva se reporta la supervivencia a tiempos fijos, con IC:\nresumen_km &lt;- summary(km, times = c(12, 24, 36, 60))\ntibble(meses = resumen_km$time, en_riesgo = resumen_km$n.risk,\n       supervivencia = resumen_km$surv, ic_inf = resumen_km$lower, ic_sup = resumen_km$upper,\n       riesgo_acumulado = 1 - resumen_km$surv) |&gt;\n  mutate(across(c(supervivencia, ic_inf, ic_sup, riesgo_acumulado), \\(x) round(x, 3)))\n\n# A tibble: 4 × 6\n  meses en_riesgo supervivencia ic_inf ic_sup riesgo_acumulado\n  &lt;dbl&gt;     &lt;dbl&gt;         &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;            &lt;dbl&gt;\n1    12      2383         0.847  0.834  0.861            0.153\n2    24      1961         0.762  0.747  0.778            0.238\n3    36      1169         0.711  0.693  0.729            0.289\n4    60        37         0.617  0.577  0.661            0.383\nInterpretación: la probabilidad de seguir sin falla renal a los 36 meses es ~71 % (IC 69-73 %); el riesgo acumulado es 1 − S(t) ≈ 29 %. A los 60 meses quedan muy pocos pacientes en riesgo (37): la cola derecha es poco confiable, y el IC se ensancha.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>43</span>  <span class='chapter-title'>Kaplan-Meier y log-rank</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.2.html#la-curva-de-kaplan-meier",
+    "href": "capitulos/Capítulo9.2.html#la-curva-de-kaplan-meier",
+    "title": "Kaplan-Meier y log-rank",
+    "section": "",
+    "text": "Advertencia⚠️ Cuidado con el final de la curva\n\n\n\nCuando quedan pocos pacientes en riesgo, la curva “salta” con cada evento y el IC es muy amplio. Muestra siempre la tabla de pacientes en riesgo debajo de la curva y no interpretes la cola con &lt; 10-20 pacientes en riesgo.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>43</span>  <span class='chapter-title'>Kaplan-Meier y log-rank</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.2.html#graficar-la-curva",
+    "href": "capitulos/Capítulo9.2.html#graficar-la-curva",
+    "title": "Kaplan-Meier y log-rank",
+    "section": "Graficar la curva",
+    "text": "Graficar la curva\nsurvminer::ggsurvplot() produce un gráfico listo para publicar, con IC y tabla de riesgo:\n\nggsurvplot(km, data = coh, conf.int = TRUE, risk.table = TRUE, risk.table.height = 0.25,\n           break.time.by = 12, xlab = \"Meses desde el inicio del seguimiento\",\n           ylab = \"Probabilidad libre de falla renal\", legend = \"none\",\n           palette = \"#0072B2\", ggtheme = theme_minimal(base_size = 11))\n\n\n\n\n\n\n\n\n\n\n\n\n\nTip💡 Tip práctico: ¿curva de supervivencia o de riesgo acumulado?\n\n\n\n\nSi el evento es frecuente y lo que importa es “cuántos se salvan”, usa la supervivencia (curva descendente).\nSi el evento es raro (diálisis a 5 años en un 8 %), la curva de supervivencia queda pegada al 100 % y no se aprecian diferencias; usa el riesgo acumulado (fun = \"event\"), que sube desde 0 y amplía la escala.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>43</span>  <span class='chapter-title'>Kaplan-Meier y log-rank</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.2.html#comparar-grupos-log-rank",
+    "href": "capitulos/Capítulo9.2.html#comparar-grupos-log-rank",
+    "title": "Kaplan-Meier y log-rank",
+    "section": "Comparar grupos: log-rank",
+    "text": "Comparar grupos: log-rank\n¿Los pacientes con diabetes llegan antes a la falla renal?\n\nkm_dm &lt;- survfit(Surv(tiempo_meses, krt) ~ dm, data = coh)\nggsurvplot(km_dm, data = coh, conf.int = TRUE, risk.table = TRUE, pval = TRUE, pval.method = TRUE,\n           fun = \"event\", break.time.by = 12, xlab = \"Meses\", ylab = \"Riesgo acumulado de falla renal\",\n           legend.title = \"\", legend.labs = c(\"Sin DM\", \"Con DM\"),\n           palette = c(\"#999999\", \"#D55E00\"), ggtheme = theme_minimal(base_size = 11))\n\n\n\n\n\n\n\nEl log-rank compara las curvas completas: en cada instante con evento, compara los eventos observados en cada grupo con los esperados si no hubiera diferencia:\n\nsurvdiff(Surv(tiempo_meses, krt) ~ dm, data = coh)\n\nCall:\nsurvdiff(formula = Surv(tiempo_meses, krt) ~ dm, data = coh)\n\n             N Observed Expected (O-E)^2/E (O-E)^2/V\ndm=Sin DM 1746      380      531      42.9       119\ndm=Con DM 1254      459      308      74.0       119\n\n Chisq= 119  on 1 degrees of freedom, p= &lt;2e-16 \n\n\nEl valor p es diminuto: la diabetes se asocia con falla renal más temprana. Pero el log-rank solo dice que las curvas difieren, no cuánto. Para cuantificar, se reportan las diferencias de riesgo a tiempos fijos o el HR de Cox (9.3):\n\nrs &lt;- summary(km_dm, times = c(12, 24, 36, 60))\ntibble(grupo = as.character(rs$strata), meses = rs$time,\n       riesgo_acumulado = 1 - rs$surv, ic_inf = 1 - rs$upper, ic_sup = 1 - rs$lower) |&gt;\n  mutate(across(where(is.numeric), \\(x) round(x, 3)))\n\n# A tibble: 8 × 5\n  grupo     meses riesgo_acumulado ic_inf ic_sup\n  &lt;chr&gt;     &lt;dbl&gt;            &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;\n1 dm=Sin DM    12            0.09   0.076  0.103\n2 dm=Sin DM    24            0.159  0.142  0.177\n3 dm=Sin DM    36            0.218  0.197  0.239\n4 dm=Sin DM    60            0.299  0.265  0.331\n5 dm=Con DM    12            0.242  0.217  0.266\n6 dm=Con DM    24            0.351  0.322  0.378\n7 dm=Con DM    36            0.391  0.361  0.42 \n8 dm=Con DM    60            0.497  0.411  0.57 \n\n\nObserva que la distancia entre las curvas se abre en los primeros 18-24 meses y luego se mantiene casi paralela: lo retomaremos en 9.4.\n\n\n\n\n\n\nNotaVariantes del log-rank\n\n\n\nEl log-rank da igual peso a todos los instantes y es más potente cuando el cociente de riesgos es constante (riesgos proporcionales). Si las diferencias son tempranas, survdiff(..., rho = 1) (Peto-Peto) da más peso al inicio. Elige la variante antes de ver los datos.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>43</span>  <span class='chapter-title'>Kaplan-Meier y log-rank</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.2.html#comparar-más-de-dos-grupos-y-ajustar-por-estratos",
+    "href": "capitulos/Capítulo9.2.html#comparar-más-de-dos-grupos-y-ajustar-por-estratos",
+    "title": "Kaplan-Meier y log-rank",
+    "section": "Comparar más de dos grupos y ajustar por estratos",
+    "text": "Comparar más de dos grupos y ajustar por estratos\n\ncoh &lt;- coh |&gt; mutate(cat_a = cut(uacr, c(0, 30, 300, Inf), right = FALSE, labels = c(\"A1\", \"A2\", \"A3\")))\nsurvdiff(Surv(tiempo_meses, krt) ~ cat_a, data = coh)\n\nCall:\nsurvdiff(formula = Surv(tiempo_meses, krt) ~ cat_a, data = coh)\n\n            N Observed Expected (O-E)^2/E (O-E)^2/V\ncat_a=A1  103        5     33.7      24.4      25.7\ncat_a=A2 1267      197    389.5      95.2     180.0\ncat_a=A3 1630      637    415.8     117.7     236.6\n\n Chisq= 241  on 2 degrees of freedom, p= &lt;2e-16 \n\n## Log-rank estratificado por diabetes (compara albuminuria dentro de cada estrato de DM)\nsurvdiff(Surv(tiempo_meses, krt) ~ cat_a + strata(dm), data = coh)\n\nCall:\nsurvdiff(formula = Surv(tiempo_meses, krt) ~ cat_a + strata(dm), \n    data = coh)\n\n            N Observed Expected (O-E)^2/E (O-E)^2/V\ncat_a=A1  103        5     29.7      20.5      21.6\ncat_a=A2 1267      197    363.6      76.4     141.0\ncat_a=A3 1630      637    445.7      82.1     185.2\n\n Chisq= 190  on 2 degrees of freedom, p= &lt;2e-16 \n\n\nEl log-rank estratificado compara grupos dentro de los estratos de otra variable y luego combina. Es una forma simple de ajustar por una sola variable categórica; para varias se usa Cox.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>43</span>  <span class='chapter-title'>Kaplan-Meier y log-rank</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.2.html#mediana-y-media",
+    "href": "capitulos/Capítulo9.2.html#mediana-y-media",
+    "title": "Kaplan-Meier y log-rank",
+    "section": "Mediana y media",
+    "text": "Mediana y media\n\n\nMediana de supervivencia: tiempo en que la curva cruza 0.5. Es robusta, pero puede no estar definida (como aquí) si pocos pacientes tienen el evento.\n\nMedia: no se puede calcular con censura a la derecha sin extrapolar; por eso se usa la media restringida (9.6).\n\n\nkm_a &lt;- survfit(Surv(tiempo_meses, 1 - krt) ~ 1, data = coh)   # seguimiento mediano\nkm_a\n\nCall: survfit(formula = Surv(tiempo_meses, 1 - krt) ~ 1, data = coh)\n\n        n events median 0.95LCL 0.95UCL\n[1,] 3000   2161     37      37      38\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\n\nKM estima la probabilidad de seguir libre del evento; censurados salen de los “en riesgo” sin bajar la curva.\nReporta supervivencia (o riesgo acumulado) a tiempos fijos con IC y la mediana si se alcanza; muestra la tabla de riesgo.\n\nLog-rank compara curvas completas: da un valor p, no un tamaño de efecto; complementa con diferencias a tiempos fijos o HR.\nEvita interpretar el final de la curva (pocos en riesgo).\nUn log-rank estratificado ajusta por una variable; para varias, usa Cox.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>43</span>  <span class='chapter-title'>Kaplan-Meier y log-rank</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.2.html#ejercicio",
+    "href": "capitulos/Capítulo9.2.html#ejercicio",
+    "title": "Kaplan-Meier y log-rank",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nGrafica el KM por sexo y por categoría de albuminuria (A1-A3). ¿Qué grupo tiene mayor riesgo?\nCalcula el riesgo acumulado a 36 meses en pacientes con TFGe &lt; 20 vs. ≥ 20 con IC.\nHaz el KM de muerte (estado = 2) como evento, tratando la falla renal como censura. ¿Qué problema aparece al interpretarlo? (Pista: lo veremos en 9.5.)",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>43</span>  <span class='chapter-title'>Kaplan-Meier y log-rank</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.3.html",
+    "href": "capitulos/Capítulo9.3.html",
+    "title": "Regresión de Cox",
+    "section": "",
+    "text": "El modelo\nEl modelo de riesgos proporcionales de Cox relaciona el riesgo instantáneo (hazard) de un paciente con sus covariables:\n\\[\nh(t \\mid X) = h_0(t)\\,\\exp(\\beta_1 X_1 + \\beta_2 X_2 + \\dots + \\beta_p X_p)\n\\]\nHR = 1.6 significa que, en cualquier momento, entre quienes siguen en riesgo, el paciente con ese factor tiene un riesgo instantáneo 60 % mayor.\nlibrary(tidyverse)\nlibrary(survival)\nlibrary(survminer)\nlibrary(broom)\n\ncoh &lt;- read_csv(\"Bases/cohorte_pronostico.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")),\n         dm = factor(dm, levels = 0:1, labels = c(\"Sin DM\", \"Con DM\")),\n         krt = as.integer(estado == 1))",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>44</span>  <span class='chapter-title'>Regresión de Cox</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.3.html#el-modelo",
+    "href": "capitulos/Capítulo9.3.html#el-modelo",
+    "title": "Regresión de Cox",
+    "section": "",
+    "text": "\\(h_0(t)\\) es el riesgo basal, que no se especifica (por eso es “semiparamétrico”).\n\n\\(e^{\\beta_j}\\) es el cociente de riesgos instantáneos (hazard ratio, HR): por cuánto se multiplica el riesgo en cada instante al aumentar \\(X_j\\) en una unidad, manteniendo constantes las demás.\n\nProporcionalidad: el HR no cambia con el tiempo (se verifica en 9.4).",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>44</span>  <span class='chapter-title'>Regresión de Cox</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.3.html#modelo-simple-y-ajustado",
+    "href": "capitulos/Capítulo9.3.html#modelo-simple-y-ajustado",
+    "title": "Regresión de Cox",
+    "section": "Modelo simple y ajustado",
+    "text": "Modelo simple y ajustado\n\ncox_dm &lt;- coxph(Surv(tiempo_meses, krt) ~ dm, data = coh)\nsummary(cox_dm)\n\nCall:\ncoxph(formula = Surv(tiempo_meses, krt) ~ dm, data = coh)\n\n  n= 3000, number of events= 839 \n\n            coef exp(coef) se(coef)     z Pr(&gt;|z|)    \ndmCon DM 0.74207   2.10028  0.06952 10.68   &lt;2e-16 ***\n---\nSignif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1\n\n         exp(coef) exp(-coef) lower .95 upper .95\ndmCon DM       2.1     0.4761     1.833     2.407\n\nConcordance= 0.604  (se = 0.009 )\nLikelihood ratio test= 114  on 1 df,   p=&lt;2e-16\nWald test            = 114  on 1 df,   p=&lt;2e-16\nScore (logrank) test = 119.2  on 1 df,   p=&lt;2e-16\n\n\nEl HR crudo de la diabetes es ~2.1 (IC 1.8-2.4): el riesgo instantáneo de falla renal es más del doble en pacientes con diabetes. Ahora ajustamos por las variables clínicas que nos importan. Escalamos para facilitar la lectura: TFGe por cada 10 unidades menos, edad por 10 años, UACR en logaritmo base 2 (cada unidad = duplicar la UACR):\n\ncox_aj &lt;- coxph(\n  Surv(tiempo_meses, krt) ~ dm + I((27 - tfg) / 10) + log2(uacr) + I(edad / 10) + sexo +\n    albumina + fosforo + bicarbonato + ecv,\n  data = coh\n)\n\ntidy(cox_aj, exponentiate = TRUE, conf.int = TRUE) |&gt;\n  select(term, HR = estimate, conf.low, conf.high, p.value) |&gt;\n  mutate(term = recode(term, dmCon_DM = \"Diabetes\", `dmCon DM` = \"Diabetes\",\n                       `I((27 - tfg)/10)` = \"TFGe, por 10 unidades menos\", `log2(uacr)` = \"UACR, por cada duplicación\",\n                       `I(edad/10)` = \"Edad, por 10 años\", sexoHombre = \"Sexo masculino\",\n                       albumina = \"Albúmina, por 1 g/dL\", fosforo = \"Fósforo, por 1 mg/dL\",\n                       bicarbonato = \"Bicarbonato, por 1 mEq/L\", ecv = \"ECV previa\"),\n         across(where(is.numeric), \\(x) round(x, 3)))\n\n# A tibble: 9 × 5\n  term                           HR conf.low conf.high p.value\n  &lt;chr&gt;                       &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;   &lt;dbl&gt;\n1 Diabetes                    1.82     1.58      2.1     0    \n2 TFGe, por 10 unidades menos 2.61     2.36      2.90    0    \n3 UACR, por cada duplicación  1.39     1.33      1.44    0    \n4 Edad, por 10 años           0.797    0.749     0.849   0    \n5 Sexo masculino              1.13     0.982     1.29    0.089\n6 Albúmina, por 1 g/dL        0.729    0.615     0.863   0    \n7 Fósforo, por 1 mg/dL        1.32     1.18      1.47    0    \n8 Bicarbonato, por 1 mEq/L    0.952    0.932     0.973   0    \n9 ECV previa                  1.11     0.942     1.30    0.217\n\n\nCómo leer los HR:\n\n\nTFGe: por cada 10 mL/min/1.73 m² menos, el riesgo instantáneo se multiplica por ~2.6.\n\nUACR: cada duplicación de la albuminuria multiplica el riesgo por ~1.4.\n\nEdad: a igual TFGe y UACR, ser mayor reduce el riesgo de falla renal (HR ~0.8 por década): muchos pacientes mayores mueren antes de llegar a diálisis (riesgo competitivo, 9.5).\n\nAlbúmina, fósforo y bicarbonato actúan en la dirección esperada.\n\nSexo y ECV no se asocian de forma clara con falla renal al ajustar (IC que incluyen 1).\n\n\n\n\n\n\n\nAdvertencia⚠️ El HR no es un riesgo relativo, y mucho menos “tiempo hasta el evento”\n\n\n\n\nUn HR de 2 no significa “el doble de pacientes con diálisis” ni “llegan en la mitad del tiempo”.\nEl HR es un cociente de tasas instantáneas y, como el OR, no es colapsable: cambia al agregar covariables aunque no haya confusión.\nComo compara a quienes siguen en riesgo, tiene una selección incorporada con el tiempo (Hernán 2010). Para efectos causales a un tiempo fijo conviene riesgos acumulados (9.5) o RMST (9.6).",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>44</span>  <span class='chapter-title'>Regresión de Cox</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.3.html#variables-continuas-categóricas-y-escala",
+    "href": "capitulos/Capítulo9.3.html#variables-continuas-categóricas-y-escala",
+    "title": "Regresión de Cox",
+    "section": "Variables continuas, categóricas y escala",
+    "text": "Variables continuas, categóricas y escala\n\nLa edad por 10 años, o la TFGe por 10 unidades, evitan HR minúsculos que “parecen” no tener efecto.\nCon log2(uacr) cada unidad es una duplicación: interpretación natural para variables logarítmicas.\nCon categorías (A1, A2, A3), R toma la primera como referencia: relevel() o fct_relevel() para cambiarla.\nLa linealidad en el log-HR se revisa con splines: coxph(... + pspline(tfg)) o ns(tfg, 3) (8.5).\n\n\ncoh &lt;- coh |&gt; mutate(cat_a = cut(uacr, c(0, 30, 300, Inf), right = FALSE, labels = c(\"A1\", \"A2\", \"A3\")))\ncox_a &lt;- coxph(Surv(tiempo_meses, krt) ~ cat_a + I((27 - tfg) / 10) + I(edad / 10) + dm, data = coh)\ntidy(cox_a, exponentiate = TRUE, conf.int = TRUE) |&gt; select(term, HR = estimate, conf.low, conf.high) |&gt;\n  mutate(across(where(is.numeric), \\(x) round(x, 2)))\n\n# A tibble: 5 × 4\n  term                HR conf.low conf.high\n  &lt;chr&gt;            &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;\n1 cat_aA2           2.72     1.12      6.62\n2 cat_aA3           6.95     2.88     16.8 \n3 I((27 - tfg)/10)  2.97     2.7       3.27\n4 I(edad/10)        0.83     0.78      0.88\n5 dmCon DM          2.04     1.78      2.35",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>44</span>  <span class='chapter-title'>Regresión de Cox</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.3.html#gráfico-de-bosque-forest-plot",
+    "href": "capitulos/Capítulo9.3.html#gráfico-de-bosque-forest-plot",
+    "title": "Regresión de Cox",
+    "section": "Gráfico de bosque (forest plot)",
+    "text": "Gráfico de bosque (forest plot)\n\netiquetas &lt;- c(`dmCon DM` = \"Diabetes\", `I((27 - tfg)/10)` = \"TFGe, por 10 menos\", `log2(uacr)` = \"UACR, por duplicación\",\n               `I(edad/10)` = \"Edad, por 10 años\", sexoHombre = \"Sexo masculino\", albumina = \"Albúmina, por 1 g/dL\",\n               fosforo = \"Fósforo, por 1 mg/dL\", bicarbonato = \"Bicarbonato, por 1 mEq/L\", ecv = \"ECV previa\")\n\ntidy(cox_aj, exponentiate = TRUE, conf.int = TRUE) |&gt;\n  mutate(term = recode(term, !!!etiquetas), term = fct_reorder(term, estimate)) |&gt;\n  ggplot(aes(estimate, term, xmin = conf.low, xmax = conf.high)) +\n  geom_vline(xintercept = 1, linetype = \"dashed\") +\n  geom_pointrange(color = \"#0072B2\") +\n  scale_x_log10() +\n  labs(x = \"Hazard ratio (escala logarítmica)\", y = NULL, caption = \"Falla renal. Datos simulados.\") +\n  theme_minimal(base_size = 11)",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>44</span>  <span class='chapter-title'>Regresión de Cox</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.3.html#predecir-curvas-de-supervivencia-para-perfiles-de-pacientes",
+    "href": "capitulos/Capítulo9.3.html#predecir-curvas-de-supervivencia-para-perfiles-de-pacientes",
+    "title": "Regresión de Cox",
+    "section": "Predecir curvas de supervivencia para perfiles de pacientes",
+    "text": "Predecir curvas de supervivencia para perfiles de pacientes\nEl modelo de Cox permite estimar la curva de un paciente específico. Es la base de las calculadoras de riesgo (Cap. 17):\n\nperfiles &lt;- tibble(\n  dm = factor(c(\"Sin DM\", \"Sin DM\", \"Sin DM\"), levels = levels(coh$dm)),\n  tfg = c(35, 25, 15), uacr = 300, edad = 66, sexo = factor(\"Hombre\", levels = levels(coh$sexo)),\n  albumina = 4, fosforo = 3.7, bicarbonato = 23, ecv = 0\n)\nsf &lt;- survfit(cox_aj, newdata = perfiles)\n\ntidy(sf) |&gt;\n  pivot_longer(starts_with(\"estimate.\"), names_to = \"perfil\", values_to = \"supervivencia\") |&gt;\n  mutate(perfil = factor(perfil, levels = paste0(\"estimate.\", 1:3), labels = paste(\"TFGe\", perfiles$tfg))) |&gt;\n  ggplot(aes(time, 1 - supervivencia, color = perfil)) +\n  geom_step(linewidth = 1) +\n  scale_color_viridis_d(end = 0.8, name = NULL) +\n  labs(x = \"Meses\", y = \"Riesgo acumulado de falla renal\",\n       caption = \"Hombre de 66 años, sin diabetes, UACR 300 mg/g. Modelo de Cox. Datos simulados.\") +\n  theme_minimal(base_size = 11) + theme(legend.position = \"bottom\")",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>44</span>  <span class='chapter-title'>Regresión de Cox</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.3.html#variantes-útiles",
+    "href": "capitulos/Capítulo9.3.html#variantes-útiles",
+    "title": "Regresión de Cox",
+    "section": "Variantes útiles",
+    "text": "Variantes útiles\nEstratificación: otro riesgo basal por grupo\nCuando una variable no cumple proporcionalidad y no te interesa su HR, se estratifica: cada estrato tiene su propio \\(h_0(t)\\).\n\ncox_estr &lt;- coxph(Surv(tiempo_meses, krt) ~ I((27 - tfg) / 10) + log2(uacr) + I(edad / 10) + strata(sexo), data = coh)\nround(exp(coef(cox_estr)), 3)\n\nI((27 - tfg)/10)       log2(uacr)       I(edad/10) \n           2.857            1.425            0.841 \n\n\nErrores robustos y conglomerados\nSi hay pacientes agrupados (centros de diálisis), cluster() da errores estándar robustos:\n\ncoxph(Surv(tiempo_meses, krt) ~ dm + tfg + cluster(centro), data = datos)\n\nEmpates\nCon tiempos medidos en meses enteros hay empates (varios eventos en el mismo mes). R usa por defecto la aproximación de Efron, adecuada casi siempre.\nTiempo-dependientes\nVariables que cambian durante el seguimiento (TFGe actualizada, inicio de un fármaco) se incluyen con la estructura (tstart, tstop] (survSplit() o tmerge()). Se verá en el Cap. 19 junto con los métodos g.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>44</span>  <span class='chapter-title'>Regresión de Cox</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.3.html#cuántas-variables-caben-eventos-por-variable",
+    "href": "capitulos/Capítulo9.3.html#cuántas-variables-caben-eventos-por-variable",
+    "title": "Regresión de Cox",
+    "section": "Cuántas variables caben: eventos por variable",
+    "text": "Cuántas variables caben: eventos por variable\nComo en la logística (8.3): al menos 10-20 eventos por parámetro. Con 839 eventos y 9 parámetros hay holgura. En cohortes pequeñas, limita el número de covariables a los confusores esenciales.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>44</span>  <span class='chapter-title'>Regresión de Cox</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.3.html#efecto-causal-lo-que-el-hr-no-resuelve",
+    "href": "capitulos/Capítulo9.3.html#efecto-causal-lo-que-el-hr-no-resuelve",
+    "title": "Regresión de Cox",
+    "section": "¿Efecto causal? Lo que el HR no resuelve",
+    "text": "¿Efecto causal? Lo que el HR no resuelve\nUn HR ajustado es una asociación; para interpretarlo como efecto causal se necesita lo de siempre: intercambiabilidad condicional (confusores medidos), consistencia, positividad y ausencia de sesgo de selección. Además, el HR cambia de significado con el tiempo si el riesgo no es proporcional, y el uso de variables post-tratamiento (como la TFGe a los 6 meses) rompe la interpretación. El Cap. 12 presenta alternativas (riesgos acumulados estandarizados, IPW, AIPW).\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\n\nCox estima HR: cociente de riesgos instantáneos, constante en el tiempo bajo proporcionalidad.\nReescala las variables (por 10 años, log2) y reporta HR con IC en tabla o gráfico de bosque.\nPuedes predecir curvas de perfiles con survfit(modelo, newdata = ...).\n\nEstratifica (strata()) cuando una variable no cumple proporcionalidad; usa cluster() con datos agrupados.\n\nHR ≠ riesgo relativo ni “tiempo”: complementa con riesgos acumulados y RMST.\nHace falta ≥ 10-20 eventos por parámetro.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>44</span>  <span class='chapter-title'>Regresión de Cox</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.3.html#ejercicio",
+    "href": "capitulos/Capítulo9.3.html#ejercicio",
+    "title": "Regresión de Cox",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nAjusta un modelo de Cox para muerte (estado == 2, tratando la falla renal como censura). ¿Qué variables se asocian? ¿Es la edad ahora un factor de riesgo?\nCalcula el HR de la diabetes ajustando solo por TFGe y UACR. ¿Cambia mucho respecto del modelo completo?\nDibuja las curvas de riesgo acumulado predichas para dos pacientes: uno con UACR 30 y otro con UACR 1 000, con el resto de las variables iguales.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>44</span>  <span class='chapter-title'>Regresión de Cox</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.4.html",
+    "href": "capitulos/Capítulo9.4.html",
+    "title": "Riesgos proporcionales: cómo verificar y qué hacer",
+    "section": "",
+    "text": "El supuesto\nEl modelo de Cox supone que el cociente de riesgos entre dos pacientes es constante en el tiempo. Si la diabetes multiplica el riesgo por 2 al inicio y por 1 a los dos años, el HR único del modelo es un promedio sin significado claro.\nlibrary(tidyverse)\nlibrary(survival)\nlibrary(survminer)\nlibrary(broom)\n\ncoh &lt;- read_csv(\"Bases/cohorte_pronostico.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")),\n         dm = factor(dm, levels = 0:1, labels = c(\"Sin DM\", \"Con DM\")),\n         krt = as.integer(estado == 1))\n\ncox_aj &lt;- coxph(\n  Surv(tiempo_meses, krt) ~ dm + I((27 - tfg) / 10) + log2(uacr) + I(edad / 10) + sexo +\n    albumina + fosforo + bicarbonato + ecv,\n  data = coh\n)",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>45</span>  <span class='chapter-title'>Riesgos proporcionales: cómo verificar y qué hacer</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.4.html#tres-formas-de-comprobarlo",
+    "href": "capitulos/Capítulo9.4.html#tres-formas-de-comprobarlo",
+    "title": "Riesgos proporcionales: cómo verificar y qué hacer",
+    "section": "Tres formas de comprobarlo",
+    "text": "Tres formas de comprobarlo\n1. Gráfico log-log\nSi los riesgos son proporcionales, las curvas de \\(\\ln(-\\ln S(t))\\) de los dos grupos son paralelas (separadas por una distancia constante).\n\nkm_dm &lt;- survfit(Surv(tiempo_meses, krt) ~ dm, data = coh)\nggsurvplot(km_dm, data = coh, fun = \"cloglog\", xlim = c(3, 60), break.x.by = 12,\n           xlab = \"Meses (escala log)\", ylab = \"log(-log(supervivencia))\",\n           legend.labs = c(\"Sin DM\", \"Con DM\"), palette = c(\"#999999\", \"#D55E00\"),\n           ggtheme = theme_minimal(base_size = 11))\n\n\n\n\n\n\n\nLas curvas se acercan con el tiempo en lugar de mantenerse paralelas: la ventaja de riesgo de la diabetes se atenúa.\n2. Residuos de Schoenfeld: cox.zph()\n\nContrasta formalmente, para cada variable, si su efecto cambia con el tiempo:\n\nzph &lt;- cox.zph(cox_aj)\nzph\n\n                    chisq df       p\ndm               2.00e+01  1 7.7e-06\nI((27 - tfg)/10) 8.02e-01  1  0.3706\nlog2(uacr)       5.29e+00  1  0.0214\nI(edad/10)       1.47e-01  1  0.7014\nsexo             3.50e-01  1  0.5542\nalbumina         3.77e-04  1  0.9845\nfosforo          3.05e-01  1  0.5807\nbicarbonato      6.52e-01  1  0.4192\necv              5.14e-01  1  0.4735\nGLOBAL           2.43e+01  9  0.0038\n\n\nUna prueba global o por variable con p &lt; 0.05 sugiere violación. Aquí la diabetes (p &lt; 0.001) viola el supuesto; el resto cumple razonablemente (la UACR tiene p = 0.02, una violación leve que no alarma con tanta muestra).\n\nggcoxzph(zph, var = \"dm\", ggtheme = theme_minimal(base_size = 11))\n\n\n\n\n\n\n\nLa curva muestra el coeficiente de la diabetes en función del tiempo: alto al inicio y cayendo hacia 0. Si se cumpliera la proporcionalidad, sería una recta horizontal.\n\n\n\n\n\n\nAdvertencia⚠️ Cómo usar la prueba y el gráfico\n\n\n\n\nCon muestras grandes la prueba detecta violaciones triviales; con pocas muestras, no detecta violaciones grandes. Mira el gráfico.\nUna violación pequeña de una covariable de ajuste rara vez cambia el efecto que te interesa; una violación de la exposición sí.\nLa prueba depende de la transformación del tiempo (transform = \"km\" por defecto).\n\n\n\n3. Interacción con el tiempo\nSe agrega un término variable × f(tiempo). Con tt() en coxph:\n\ncox_tt &lt;- coxph(Surv(tiempo_meses, krt) ~ dm + tt(dm) + I((27 - tfg) / 10) + log2(uacr) + I(edad / 10),\n                data = coh |&gt; mutate(dm = as.integer(dm == \"Con DM\")),\n                tt = function(x, t, ...) x * log(t))\nsummary(cox_tt)$coefficients[1:2, ]\n\n             coef exp(coef)   se(coef)         z     Pr(&gt;|z|)\ndm      1.3910722 4.0191571 0.19477002  7.142127 9.189774e-13\ntt(dm) -0.3150029 0.7297868 0.07594837 -4.147592 3.359905e-05\n\n\nEl coeficiente tt(dm) es negativo y significativo: el efecto de la diabetes decae con \\(\\ln(t)\\).",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>45</span>  <span class='chapter-title'>Riesgos proporcionales: cómo verificar y qué hacer</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.4.html#qué-hacer-cuando-no-se-cumple",
+    "href": "capitulos/Capítulo9.4.html#qué-hacer-cuando-no-se-cumple",
+    "title": "Riesgos proporcionales: cómo verificar y qué hacer",
+    "section": "Qué hacer cuando no se cumple",
+    "text": "Qué hacer cuando no se cumple\n\n\n\n\n\n\n\nOpción\nCuándo\nCosto\n\n\n\n\nEstratificar por la variable (strata())\nVariable de ajuste no proporcional que no te interesa estimar\nNo obtienes su HR\n\n\n\nHR por periodo (dividir el tiempo)\nLa variable sí te interesa y el efecto cambia en el tiempo\nHay que elegir los cortes\n\n\n\nTérmino tiempo-dependiente (tt())\nSe conoce la forma del cambio\nMás complejo; hay que interpretar la función\n\n\n\nRMST o riesgo a tiempo fijo\n\nCuando el HR resume mal el efecto\nDepende del horizonte (9.6)\n\n\n\nModelos paramétricos (Weibull, log-logístico)\nSe justifica una forma para el riesgo basal\nSupuestos más fuertes\n\n\n\nHR por periodo: la opción más clara\nSe divide el seguimiento en dos periodos (0-18 y &gt; 18 meses) con survSplit() y se estima un HR distinto para cada uno:\n\nsp &lt;- survSplit(Surv(tiempo_meses, krt) ~ ., data = coh, cut = 18, episode = \"periodo\") |&gt;\n  mutate(dm_temprano = as.integer(dm == \"Con DM\" & periodo == 1),\n         dm_tardio   = as.integer(dm == \"Con DM\" & periodo == 2))\n\ncox_per &lt;- coxph(\n  Surv(tstart, tiempo_meses, krt) ~ dm_temprano + dm_tardio + I((27 - tfg) / 10) + log2(uacr) +\n    I(edad / 10) + sexo + albumina + fosforo + bicarbonato + ecv,\n  data = sp\n)\nsummary(cox_per)$conf.int[1:2, c(1, 3, 4)] |&gt; round(2)\n\n            exp(coef) lower .95 upper .95\ndm_temprano      2.35      1.97      2.79\ndm_tardio        0.99      0.76      1.30\n\n\nLa diabetes multiplica el riesgo por ~2.3 durante los primeros 18 meses y no aporta riesgo adicional después (HR ≈ 1.0). El HR único (~1.8) promedia ambas situaciones y no describe a ninguna.\n\n\n\n\n\n\nTip💡 ¿De dónde sale esa forma?\n\n\n\nEn la simulación el efecto de la diabetes es +0.95 en log-HR (HR 2.6) durante 18 meses y 0 después. Es un patrón verosímil si, por ejemplo, la diabetes acelera la falla renal en pacientes susceptibles que la presentan temprano, mientras que los que sobreviven sin ella al inicio son una población seleccionada (“depleción de susceptibles”). En datos reales, esta forma debe respaldarla un razonamiento clínico y no solo el ajuste.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>45</span>  <span class='chapter-title'>Riesgos proporcionales: cómo verificar y qué hacer</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.4.html#linealidad-y-puntos-influyentes",
+    "href": "capitulos/Capítulo9.4.html#linealidad-y-puntos-influyentes",
+    "title": "Riesgos proporcionales: cómo verificar y qué hacer",
+    "section": "Linealidad y puntos influyentes",
+    "text": "Linealidad y puntos influyentes\nDos comprobaciones más sobre un modelo de Cox, como en 8.5:\n\ncox_spl &lt;- coxph(Surv(tiempo_meses, krt) ~ pspline(tfg, df = 4) + log2(uacr) + I(edad / 10) + dm, data = coh)\ntermplot(cox_spl, term = 1, se = TRUE, col.term = \"#0072B2\", col.se = \"grey60\",\n         xlab = \"TFGe basal (mL/min/1.73 m²)\", ylab = \"log HR\")\n\n\n\n\n\n\n\nLa relación entre la TFGe y el log-HR es aproximadamente lineal, como corresponde a cómo se simuló. Para buscar influyentes, residuals(cox_aj, type = \"dfbeta\") da el cambio de cada coeficiente al quitar un paciente.\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\n\nVerifica la proporcionalidad: gráfico log-log, cox.zph() con su gráfico y términos con tiempo; mira el gráfico, no solo el p.\nSi falla en una variable de ajuste: estratifica. Si falla en la exposición: HR por periodo, términos tiempo-dependientes, RMST o riesgos a tiempo fijo.\nUn HR promedio de un efecto que cambia en el tiempo no describe a nadie.\nRevisa también linealidad (splines) e influyentes.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>45</span>  <span class='chapter-title'>Riesgos proporcionales: cómo verificar y qué hacer</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.4.html#ejercicio",
+    "href": "capitulos/Capítulo9.4.html#ejercicio",
+    "title": "Riesgos proporcionales: cómo verificar y qué hacer",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nVerifica con cox.zph() la proporcionalidad solo para la albuminuria y grafica ggcoxzph(zph, var = \"log2(uacr)\").\nEstima el HR de la diabetes en tres periodos (0-12, 12-24, &gt; 24 meses).\nEstratifica el modelo por diabetes (strata(dm)) y compara los HR de TFGe y UACR con los del modelo completo. ¿Cambian?",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>45</span>  <span class='chapter-title'>Riesgos proporcionales: cómo verificar y qué hacer</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.5.html",
+    "href": "capitulos/Capítulo9.5.html",
+    "title": "Riesgos competitivos",
+    "section": "",
+    "text": "El problema: la muerte impide la diálisis\nEn ERC avanzada, un paciente puede morir antes de llegar a diálisis. La muerte es un evento competitivo: una vez que ocurre, el evento de interés (falla renal) ya no puede suceder. Esto es especialmente frecuente en adultos mayores, donde la mortalidad supera la progresión.\nlibrary(tidyverse)\nlibrary(survival)\nlibrary(cmprsk)\nlibrary(broom)\nsource(\"R/simular_cohorte_pronostico.R\")\n\ncoh &lt;- read_csv(\"Bases/cohorte_pronostico.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")),\n         dm = factor(dm, levels = 0:1, labels = c(\"Sin DM\", \"Con DM\")))\ncount(coh, estado)\n\n# A tibble: 3 × 2\n  estado     n\n   &lt;dbl&gt; &lt;int&gt;\n1      0  1679\n2      1   839\n3      2   482",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>46</span>  <span class='chapter-title'>Riesgos competitivos</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.5.html#el-problema-la-muerte-impide-la-diálisis",
+    "href": "capitulos/Capítulo9.5.html#el-problema-la-muerte-impide-la-diálisis",
+    "title": "Riesgos competitivos",
+    "section": "",
+    "text": "Evento\nQué pasa con el paciente\nTratamiento en el análisis\n\n\n\n\nCensura (pérdida, fin del estudio)\nSigue en riesgo de tener el evento, pero no lo observamos\nSe retira del denominador\n\n\n\nEvento competitivo (muerte)\n\nYa no puede tener el evento de interés\n\nNo debe tratarse como censura sin pensarlo\n\n\n\n\n\n\n\n\n\nAdvertencia⚠️ Censurar la muerte sobrestima el riesgo\n\n\n\nTratar la muerte como censura (lo que hicimos con 1 - KM en 9.2) equivale a suponer que esos pacientes podrían haber llegado a diálisis si hubieran vivido. Eso hace que el riesgo de diálisis aparezca mayor que el real: el estimador responde a “¿cuál sería el riesgo de diálisis si nadie muriera?”, un mundo hipotético que casi nunca es la pregunta clínica.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>46</span>  <span class='chapter-title'>Riesgos competitivos</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.5.html#kaplan-meier-vs.-incidencia-acumulada",
+    "href": "capitulos/Capítulo9.5.html#kaplan-meier-vs.-incidencia-acumulada",
+    "title": "Riesgos competitivos",
+    "section": "1 − Kaplan-Meier vs. incidencia acumulada",
+    "text": "1 − Kaplan-Meier vs. incidencia acumulada\nLa incidencia acumulada (cumulative incidence function, CIF) estima la probabilidad real de tener el evento antes del tiempo t, teniendo en cuenta que la muerte lo impide.\n\nci &lt;- cuminc(ftime = coh$tiempo_meses, fstatus = coh$estado, cencode = 0)\n\nmeses &lt;- c(12, 36, 60)\nkm &lt;- survfit(Surv(tiempo_meses, estado == 1) ~ 1, data = coh)\ncif_krt   &lt;- timepoints(ci, meses)$est[\"1 1\", ]\ncif_muerte &lt;- timepoints(ci, meses)$est[\"1 2\", ]\nuno_menos_km &lt;- 1 - summary(km, times = meses)$surv\n\n## \"Verdad\": cohorte enorme simulada sin censura (sólo posible porque simulamos)\nv &lt;- simular_cohorte_pronostico(60000, semilla = 99, censura = FALSE)\nverdad_krt &lt;- sapply(meses, \\(m) mean(v$estado == 1 & v$tiempo_meses &lt;= m))\n\ntibble(meses = meses,\n       `1 - Kaplan-Meier` = uno_menos_km,\n       `Incidencia acumulada (CIF)` = cif_krt,\n       `Verdad (simulada)` = verdad_krt) |&gt;\n  mutate(across(-meses, \\(x) round(100 * x, 1)))\n\n# A tibble: 3 × 4\n  meses `1 - Kaplan-Meier` `Incidencia acumulada (CIF)` `Verdad (simulada)`\n  &lt;dbl&gt;              &lt;dbl&gt;                        &lt;dbl&gt;               &lt;dbl&gt;\n1    12               15.3                         14.9                14.7\n2    36               28.9                         26.9                26.5\n3    60               38.3                         34.1                32.8\n\n\nEl 1 − KM sobrestima el riesgo de falla renal (38.3 % a 60 meses frente a una verdad de 32.8 %), y la CIF lo recupera casi exactamente (34 %). La brecha crece con el tiempo y con la proporción de muertes competitivas. Si hay riesgos competitivos y quieres estimar el riesgo de un evento, usa la CIF.\nGráfico: ¿qué le pasa a cada paciente?\n\ncif_df &lt;- map_dfr(c(`Falla renal` = \"1 1\", Muerte = \"1 2\"), \\(k) tibble(tiempo = ci[[k]]$time, riesgo = ci[[k]]$est),\n                  .id = \"evento\")\n\nggplot(cif_df, aes(tiempo, riesgo, color = evento)) +\n  geom_step(linewidth = 1) +\n  scale_color_manual(values = c(`Falla renal` = \"#0072B2\", Muerte = \"#D55E00\"), name = NULL) +\n  scale_y_continuous(labels = scales::percent_format(), limits = c(0, 0.5)) +\n  labs(x = \"Meses desde el inicio del seguimiento\", y = \"Incidencia acumulada\",\n       caption = \"Datos simulados.\") +\n  theme_minimal(base_size = 11) + theme(legend.position = \"bottom\")\n\n\n\n\n\n\n\nLa suma de las dos CIF más la probabilidad de seguir “libre de ambos” es 100 %. A los 60 meses: 34 % falla renal, 22 % muerte, el resto sigue vivo y sin diálisis.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>46</span>  <span class='chapter-title'>Riesgos competitivos</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.5.html#comparar-grupos-prueba-de-gray",
+    "href": "capitulos/Capítulo9.5.html#comparar-grupos-prueba-de-gray",
+    "title": "Riesgos competitivos",
+    "section": "Comparar grupos: prueba de Gray",
+    "text": "Comparar grupos: prueba de Gray\nEl log-rank no es válido con riesgos competitivos. La prueba de Gray compara las CIF entre grupos:\n\nci_dm &lt;- cuminc(coh$tiempo_meses, coh$estado, group = coh$dm, cencode = 0)\nci_dm$Tests\n\n      stat           pv df\n1 96.09619 0.000000e+00  1\n2 15.41301 8.639133e-05  1\n\n\nHay diferencia en la CIF de falla renal (fila 1) y en la de muerte (fila 2) entre pacientes con y sin diabetes.\n\ncif_dm_df &lt;- map_dfr(names(ci_dm)[names(ci_dm) != \"Tests\"], \\(k) {\n  tibble(clave = k, tiempo = ci_dm[[k]]$time, riesgo = ci_dm[[k]]$est)\n}) |&gt;\n  separate(clave, into = c(\"grupo\", \"causa\"), sep = \" \") |&gt;\n  mutate(causa = recode(causa, `1` = \"Falla renal\", `2` = \"Muerte\"))\n\nggplot(cif_dm_df, aes(tiempo, riesgo, color = grupo, linetype = causa)) +\n  geom_step(linewidth = 1) +\n  scale_color_manual(values = c(`Sin DM` = \"#999999\", `Con DM` = \"#D55E00\"), name = NULL) +\n  scale_y_continuous(labels = scales::percent_format()) +\n  labs(x = \"Meses\", y = \"Incidencia acumulada\", linetype = NULL, caption = \"Datos simulados.\") +\n  theme_minimal(base_size = 11) + theme(legend.position = \"bottom\")",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>46</span>  <span class='chapter-title'>Riesgos competitivos</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.5.html#modelos-de-regresión-dos-preguntas-dos-modelos",
+    "href": "capitulos/Capítulo9.5.html#modelos-de-regresión-dos-preguntas-dos-modelos",
+    "title": "Riesgos competitivos",
+    "section": "Modelos de regresión: dos preguntas, dos modelos",
+    "text": "Modelos de regresión: dos preguntas, dos modelos\nCon riesgos competitivos existen dos modelos de regresión, que responden preguntas distintas:\n\n\n\n\n\n\n\n\n\nRiesgo específico por causa (cause-specific hazard)\n\nFine-Gray (subdistribution hazard)\n\n\n\nCómo se ajusta\nCox para cada causa, censurando las demás\n\ncrr() o coxph ponderado\n\n\nPregunta\n\nEtiológica: ¿cómo influye X en el riesgo instantáneo de falla renal en quienes siguen vivos?\n\nPronóstica: ¿cómo influye X en la probabilidad acumulada (CIF) de falla renal?\n\n\nEl HR se interpreta como…\nEfecto sobre el riesgo instantáneo de esa causa\nEfecto sobre la CIF, mezclando efecto sobre la causa y sobre el competidor\n\n\nMejor para\nEfecto causal, mecanismos\nPredicción del riesgo absoluto, calculadoras de riesgo\n\n\n\n\nformula_rhs &lt;- ~ dm + I((27 - tfg) / 10) + log2(uacr) + I(edad / 10) + sexo + albumina + fosforo + bicarbonato + ecv\n\n## Causa-específico: falla renal (censurando muertes) y muerte (censurando falla renal)\ncs_krt &lt;- coxph(update(Surv(tiempo_meses, estado == 1) ~ ., formula_rhs), data = coh)\ncs_dth &lt;- coxph(update(Surv(tiempo_meses, estado == 2) ~ ., formula_rhs), data = coh)\n\n## Fine-Gray para falla renal\nX &lt;- model.matrix(formula_rhs, coh)[, -1]\nfg &lt;- crr(coh$tiempo_meses, coh$estado, cov1 = X, failcode = 1, cencode = 0)\n\nnombres &lt;- c(\"Diabetes\", \"TFGe, por 10 menos\", \"UACR, por duplicación\", \"Edad, por 10 años\",\n             \"Sexo masculino\", \"Albúmina, por 1 g/dL\", \"Fósforo, por 1 mg/dL\", \"Bicarbonato, por 1 mEq/L\", \"ECV previa\")\n\ntibble(\n  variable = nombres,\n  `HR causa-específico: falla renal` = exp(coef(cs_krt)),\n  `HR Fine-Gray: falla renal` = exp(fg$coef),\n  `HR causa-específico: muerte` = exp(coef(cs_dth))\n) |&gt; mutate(across(where(is.numeric), \\(x) round(x, 2)))\n\n# A tibble: 9 × 4\n  variable  HR causa-específico:…¹ HR Fine-Gray: falla …² HR causa-específico:…³\n  &lt;chr&gt;                      &lt;dbl&gt;                  &lt;dbl&gt;                  &lt;dbl&gt;\n1 Diabetes                    1.82                   1.66                   1.47\n2 TFGe, po…                   2.61                   2.49                   1.02\n3 UACR, po…                   1.39                   1.36                   1.01\n4 Edad, po…                   0.8                    0.75                   1.8 \n5 Sexo mas…                   1.13                   1.09                   1.42\n6 Albúmina…                   0.73                   0.78                   0.58\n7 Fósforo,…                   1.32                   1.28                   1.05\n8 Bicarbon…                   0.95                   0.95                   1   \n9 ECV prev…                   1.11                   1.05                   1.66\n# ℹ abbreviated names: ¹​`HR causa-específico: falla renal`,\n#   ²​`HR Fine-Gray: falla renal`, ³​`HR causa-específico: muerte`\n\n\nObserva cómo los modelos cuentan historias distintas:\n\n\nEdad: HR causa-específico de falla renal = 0.80 (los mayores progresan algo menos) y HR de muerte = 1.80: la edad aumenta mucho el riesgo de morir. En Fine-Gray, el HR de la edad baja a ~0.75 porque quien muere ya no llega a diálisis: la edad reduce la CIF de falla renal por dos vías (menos progresión y más muerte).\n\nTFGe y UACR: aumentan el riesgo de falla renal (todas las columnas), pero casi no afectan la muerte.\n\nAlbúmina: protege contra ambas cosas.\n\n\n\n\n\n\n\nImportante🎯 Qué modelo usar\n\n\n\n\n\n¿Mecanismo o efecto de un tratamiento? → riesgo específico por causa (y, mejor, riesgos acumulados estandarizados, Cap. 12).\n\n¿Calculadora de riesgo o predicción? → Fine-Gray o CIF predicha desde los modelos por causa.\n\nReporta ambos si el objetivo es doble: son complementarios y juntos cuentan la historia completa.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>46</span>  <span class='chapter-title'>Riesgos competitivos</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.5.html#alternativa-eventos-compuestos",
+    "href": "capitulos/Capítulo9.5.html#alternativa-eventos-compuestos",
+    "title": "Riesgos competitivos",
+    "section": "Alternativa: eventos compuestos",
+    "text": "Alternativa: eventos compuestos\nSi lo que importa al paciente es “seguir vivo y sin diálisis”, se define el evento compuesto falla renal o muerte y se analiza con KM/Cox:\n\ncoh &lt;- coh |&gt; mutate(compuesto = as.integer(estado &gt; 0))\nkm_comp &lt;- survfit(Surv(tiempo_meses, compuesto) ~ dm, data = coh)\nrs &lt;- summary(km_comp, times = c(12, 36))\ntibble(grupo = as.character(rs$strata), meses = rs$time, libre_de_ambos = round(rs$surv, 3))\n\n# A tibble: 4 × 3\n  grupo     meses libre_de_ambos\n  &lt;chr&gt;     &lt;dbl&gt;          &lt;dbl&gt;\n1 dm=Sin DM    12          0.866\n2 dm=Sin DM    36          0.668\n3 dm=Con DM    12          0.687\n4 dm=Con DM    36          0.465\n\n\nVentajas: simple, sin competidores. Desventajas: mezcla eventos de distinta gravedad e importancia (una muerte no equivale a diálisis); el componente más frecuente domina; si el tratamiento afecta los componentes en direcciones opuestas, el compuesto oculta eso. Presenta siempre cada componente por separado.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>46</span>  <span class='chapter-title'>Riesgos competitivos</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.5.html#cuándo-se-puede-ignorar-el-riesgo-competitivo",
+    "href": "capitulos/Capítulo9.5.html#cuándo-se-puede-ignorar-el-riesgo-competitivo",
+    "title": "Riesgos competitivos",
+    "section": "Cuándo se puede ignorar el riesgo competitivo",
+    "text": "Cuándo se puede ignorar el riesgo competitivo\n\nSi el evento competitivo es raro en el seguimiento (&lt; 5-10 %).\nSi el objetivo es etiológico y se usa el HR causa-específico.\nSi el evento competitivo no impide el evento de interés (hospitalización recurrente).\n\nTratarlos mal no es inocuo: el 1 − KM sobrestimó aquí el riesgo en 5 puntos (38.3 vs. 32.8 %).\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nUna muerte antes de diálisis es un evento competitivo, no una censura.\nPara el riesgo absoluto usa la incidencia acumulada (CIF), no 1 − KM; para comparar CIF, la prueba de Gray.\n\nCausa-específico (etiología) y Fine-Gray (predicción) responden preguntas distintas; reporta cada causa.\nUn evento compuesto simplifica pero mezcla eventos de distinta gravedad; muestra siempre los componentes.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>46</span>  <span class='chapter-title'>Riesgos competitivos</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.5.html#ejercicio",
+    "href": "capitulos/Capítulo9.5.html#ejercicio",
+    "title": "Riesgos competitivos",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nCalcula la CIF de falla renal a 36 meses por categoría de albuminuria (A1-A3) con cuminc() y compárala con 1 − KM.\nEstima la CIF en mayores de 75 años vs. menores de 75. ¿En qué grupo la diferencia entre 1 − KM y CIF es mayor? ¿Por qué?\nAjusta Fine-Gray para muerte (failcode = 2). ¿Qué variables se asocian?",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>46</span>  <span class='chapter-title'>Riesgos competitivos</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.6.html",
+    "href": "capitulos/Capítulo9.6.html",
+    "title": "Supervivencia media restringida (RMST)",
+    "section": "",
+    "text": "Una medida más intuitiva que el HR\nEl HR resume el efecto en un solo número, pero:\nLa supervivencia media restringida (restricted mean survival time, RMST) es el área bajo la curva de supervivencia hasta un tiempo \\(\\tau\\): el tiempo promedio libre del evento durante los primeros \\(\\tau\\) meses.\n\\[\n\\text{RMST}(\\tau) = \\int_0^{\\tau} S(t)\\,dt\n\\]\nLa diferencia de RMST entre dos grupos se lee como meses de vida libre del evento que se ganan (o pierden) durante \\(\\tau\\) meses. No requiere proporcionalidad y se explica sin tecnicismos.\nlibrary(tidyverse)\nlibrary(survival)\nlibrary(sandwich)\nlibrary(lmtest)\n\ncoh &lt;- read_csv(\"Bases/cohorte_pronostico.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")),\n         dm = factor(dm, levels = 0:1, labels = c(\"Sin DM\", \"Con DM\")),\n         krt = as.integer(estado == 1))",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>47</span>  <span class='chapter-title'>Supervivencia media restringida (RMST)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.6.html#una-medida-más-intuitiva-que-el-hr",
+    "href": "capitulos/Capítulo9.6.html#una-medida-más-intuitiva-que-el-hr",
+    "title": "Supervivencia media restringida (RMST)",
+    "section": "",
+    "text": "Es difícil de explicar a un paciente (“el riesgo instantáneo se multiplica por 1.8”).\nSolo tiene sentido si los riesgos son proporcionales (9.4).\nNo dice cuánto tiempo se gana.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>47</span>  <span class='chapter-title'>Supervivencia media restringida (RMST)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.6.html#calcular-el-rmst",
+    "href": "capitulos/Capítulo9.6.html#calcular-el-rmst",
+    "title": "Supervivencia media restringida (RMST)",
+    "section": "Calcular el RMST",
+    "text": "Calcular el RMST\nsummary(survfit, rmean = tau) entrega el RMST y su error estándar. Elegimos \\(\\tau\\) = 36 meses:\n\ntau &lt;- 36\nfit &lt;- survfit(Surv(tiempo_meses, krt) ~ dm, data = coh)\ntab &lt;- summary(fit, rmean = tau)$table\ntab[, c(\"records\", \"events\", \"rmean\", \"se(rmean)\")]\n\n          records events    rmean se(rmean)\ndm=Sin DM    1746    380 31.73772 0.2307919\ndm=Con DM    1254    459 26.43610 0.3830952\n\n\nLos pacientes sin diabetes pasan, en promedio, 31.7 de los primeros 36 meses sin falla renal; los con diabetes, 26.4. La diferencia:\n\nest &lt;- tab[, \"rmean\"]; ee &lt;- tab[, \"se(rmean)\"]\ndif &lt;- est[2] - est[1]\nee_dif &lt;- sqrt(sum(ee^2))\n\nc(diferencia_meses = unname(dif), ic_inf = unname(dif - 1.96 * ee_dif), ic_sup = unname(dif + 1.96 * ee_dif))\n\ndiferencia_meses           ic_inf           ic_sup \n       -5.301624        -6.178221        -4.425026 \n\n\nLa diabetes resta unos 5.3 meses (IC 4.4-6.2) de tiempo libre de falla renal en los primeros 3 años. Se entiende al instante y no depende de que los riesgos sean proporcionales. Gráficamente es la diferencia de áreas entre las curvas:\n\ncurvas &lt;- tibble(\n  tiempo = fit$time, dm = rep(c(\"Sin DM\", \"Con DM\"), fit$strata), S = fit$surv\n) |&gt;\n  group_by(dm) |&gt;\n  group_modify(\\(d, k) bind_rows(tibble(tiempo = 0, S = 1), d |&gt; select(tiempo, S))) |&gt;\n  ungroup() |&gt;\n  filter(tiempo &lt;= tau)\n\nggplot(curvas, aes(tiempo, S, color = dm, fill = dm)) +\n  geom_area(position = \"identity\", alpha = 0.15, stat = \"identity\") +\n  geom_step(linewidth = 1) +\n  scale_color_manual(values = c(`Sin DM` = \"#999999\", `Con DM` = \"#D55E00\"), name = NULL) +\n  scale_fill_manual(values = c(`Sin DM` = \"#999999\", `Con DM` = \"#D55E00\"), name = NULL) +\n  coord_cartesian(ylim = c(0.5, 1)) +\n  labs(x = \"Meses\", y = \"Probabilidad libre de falla renal\",\n       caption = \"RMST = área bajo cada curva hasta 36 meses. Datos simulados.\") +\n  theme_minimal(base_size = 11) + theme(legend.position = \"bottom\")",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>47</span>  <span class='chapter-title'>Supervivencia media restringida (RMST)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.6.html#qué-tau-elegir",
+    "href": "capitulos/Capítulo9.6.html#qué-tau-elegir",
+    "title": "Supervivencia media restringida (RMST)",
+    "section": "¿Qué \\(\\tau\\) elegir?",
+    "text": "¿Qué \\(\\tau\\) elegir?\n\nDebe fijarse antes de ver los datos, por relevancia clínica (3 años, 5 años).\nNo debe superar el último tiempo con suficientes pacientes en riesgo (en esta cohorte, menos de 40 en riesgo después de los 55 meses).\nReporta varios \\(\\tau\\) como análisis de sensibilidad:\n\n\nmap_dfr(c(12, 24, 36, 48), \\(t) {\n  s &lt;- summary(fit, rmean = t)$table\n  tibble(tau = t, rmst_sin_dm = s[1, \"rmean\"], rmst_con_dm = s[2, \"rmean\"],\n         diferencia = s[2, \"rmean\"] - s[1, \"rmean\"])\n}) |&gt; mutate(across(-tau, \\(x) round(x, 2)))\n\n# A tibble: 4 × 4\n    tau rmst_sin_dm rmst_con_dm diferencia\n  &lt;dbl&gt;       &lt;dbl&gt;       &lt;dbl&gt;      &lt;dbl&gt;\n1    12        11.5        10.5      -0.95\n2    24        22.0        18.9      -3.09\n3    36        31.7        26.4      -5.3 \n4    48        40.9        33.6      -7.33\n\n\nLa pérdida crece con \\(\\tau\\) (de ~1 mes a 12 meses a ~7 meses a 48 meses), porque la diferencia entre curvas se establece en los primeros 18 meses y luego se mantiene: el área entre curvas sigue acumulándose mientras haya distancia.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>47</span>  <span class='chapter-title'>Supervivencia media restringida (RMST)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.6.html#rmst-ajustado-por-covariables-pseudovalores",
+    "href": "capitulos/Capítulo9.6.html#rmst-ajustado-por-covariables-pseudovalores",
+    "title": "Supervivencia media restringida (RMST)",
+    "section": "RMST ajustado por covariables: pseudovalores",
+    "text": "RMST ajustado por covariables: pseudovalores\nPara ajustar por confusores sin proporcionalidad, el método de pseudovalores (Andersen) calcula para cada paciente un valor que representa su contribución al RMST y luego lo modela con una regresión lineal:\n\\[\n\\hat\\theta_i = n\\,\\hat\\theta - (n-1)\\,\\hat\\theta_{(-i)}\n\\]\ndonde \\(\\hat\\theta_{(-i)}\\) es el RMST estimado sin el paciente i. Los coeficientes son diferencias de meses libres de evento ajustadas.\n\nrmst_uno &lt;- function(t, e, tau) {\n  unname(summary(survfit(Surv(t, e) ~ 1), rmean = tau)$table[\"rmean\"])\n}\n\nn &lt;- nrow(coh)\ntheta &lt;- rmst_uno(coh$tiempo_meses, coh$krt, tau)\ntheta_i &lt;- vapply(seq_len(n), \\(i) rmst_uno(coh$tiempo_meses[-i], coh$krt[-i], tau), numeric(1))\ncoh$pseudo &lt;- n * theta - (n - 1) * theta_i\n\nm_ps &lt;- lm(pseudo ~ dm + I((27 - tfg) / 10) + log2(uacr) + I(edad / 10) + sexo +\n             albumina + fosforo + bicarbonato + ecv, data = coh)\n\nres &lt;- coeftest(m_ps, vcov = vcovHC(m_ps, type = \"HC3\"))\ntibble(termino = rownames(res), diferencia_meses = res[, 1], ee = res[, 2],\n       ic_inf = res[, 1] - 1.96 * res[, 2], ic_sup = res[, 1] + 1.96 * res[, 2]) |&gt;\n  filter(termino != \"(Intercept)\") |&gt;\n  mutate(across(where(is.numeric), \\(x) round(x, 2)))\n\n# A tibble: 9 × 5\n  termino          diferencia_meses    ee ic_inf ic_sup\n  &lt;chr&gt;                       &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;\n1 dmCon DM                    -3.75  0.41  -4.56  -2.93\n2 I((27 - tfg)/10)            -4.42  0.27  -4.94  -3.9 \n3 log2(uacr)                  -1.45  0.1   -1.65  -1.26\n4 I(edad/10)                   1.09  0.16   0.77   1.41\n5 sexoHombre                  -0.47  0.37  -1.19   0.26\n6 albumina                     1.12  0.46   0.21   2.03\n7 fosforo                     -1.25  0.31  -1.85  -0.65\n8 bicarbonato                  0.2   0.06   0.08   0.32\n9 ecv                         -0.7   0.44  -1.56   0.16\n\n\n\n\n\n\n\n\nTip💡 Cómo leer\n\n\n\n\n\ndmCon DM ≈ −3.7: ajustada por las demás variables, la diabetes se asocia con ~3.7 meses menos de tiempo libre de falla renal en los primeros 36 meses (frente a −5.3 sin ajustar: parte de la diferencia cruda se debía a la TFGe y UACR más desfavorables).\nUn paciente con 10 unidades menos de TFGe pierde ~4.4 meses.\nLos errores estándar deben ser robustos (los pseudovalores no son independientes).",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>47</span>  <span class='chapter-title'>Supervivencia media restringida (RMST)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.6.html#cuándo-preferir-rmst",
+    "href": "capitulos/Capítulo9.6.html#cuándo-preferir-rmst",
+    "title": "Supervivencia media restringida (RMST)",
+    "section": "Cuándo preferir RMST",
+    "text": "Cuándo preferir RMST\n\n\n\n\n\n\nSituación\nMejor medida\n\n\n\nRiesgos proporcionales claros\nHR (Cox), complementado con riesgos a tiempo fijo\n\n\n\nRiesgos no proporcionales (curvas que convergen o se cruzan)\n\nRMST o riesgos a tiempo fijo\n\n\nComunicar a pacientes y decisores\n\nRMST (“X meses más libres de diálisis”)\n\n\nEvento muy raro o seguimiento corto\nRMST con \\(\\tau\\) pequeño o diferencia de riesgos\n\n\nRiesgos competitivos\nRMST del tiempo libre del compuesto, o tiempo perdido por causa (RMLT)\n\n\n\n\n\n\n\n\n\nAdvertencia⚠️ Limitaciones\n\n\n\n\n\nDepende de \\(\\tau\\) (por eso se fija a priori).\nUna diferencia de RMST pequeña puede ocultar un efecto que se concentra en un periodo.\nEs una medida de asociación: para un efecto causal se necesita el mismo control de confusión que para cualquier otro estimador (Caps. 3 y 12).\n\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\n\nRMST(τ) = tiempo promedio libre del evento en los primeros τ meses; la diferencia = meses ganados o perdidos.\nNo requiere riesgos proporcionales; es interpretable por clínicos y pacientes.\nFija τ a priori, dentro de la zona con suficientes pacientes en riesgo, y haz análisis de sensibilidad.\nEl ajuste por covariables se logra con pseudovalores + regresión lineal con errores robustos.\nComplementa (no reemplaza) al HR y a los riesgos acumulados.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>47</span>  <span class='chapter-title'>Supervivencia media restringida (RMST)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.6.html#ejercicio",
+    "href": "capitulos/Capítulo9.6.html#ejercicio",
+    "title": "Supervivencia media restringida (RMST)",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nCalcula la diferencia de RMST a 24 meses entre pacientes con TFGe &lt; 20 y ≥ 20.\nCompara el HR de Cox (9.3) con la diferencia de RMST para la albuminuria A3 vs. A1. ¿Cuál se explica mejor a un paciente?\nRepite el modelo de pseudovalores a τ = 24 meses. ¿Cambian los coeficientes?",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>47</span>  <span class='chapter-title'>Supervivencia media restringida (RMST)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo9.6.html#nota-editorial",
+    "href": "capitulos/Capítulo9.6.html#nota-editorial",
+    "title": "Supervivencia media restringida (RMST)",
+    "section": "Nota editorial",
+    "text": "Nota editorial\n\nCapítulo redactado con asistencia de IA y revisado por el autor. Todos los datos son simulados.",
+    "crumbs": [
+      "Capítulo 9: Análisis de supervivencia",
+      "<span class='chapter-number'>47</span>  <span class='chapter-title'>Supervivencia media restringida (RMST)</span>"
+    ]
+  },
+  {
     "objectID": "capitulos/Apéndice-resumen.html",
     "href": "capitulos/Apéndice-resumen.html",
     "title": "Apéndice: cuadros de resumen y plantillas",

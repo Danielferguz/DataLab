@@ -1,0 +1,135 @@
+# Tiempo hasta evento y censura
+
+## Los tres ingredientes
+
+Para cada paciente se necesita:
+
+1.  **Un origen del tiempo** (*tiempo cero*): la fecha en que empieza el seguimiento (diagnóstico, ingreso a la cohorte, inicio del tratamiento).
+2.  **Un tiempo de seguimiento**: desde el origen hasta el evento o hasta que se deja de observar.
+3.  **Un indicador de evento**: 1 si el evento ocurrió, 0 si el paciente fue **censurado**.
+
+Un paciente **censurado** es aquel de quien solo sabemos que **no había tenido el evento hasta cierto momento**. Es información valiosa: "estuvo libre de diálisis durante 14 meses".
+
+| Situación | Tipo de censura | ¿Qué sabemos? |
+|---|---|---|
+| Termina el estudio sin evento | **Administrativa** (derecha) | Estuvo libre hasta el cierre |
+| Se muda o abandona el seguimiento | **Por pérdida** (derecha) | Estuvo libre hasta su último control |
+| Muere antes de la diálisis | **¿Censura o competidor?** | Depende del objetivo (ver 9.5) |
+| Se sabe que el evento ocurrió "entre dos visitas" | **Por intervalo** | El evento ocurrió entre *t*₁ y *t*₂ |
+| Entró al estudio ya con el evento ocurrido | **Truncamiento** a la izquierda | Quedan fuera quienes ya lo tuvieron |
+
+::: {.callout-warning}
+## ⚠️ El supuesto clave: censura no informativa
+
+Los métodos clásicos suponen que quien es censurado tiene, **en ese momento**, **el mismo riesgo** que quienes siguen en observación. Si los que se pierden son justamente los que empeoran (se van a otro centro cuando están más graves), la censura es **informativa** y las estimaciones quedan sesgadas. Se mitiga con ajuste por las causas de la pérdida (ponderación por probabilidad de censura inversa; Cap. 19).
+:::
+
+## Los datos
+
+```{r}
+#| label: setup-91
+library(tidyverse)
+library(survival)
+
+coh <- read_csv("Bases/cohorte_pronostico.csv") |>
+  mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")),
+         dm = factor(dm, levels = 0:1, labels = c("Sin DM", "Con DM")))
+glimpse(coh)
+```
+
+-   `tiempo_meses`: seguimiento en meses (máximo 60).
+-   `estado`: **0** = censurado, **1** = falla renal (diálisis o trasplante), **2** = muerte antes de la falla renal.
+
+```{r}
+#| label: estados
+coh |> count(estado) |> mutate(porcentaje = round(100 * n / sum(n), 1),
+                                significado = c("Censurado", "Falla renal", "Muerte sin falla renal"))
+```
+
+Por ahora nos interesa **la falla renal** como evento (1) y trataremos las muertes como censura. En 9.5 veremos por qué eso puede ser un problema.
+
+```{r}
+#| label: evento-krt
+coh <- coh |> mutate(krt = as.integer(estado == 1))      # 1 = falla renal; 0 = no (censura o muerte)
+table(coh$krt)
+```
+
+## El objeto `Surv()`
+
+R guarda el tiempo y el evento juntos en un objeto `Surv`. El signo `+` indica censura:
+
+```{r}
+#| label: surv
+Surv(coh$tiempo_meses, coh$krt)[1:12]
+```
+
+Cada número es el tiempo de seguimiento en meses; el signo `+` marca a los **censurados** (el primero estuvo libre de falla renal hasta los 31 meses, cuando se dejó de observar) y los números sin `+` son pacientes que **tuvieron falla renal** (el octavo, a los 12 meses). Cuando un paciente tiene **fechas** (Cap. 5), el tiempo se calcula así:
+
+```{r}
+#| label: desde-fechas
+#| eval: false
+datos <- datos |>
+  mutate(tiempo_meses = as.numeric(fecha_evento_o_censura - fecha_origen) / 30.4375,
+         evento = as.integer(!is.na(fecha_evento)))
+```
+
+::: {.callout-tip}
+## 💡 Antes de analizar, revisa
+
+-   Tiempos **negativos o cero** (error de fechas, o evento el mismo día del origen).
+-   **Misma fecha de evento y censura** (¿quién se censura primero?).
+-   Pacientes con el evento **antes** del origen (no deberían estar en la cohorte).
+-   Que el **origen** sea el mismo concepto para todos (nada de "diagnóstico" para unos e "ingreso a nefrología" para otros).
+:::
+
+## Seguimiento y persona-tiempo
+
+Para describir cuánto se siguió, la mediana **de los tiempos observados** subestima el seguimiento real (se corta cuando ocurre el evento). El método correcto es el **Kaplan-Meier inverso**, que invierte la definición de evento (la "censura" pasa a ser el evento):
+
+```{r}
+#| label: seguimiento
+survfit(Surv(tiempo_meses, 1 - krt) ~ 1, data = coh)       # seguimiento mediano (KM inverso)
+```
+
+La **tasa de incidencia** (eventos por persona-tiempo) usa el total de tiempo observado, sin necesidad de curvas:
+
+```{r}
+#| label: tasa
+pa   <- sum(coh$tiempo_meses) / 12          # persona-años
+ev   <- sum(coh$krt)
+tasa <- 100 * ev / pa
+ic   <- 100 * poisson.test(ev, pa)$conf.int
+
+c(eventos = ev, persona_anios = round(pa), tasa_por_100_pa = tasa, ic_inf = ic[1], ic_sup = ic[2])
+```
+
+La tasa es de aproximadamente **11 fallas renales por 100 persona-años**. Es válida si el riesgo es aproximadamente constante en el tiempo; la curva de Kaplan-Meier (9.2) muestra cómo cambia.
+
+::: {.callout-warning}
+## ⚠️ ¿Por qué no basta con una proporción o una regresión logística?
+
+-   "El 28 % llegó a diálisis" confunde **gente seguida 5 años** con **gente seguida 6 meses**.
+-   Descartar a los censurados **sesga** (se quedan los que tuvieron el evento).
+-   Contar a los censurados como "sin evento" **subestima** el riesgo.
+-   Una media de los tiempos solo con los que tuvieron el evento **sobrestima** la rapidez.
+:::
+
+## Sesgo del tiempo inmortal
+
+Otro error clásico: asignar a un grupo una porción de seguimiento en la que, **por definición**, no pudo tener el evento. Por ejemplo, definir "usuarios de iSGLT2" como quienes recibieron el fármaco **en algún momento** del seguimiento, y contar como "expuesto" el tiempo **antes** de la primera prescripción. Esos pacientes tuvieron que **sobrevivir** hasta recibirlo: ese tiempo es "inmortal". El resultado: el fármaco parece **protector** aunque no lo sea. Se evita **alineando** el tiempo cero con el inicio del tratamiento (Cap. 12, *target trial*) o tratando la exposición como **variable dependiente del tiempo**.
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   Cada paciente aporta **tiempo** y **evento (1/0)**; el censurado aporta "libre hasta *t*".
+-   La **censura no informativa** es el supuesto central: quien sale del estudio se parece a quien queda.
+-   Resume el seguimiento con **KM inverso** y la incidencia con **tasa por persona-año** y su IC de Poisson.
+-   `Surv(tiempo, evento)` es el punto de partida de todos los análisis (KM, Cox, riesgos competitivos).
+-   Vigila el **sesgo del tiempo inmortal**: el tiempo cero debe coincidir con el inicio del seguimiento y de la exposición.
+:::
+
+## Ejercicio
+
+1.  Calcula la **tasa de falla renal por 100 persona-años** en pacientes con y sin diabetes. ¿Cómo se comparan?
+2.  Calcula la **tasa de muerte** (estado = 2). ¿Es mayor o menor que la de falla renal?
+3.  ¿Qué porcentaje de pacientes está **censurado** antes de los 24 meses? ¿Qué problemas puede causar?

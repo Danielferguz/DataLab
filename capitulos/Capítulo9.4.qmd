@@ -1,0 +1,152 @@
+# Riesgos proporcionales: cómo verificar y qué hacer
+
+## El supuesto
+
+El modelo de Cox supone que el **cociente de riesgos entre dos pacientes es constante en el tiempo**. Si la diabetes multiplica el riesgo por 2 al inicio y por 1 a los dos años, **el HR único del modelo es un promedio sin significado claro**.
+
+```{r}
+#| label: setup-94
+library(tidyverse)
+library(survival)
+library(survminer)
+library(broom)
+
+coh <- read_csv("Bases/cohorte_pronostico.csv") |>
+  mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")),
+         dm = factor(dm, levels = 0:1, labels = c("Sin DM", "Con DM")),
+         krt = as.integer(estado == 1))
+
+cox_aj <- coxph(
+  Surv(tiempo_meses, krt) ~ dm + I((27 - tfg) / 10) + log2(uacr) + I(edad / 10) + sexo +
+    albumina + fosforo + bicarbonato + ecv,
+  data = coh
+)
+```
+
+## Tres formas de comprobarlo
+
+### 1. Gráfico log-log
+
+Si los riesgos son proporcionales, las curvas de $\ln(-\ln S(t))$ de los dos grupos son **paralelas** (separadas por una distancia constante).
+
+```{r}
+#| label: loglog
+#| fig-width: 7
+#| fig-height: 4
+km_dm <- survfit(Surv(tiempo_meses, krt) ~ dm, data = coh)
+ggsurvplot(km_dm, data = coh, fun = "cloglog", xlim = c(3, 60), break.x.by = 12,
+           xlab = "Meses (escala log)", ylab = "log(-log(supervivencia))",
+           legend.labs = c("Sin DM", "Con DM"), palette = c("#999999", "#D55E00"),
+           ggtheme = theme_minimal(base_size = 11))
+```
+
+Las curvas se acercan con el tiempo en lugar de mantenerse paralelas: **la ventaja de riesgo de la diabetes se atenúa**.
+
+### 2. Residuos de Schoenfeld: `cox.zph()`
+
+Contrasta formalmente, para cada variable, si su efecto cambia con el tiempo:
+
+```{r}
+#| label: zph
+zph <- cox.zph(cox_aj)
+zph
+```
+
+Una **prueba global o por variable con *p* < 0.05** sugiere violación. Aquí **la diabetes** (*p* < 0.001) viola el supuesto; el resto cumple razonablemente (la UACR tiene *p* = 0.02, una violación leve que no alarma con tanta muestra).
+
+```{r}
+#| label: zph-plot
+#| fig-width: 7
+#| fig-height: 3.6
+ggcoxzph(zph, var = "dm", ggtheme = theme_minimal(base_size = 11))
+```
+
+La curva muestra el **coeficiente de la diabetes en función del tiempo**: alto al inicio y cayendo hacia 0. Si se cumpliera la proporcionalidad, sería una **recta horizontal**.
+
+::: {.callout-warning}
+## ⚠️ Cómo usar la prueba y el gráfico
+
+-   Con **muestras grandes** la prueba detecta violaciones triviales; con **pocas muestras**, no detecta violaciones grandes. **Mira el gráfico**.
+-   Una violación **pequeña** de una covariable de ajuste rara vez cambia el efecto que te interesa; una violación de **la exposición** sí.
+-   La prueba depende de la transformación del tiempo (`transform = "km"` por defecto).
+:::
+
+### 3. Interacción con el tiempo
+
+Se agrega un término `variable × f(tiempo)`. Con `tt()` en `coxph`:
+
+```{r}
+#| label: tt
+cox_tt <- coxph(Surv(tiempo_meses, krt) ~ dm + tt(dm) + I((27 - tfg) / 10) + log2(uacr) + I(edad / 10),
+                data = coh |> mutate(dm = as.integer(dm == "Con DM")),
+                tt = function(x, t, ...) x * log(t))
+summary(cox_tt)$coefficients[1:2, ]
+```
+
+El coeficiente `tt(dm)` es **negativo y significativo**: el efecto de la diabetes decae con $\ln(t)$.
+
+## Qué hacer cuando no se cumple
+
+| Opción | Cuándo | Costo |
+|---|---|---|
+| **Estratificar** por la variable (`strata()`) | Variable de **ajuste** no proporcional que no te interesa estimar | No obtienes su HR |
+| **HR por periodo** (dividir el tiempo) | La variable **sí** te interesa y el efecto cambia en el tiempo | Hay que elegir los cortes |
+| **Término tiempo-dependiente** (`tt()`) | Se conoce la forma del cambio | Más complejo; hay que interpretar la función |
+| **RMST** o **riesgo a tiempo fijo** | Cuando el HR resume mal el efecto | Depende del horizonte (9.6) |
+| **Modelos paramétricos** (Weibull, log-logístico) | Se justifica una forma para el riesgo basal | Supuestos más fuertes |
+
+### HR por periodo: la opción más clara
+
+Se divide el seguimiento en dos periodos (0-18 y > 18 meses) con `survSplit()` y se estima un HR distinto para cada uno:
+
+```{r}
+#| label: hr-periodo
+sp <- survSplit(Surv(tiempo_meses, krt) ~ ., data = coh, cut = 18, episode = "periodo") |>
+  mutate(dm_temprano = as.integer(dm == "Con DM" & periodo == 1),
+         dm_tardio   = as.integer(dm == "Con DM" & periodo == 2))
+
+cox_per <- coxph(
+  Surv(tstart, tiempo_meses, krt) ~ dm_temprano + dm_tardio + I((27 - tfg) / 10) + log2(uacr) +
+    I(edad / 10) + sexo + albumina + fosforo + bicarbonato + ecv,
+  data = sp
+)
+summary(cox_per)$conf.int[1:2, c(1, 3, 4)] |> round(2)
+```
+
+La diabetes multiplica el riesgo por **~2.3 durante los primeros 18 meses y no aporta riesgo adicional después** (HR ≈ 1.0). El HR único (~1.8) **promedia ambas** situaciones y **no describe a ninguna**.
+
+::: {.callout-tip}
+## 💡 ¿De dónde sale esa forma?
+
+En la simulación el efecto de la diabetes es +0.95 en log-HR (HR 2.6) durante 18 meses y 0 después. Es un patrón verosímil si, por ejemplo, la diabetes **acelera la falla renal en pacientes susceptibles** que la presentan temprano, mientras que los que sobreviven sin ella al inicio son una población seleccionada (**"depleción de susceptibles"**). En datos reales, esta forma debe respaldarla un razonamiento clínico y no solo el ajuste.
+:::
+
+## Linealidad y puntos influyentes
+
+Dos comprobaciones más sobre un modelo de Cox, como en 8.5:
+
+```{r}
+#| label: linealidad
+#| fig-width: 8
+#| fig-height: 3.4
+cox_spl <- coxph(Surv(tiempo_meses, krt) ~ pspline(tfg, df = 4) + log2(uacr) + I(edad / 10) + dm, data = coh)
+termplot(cox_spl, term = 1, se = TRUE, col.term = "#0072B2", col.se = "grey60",
+         xlab = "TFGe basal (mL/min/1.73 m²)", ylab = "log HR")
+```
+
+La relación entre la TFGe y el log-HR es **aproximadamente lineal**, como corresponde a cómo se simuló. Para buscar influyentes, `residuals(cox_aj, type = "dfbeta")` da el cambio de cada coeficiente al quitar un paciente.
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   **Verifica** la proporcionalidad: gráfico log-log, `cox.zph()` con su gráfico y términos con tiempo; **mira el gráfico**, no solo el *p*.
+-   Si falla en una variable de **ajuste**: **estratifica**. Si falla en la **exposición**: **HR por periodo**, términos tiempo-dependientes, RMST o riesgos a tiempo fijo.
+-   Un **HR promedio** de un efecto que cambia en el tiempo **no describe a nadie**.
+-   Revisa también **linealidad** (*splines*) e **influyentes**.
+:::
+
+## Ejercicio
+
+1.  Verifica con `cox.zph()` la proporcionalidad **solo para la albuminuria** y grafica `ggcoxzph(zph, var = "log2(uacr)")`.
+2.  Estima el HR de la diabetes en **tres periodos** (0-12, 12-24, > 24 meses).
+3.  Estratifica el modelo por **diabetes** (`strata(dm)`) y compara los HR de TFGe y UACR con los del modelo completo. ¿Cambian?
