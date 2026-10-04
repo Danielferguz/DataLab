@@ -1,0 +1,130 @@
+# Ensayo objetivo (*target trial emulation*)
+
+## La idea
+
+Antes de elegir un método estadístico, se escribe el **protocolo del ensayo ideal** que contestaría la pregunta; luego se verifica **cuánto de ese protocolo se puede reproducir** con los datos observacionales. Cada **desviación** es una fuente de sesgo que hay que reconocer.
+
+Esto evita los errores del Cap. 10 (tiempo inmortal, selección, indicación) **por diseño**, no por corrección posterior.
+
+## Los siete elementos del protocolo
+
+| Elemento | Ensayo ideal | Emulación con `ckd_isglt2` |
+|---|---|---|
+| **1. Elegibilidad** | Adultos con ERC G3-G4, diabetes tipo 2, sin iSGLT2 previo | Mismos criterios: la base ya los cumple (TFGe 20-75) |
+| **2. Estrategias** | (a) **Iniciar** iSGLT2 al ingreso; (b) **no iniciar** | `isglt2 = 1` vs. `isglt2 = 0` en la visita basal |
+| **3. Asignación** | Aleatoria | **Observacional**: se emula con **ajuste por confusores** basales |
+| **4. Tiempo cero** | Aleatorización = inicio del seguimiento | Visita basal: elegibilidad, asignación y seguimiento **coinciden** |
+| **5. Desenlaces** | Pendiente anual de TFGe; evento renal compuesto a 36 meses | `pendiente_tfg`; `evento` y `tiempo_meses` |
+| **6. Contraste causal** | **Efecto de iniciar** (ITT) y/o de **mantener** (per protocolo) | Efecto promedio (ATE) de iniciar vs. no iniciar |
+| **7. Plan de análisis** | ITT ajustado por la estratificación | PS, emparejamiento, IPW, fórmula g, AIPW |
+
+::: {.callout-warning}
+## ⚠️ Lo que la emulación no puede reproducir
+
+-   **Aleatorización**: sustituida por **intercambiabilidad condicional** (supuesto no verificable).
+-   **Ceguera**: los médicos y pacientes saben el tratamiento (sesgo de detección y de ejecución).
+-   **Cumplimiento**: aquí la base solo registra "inició"; el efecto de *mantener* el fármaco exige métodos para tratamientos que varían en el tiempo (Cap. 19).
+:::
+
+## Los datos y la elegibilidad
+
+```{r}
+#| label: setup-121
+library(tidyverse)
+source("R/funciones_epi.R")
+
+ckd <- read_csv("Bases/ckd_isglt2.csv") |>
+  mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")),
+         luacr = log(uacr),
+         trat = factor(isglt2, levels = 0:1, labels = c("No inicia", "Inicia iSGLT2")))
+oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv")
+
+## Diagrama de flujo de elegibilidad (ya aplicada en esta base)
+ckd |>
+  summarise(pacientes = n(), con_diabetes_y_erc = n(), tfge_20_75 = sum(between(tfg_basal, 20, 75)))
+```
+
+Todos los pacientes cumplen los criterios. En una base real, el paso previo es **filtrar con código** y registrar **cuántos quedan tras cada criterio** (un diagrama de flujo similar al CONSORT).
+
+## Alinear el tiempo cero
+
+La regla central: **en el tiempo cero deben coincidir** (1) el cumplimiento de la **elegibilidad**, (2) la **asignación** a la estrategia y (3) el **inicio del seguimiento**. Si el tratamiento se asigna **después**, aparece **sesgo de tiempo inmortal** (10.2); si el seguimiento empieza **antes**, aparece **sesgo de selección**.
+
+```{r}
+#| label: tiempo-cero
+#| fig-width: 8
+#| fig-height: 3.2
+linea <- tribble(
+  ~diseno, ~inicio, ~fin, ~tipo,
+  "Ensayo ideal", 0, 36, "Seguimiento desde la asignación",
+  "Emulación correcta", 0, 36, "Seguimiento desde la asignación",
+  "Emulación con error", 0, 6, "Tiempo previo al tratamiento (inmortal)",
+  "Emulación con error", 6, 36, "Seguimiento tras iniciar"
+) |> mutate(diseno = fct_inorder(diseno))
+
+ggplot(linea) +
+  geom_segment(aes(x = inicio, xend = fin, y = fct_rev(diseno), yend = fct_rev(diseno), color = tipo), linewidth = 6) +
+  scale_color_manual(values = c("Seguimiento desde la asignación" = "#0072B2", "Seguimiento tras iniciar" = "#0072B2",
+                                "Tiempo previo al tratamiento (inmortal)" = "#E69F00"), name = NULL) +
+  labs(x = "Meses desde el ingreso", y = NULL, caption = "Ilustración conceptual.") +
+  theme_minimal(base_size = 11) + theme(legend.position = "bottom")
+```
+
+## Cómo se aplica con una cohorte que ya incluye tratados y no tratados
+
+Con tratamientos que se **inician en distintos momentos** (la situación habitual con registros), se emula una **secuencia de ensayos**: en **cada mes** se toman los pacientes elegibles (sin tratamiento previo), se separa a quienes **inician** del resto y se sigue a ambos desde ese mes (esquema de **ensayos anidados** o *sequential trials*; **clone-censor-weight** para estrategias que se mantienen). Los detalles técnicos se retoman en el Cap. 19. En `ckd_isglt2` el tratamiento ya está definido en la visita basal, como en un único ensayo.
+
+## Marco causal: ¿qué se estima?
+
+| Estimando | Pregunta | Definición |
+|---|---|---|
+| **ATE** | Si **toda** la población eligible iniciara el fármaco, ¿qué cambia? | $E[Y^{1}] - E[Y^{0}]$ |
+| **ATT** | En los que **sí iniciaron**, ¿qué efecto tuvo? | $E[Y^{1} - Y^{0} \mid A=1]$ |
+| **ATU** | En los que **no iniciaron**, ¿qué efecto habría tenido? | $E[Y^{1} - Y^{0} \mid A=0]$ |
+
+Con la **verdad** del oráculo conocemos los tres. Como el efecto es **heterogéneo** (mayor con más albuminuria), difieren:
+
+```{r}
+#| label: verdades
+verdad <- tibble(
+  estimando = c("ATE", "ATT", "ATU"),
+  pendiente = c(mean(oraculo$ite), mean(oraculo$ite[oraculo$isglt2 == 1]), mean(oraculo$ite[oraculo$isglt2 == 0])),
+  dif_riesgo_36m = c(mean(oraculo$evento_36m_1 - oraculo$evento_36m_0),
+                     mean((oraculo$evento_36m_1 - oraculo$evento_36m_0)[oraculo$isglt2 == 1]),
+                     mean((oraculo$evento_36m_1 - oraculo$evento_36m_0)[oraculo$isglt2 == 0]))
+)
+verdad |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+El **ATT (1.06) > ATE (0.93) > ATU (0.81)**: los tratados son quienes más se benefician (tienen más albuminuria). Cada método de este capítulo **apunta a uno u otro**:
+
+| Método | Estimando por defecto |
+|---|---|
+| Regresión ajustada (sin interacciones) | Aprox. ATE bajo homogeneidad |
+| Emparejamiento 1:1 por PS | **ATT** |
+| IPW con pesos ATE | **ATE** |
+| IPW con pesos ATT | **ATT** |
+| Fórmula g (estandarización) | ATE, ATT o ATU, según a quién se estandarice |
+
+::: {.callout-tip}
+## 💡 Elige el estimando por la decisión clínica
+
+-   **ATE**: ¿debería *toda* la población elegible recibirlo? (política de salud).
+-   **ATT**: ¿qué ganaron los que lo recibieron? (evaluación de lo que se hizo).
+-   **ATU**: ¿qué ganarían los que hoy no lo reciben? (ampliar el uso).
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   **Primero el protocolo, luego el análisis**: elegibilidad, estrategias, asignación, **tiempo cero**, desenlaces, contraste y plan.
+-   El **tiempo cero** debe coincidir con la elegibilidad, la asignación y el inicio del seguimiento: evita sesgo de tiempo inmortal y de selección.
+-   Define el **estimando** (ATE, ATT, ATU) según la decisión clínica; los métodos apuntan a distintos estimandos.
+-   Toda **desviación** del ensayo ideal es una fuente de sesgo que hay que declarar.
+:::
+
+## Ejercicio
+
+1.  Escribe el protocolo del ensayo objetivo (7 elementos) para una pregunta de tu servicio: *¿reduce el uso de IECA la mortalidad en pacientes en hemodiálisis?*
+2.  ¿En qué momento fijarías el tiempo cero para pacientes que **inician** diálisis y reciben un fármaco **después**? ¿Qué sesgo aparece si lo fijas en el diagnóstico de ERC?
+3.  Con el oráculo, calcula el **ATE del riesgo relativo a 36 meses** y compáralo con el ATT.

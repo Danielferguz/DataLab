@@ -1,0 +1,181 @@
+# Ponderación por probabilidad inversa (IPW)
+
+## La idea
+
+En lugar de **descartar** pacientes (emparejamiento), la **ponderación** da a cada paciente un **peso** que lo hace "representar" a más pacientes parecidos del otro grupo. Se construye una **pseudopoblación** en la que el tratamiento **no depende de los confusores**.
+
+$$
+w_i^{ATE} = \frac{1}{P(A = a_i \mid X_i)} = \begin{cases} 1/e(X_i) & \text{tratados} \\ 1/(1 - e(X_i)) & \text{no tratados} \end{cases}
+$$
+
+Un tratado con PS bajo (poco probable que recibiera el fármaco) pesa **mucho**: es un "raro" que representa a muchos no tratados parecidos.
+
+## Pesos para distintos estimandos
+
+| Estimando | Peso de los tratados | Peso de los no tratados |
+|---|---|---|
+| **ATE** | $1/e(X)$ | $1/(1-e(X))$ |
+| **ATT** | 1 | $e(X)/(1-e(X))$ |
+| **ATU** | $(1-e(X))/e(X)$ | 1 |
+
+```{r}
+#| label: setup-125
+library(tidyverse)
+library(sandwich)
+library(lmtest)
+source("R/funciones_epi.R")
+
+oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv") |>
+  mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")), luacr = log(uacr))
+ckd <- oraculo |> select(-fragilidad, -pendiente_0, -pendiente_1, -ite, -starts_with("evento_36m"))
+
+formula_ps <- isglt2 ~ I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv
+ckd$ps <- fitted(glm(formula_ps, data = ckd, family = binomial))
+
+ckd <- ckd |>
+  mutate(
+    w_ate = ifelse(isglt2 == 1, 1 / ps, 1 / (1 - ps)),
+    w_att = ifelse(isglt2 == 1, 1, ps / (1 - ps)),
+    w_atu = ifelse(isglt2 == 1, (1 - ps) / ps, 1)
+  )
+
+verdad <- c(ATE = mean(oraculo$ite), ATT = mean(oraculo$ite[oraculo$isglt2 == 1]), ATU = mean(oraculo$ite[oraculo$isglt2 == 0]))
+round(verdad, 2)
+```
+
+## Paso 1: revisar los pesos
+
+Los pesos muy grandes dan **inestabilidad**: unos pocos pacientes dominan. Se revisan antes de seguir:
+
+```{r}
+#| label: pesos-resumen
+ess <- function(w) sum(w)^2 / sum(w^2)           # tamaño de muestra efectivo
+
+ckd |> group_by(trat = factor(isglt2, labels = c("No inicia", "Inicia"))) |>
+  summarise(n = n(), peso_medio = mean(w_ate), peso_max = max(w_ate), ESS = ess(w_ate)) |>
+  mutate(across(where(is.numeric), \(x) round(x, 1)))
+```
+
+Los pesos van de 1 a ~29 y el **tamaño efectivo de muestra** (ESS) es de ~2 150 y ~1 700, frente a 2 650 y 2 350 reales: perdemos ~20-30 % de información por la ponderación.
+
+```{r}
+#| label: pesos-graf
+#| fig-width: 8
+#| fig-height: 3.4
+ggplot(ckd, aes(w_ate, fill = factor(isglt2, labels = c("No inicia", "Inicia")))) +
+  geom_histogram(bins = 50, position = "identity", alpha = 0.55) +
+  scale_x_log10() +
+  scale_fill_manual(values = c("#999999", "#0072B2"), name = NULL) +
+  labs(x = "Peso ATE (escala logarítmica)", y = "Pacientes", caption = "Datos simulados.") +
+  theme_minimal(base_size = 11) + theme(legend.position = "bottom")
+```
+
+## Paso 2: comprobar el balance ponderado
+
+```{r}
+#| label: love-ipw
+#| fig-width: 7
+#| fig-height: 3.6
+vars <- c("edad", "hba1c", "pas", "tfg_basal", "luacr", "ecv")
+love_plot(ckd, vars, pesos = list(`IPW (ATE)` = ckd$w_ate, `IPW (ATT)` = ckd$w_att))
+```
+
+Con los pesos ATE, las DEM caen a < 0.01. Con los pesos ATT, el balance es **hacia la población de los tratados**.
+
+## Paso 3: estimar el efecto
+
+Con pesos, el análisis es una **regresión ponderada** simple. Los errores estándar usuales son **incorrectos** (ignoran que los pesos son estimados): usa **varianza robusta** (`vcovHC`) o ***bootstrap*** que repita **todo el proceso** (modelo de PS + pesos + estimación).
+
+```{r}
+#| label: efecto-ipw
+estimar_w <- function(w, estimando) {
+  fit <- lm(pendiente_tfg ~ isglt2, data = ckd, weights = w)
+  ct <- coeftest(fit, vcov = vcovHC(fit, type = "HC1"))["isglt2", ]
+  tibble(estimando, estimado = ct[1], ee_robusto = ct[2])
+}
+bind_rows(estimar_w(ckd$w_ate, "ATE"), estimar_w(ckd$w_att, "ATT"), estimar_w(ckd$w_atu, "ATU")) |>
+  mutate(verdad = round(verdad[estimando], 2), across(c(estimado, ee_robusto), \(x) round(x, 2)))
+```
+
+Cada versión estima **un efecto distinto** y los tres son **mayores que la verdad** por la misma razón: la fragilidad no medida.
+
+### *Bootstrap* que repite todo el proceso
+
+Los errores estándar robustos ignoran la incertidumbre del modelo de PS. El ***bootstrap*** completo (7.4) la incorpora:
+
+```{r}
+#| label: boot-ipw
+library(boot)
+ipw_fn <- function(datos, i) {
+  d <- datos[i, ]
+  ps <- fitted(glm(formula_ps, data = d, family = binomial))
+  w <- ifelse(d$isglt2 == 1, 1 / ps, 1 / (1 - ps))
+  unname(coef(lm(pendiente_tfg ~ isglt2, data = d, weights = w))["isglt2"])
+}
+set.seed(12)
+b <- boot(ckd, ipw_fn, R = 500)
+c(estimado = b$t0, ee_bootstrap = sd(b$t), quantile(b$t, c(0.025, 0.975))) |> round(2)
+```
+
+## Pesos estabilizados y truncados
+
+Si los pesos son extremos:
+
+-   **Estabilizar**: multiplicar por la **probabilidad marginal** del tratamiento recibido: $sw_i = P(A=a_i) / P(A=a_i\mid X_i)$. Mantiene el efecto, **reduce la varianza**, y los pesos medios quedan alrededor de 1.
+-   **Truncar**: reemplazar los pesos por encima de un percentil (p. ej., 99) por ese valor. **Introduce sesgo** a cambio de menor varianza.
+
+```{r}
+#| label: estabilizado
+p_trat <- mean(ckd$isglt2)
+ckd <- ckd |>
+  mutate(w_est = ifelse(isglt2 == 1, p_trat / ps, (1 - p_trat) / (1 - ps)),
+         w_trunc = pmin(pmax(w_ate, quantile(w_ate, 0.01)), quantile(w_ate, 0.99)))
+
+tibble(tipo = c("ATE sin modificar", "Estabilizado", "Truncado 1-99 %"),
+       media = c(mean(ckd$w_ate), mean(ckd$w_est), mean(ckd$w_trunc)),
+       maximo = c(max(ckd$w_ate), max(ckd$w_est), max(ckd$w_trunc)),
+       estimado = c(coef(lm(pendiente_tfg ~ isglt2, ckd, weights = w_ate))[2],
+                    coef(lm(pendiente_tfg ~ isglt2, ckd, weights = w_est))[2],
+                    coef(lm(pendiente_tfg ~ isglt2, ckd, weights = w_trunc))[2])) |>
+  mutate(across(where(is.numeric), \(x) round(x, 2)))
+```
+
+Con **tratamiento en un solo momento** (como aquí), el estimador de la media ponderada **no cambia** con la estabilización (el efecto marginal es el mismo); los pesos estabilizados importan **sobre todo en tratamientos que varían en el tiempo** (Cap. 19).
+
+## IPW para desenlaces binarios
+
+Con una pseudopoblación balanceada, el **riesgo ponderado** en cada grupo se calcula directamente:
+
+```{r}
+#| label: ipw-riesgo
+riesgo <- ckd |> group_by(isglt2) |> summarise(r = weighted.mean(evento, w_ate))
+c(riesgo_no_inicia = riesgo$r[1], riesgo_inicia = riesgo$r[2],
+  diferencia = riesgo$r[2] - riesgo$r[1], razon = riesgo$r[2] / riesgo$r[1]) |> round(3)
+```
+
+DR de **−8.1 puntos** (verdad: −4.5) y RR de **0.57** (verdad: 0.74): igual que los otros métodos, queda un sesgo por la fragilidad.
+
+::: {.callout-warning}
+## ⚠️ La trampa de los pesos extremos
+
+-   Pesos > 10-20 suelen indicar **violación de positividad**: pacientes sin comparables.
+-   **Verifica**: ¿quiénes tienen los pesos mayores? ¿Son clínicamente "raros"?
+-   Revisa el **modelo de PS** (¿falta no linealidad o interacciones?) y valora **restringir** la población (12.3).
+-   Reporta el **ESS** y analiza con **y sin** truncamiento.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   **IPW**: ponderar a cada paciente por $1/P(\text{su tratamiento}\mid X)$ crea una **pseudopoblación sin confusión medida**; los pesos **ATE, ATT y ATU** apuntan a distintos estimandos.
+-   **Revisa los pesos** (rango, ESS) y el **balance ponderado** (DEM).
+-   Usa **errores estándar robustos** o ***bootstrap*** que repita todo el proceso.
+-   **Pesos estabilizados** y **truncados** reducen la varianza (truncar introduce sesgo).
+-   IPW **no corrige** la confusión no medida.
+:::
+
+## Ejercicio
+
+1.  Calcula el **ESS** con los pesos ATT y compáralo con el de los pesos ATE.
+2.  Identifica los 20 pacientes con **mayor peso ATE** y describe su perfil (edad, UACR, TFGe). ¿Tiene sentido clínico que pesen tanto?
+3.  Estima el efecto con el modelo de PS que incluye **`fragilidad`** (solo en simulación). ¿Se acerca a la verdad (0.93)?

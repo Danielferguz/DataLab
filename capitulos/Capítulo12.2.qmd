@@ -1,0 +1,127 @@
+# Regresión ajustada vs. estratificación
+
+## Las dos formas clásicas de "ajustar"
+
+Antes del puntaje de propensión, el ajuste por confusores se hacía de dos maneras:
+
+| Método | Idea | Límite |
+|---|---|---|
+| **Estratificación** | Comparar tratados y no tratados **dentro** de grupos con confusores similares y combinar | Con varios confusores continuos, los estratos quedan **vacíos** |
+| **Regresión ajustada** | Incluir los confusores como covariables en un modelo | Depende de la **forma del modelo**; extrapola donde no hay datos |
+
+Ambos buscan la **intercambiabilidad condicional**: dentro de cada nivel de los confusores, la asignación al tratamiento es "como aleatoria".
+
+```{r}
+#| label: setup-122
+library(tidyverse)
+library(broom)
+library(marginaleffects)
+library(sandwich)
+library(lmtest)
+source("R/funciones_epi.R")
+
+oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv") |>
+  mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")), luacr = log(uacr),
+         trat = factor(isglt2, levels = 0:1, labels = c("No inicia", "Inicia iSGLT2")))
+ckd <- oraculo |> select(-fragilidad, -pendiente_0, -pendiente_1, -ite, -starts_with("evento_36m"))   # lo que se observa
+
+ate_verdadero <- mean(oraculo$ite)
+```
+
+## Estratificación
+
+Dividimos a los pacientes en **estratos** según los confusores más importantes: **albuminuria (A1-A3)** y **grupo de edad (3)**, y comparamos dentro de cada estrato.
+
+```{r}
+#| label: estratos
+ckd <- ckd |>
+  mutate(cat_a = categoria_a(uacr),
+         gedad = cut(edad, c(0, 59, 69, 100), labels = c("<60", "60-69", "≥70")),
+         estrato = interaction(cat_a, gedad, sep = " / "))
+
+por_estrato <- ckd |>
+  group_by(estrato, isglt2) |>
+  summarise(n = n(), pendiente = mean(pendiente_tfg), .groups = "drop") |>
+  pivot_wider(names_from = isglt2, values_from = c(n, pendiente)) |>
+  mutate(dif = pendiente_1 - pendiente_0, n_total = n_0 + n_1)
+por_estrato |> mutate(across(where(is.numeric), \(x) round(x, 2)))
+```
+
+Observa que hay estratos con **muy pocos pacientes** en uno de los grupos (p. ej., A1 / ≥70 con pocos tratados). Un estimador global combina los estratos con pesos por tamaño:
+
+```{r}
+#| label: estrat-global
+estrato_ate <- weighted.mean(por_estrato$dif, por_estrato$n_total, na.rm = TRUE)
+crudo <- coef(lm(pendiente_tfg ~ isglt2, data = ckd))["isglt2"]
+c(crudo = unname(crudo), estratificado = estrato_ate, verdad = ate_verdadero) |> round(2)
+```
+
+La estratificación por **edad y albuminuria** reduce el sesgo: pasa de 1.50 (crudo) a 1.34; quedan sin ajustar la TFGe, HbA1c, PAS, ECV (y, sobre todo, la fragilidad).
+
+::: {.callout-warning}
+## ⚠️ La maldición de la dimensionalidad
+
+Con 3 categorías de edad × 3 de albuminuria ya hay 9 estratos; añadir TFGe (3), HbA1c (3) y ECV (2) daría 162 estratos, con muchos **vacíos**. La estratificación no escala a muchos confusores, y dicotomizar los continuos **deja confusión residual** dentro de cada estrato.
+:::
+
+## Regresión ajustada
+
+Un modelo de regresión absorbe muchos confusores a la vez, con una forma funcional **supuesta**:
+
+```{r}
+#| label: regresion
+m_aj <- lm(pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv, data = ckd)
+tidy(m_aj, conf.int = TRUE) |> filter(term == "isglt2") |> select(estimate, conf.low, conf.high) |> round(2)
+```
+
+Es el 1.34 del Cap. 8.2: más cerca de la verdad que el crudo (1.5), pero todavía lejos de 0.93.
+
+### Regresión con interacciones: el efecto promedio correcto
+
+Si el efecto **varía** con las covariables (aquí con la albuminuria), el coeficiente del tratamiento ya no es el ATE. Se incluye una interacción y se **promedian** los efectos individuales (estandarización, 12.6):
+
+```{r}
+#| label: reg-inter
+m_int <- lm(pendiente_tfg ~ isglt2 * (I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv), data = ckd)
+avg_comparisons(m_int, variables = "isglt2") |> as_tibble() |> select(estimate, conf.low, conf.high) |> round(2)
+```
+
+## Positividad: ¿hay pacientes comparables?
+
+El supuesto de **positividad** exige que, para cada combinación de confusores, **exista** una probabilidad de recibir cada tratamiento > 0. Si no hay tratados con cierto perfil, **no hay datos para estimar** ese efecto; la regresión **extrapola** sin avisar.
+
+```{r}
+#| label: positividad
+ckd |>
+  count(cat_a, trat) |>
+  group_by(cat_a) |>
+  mutate(porcentaje_tratados = round(100 * n[trat == "Inicia iSGLT2"] / sum(n), 1)) |>
+  pivot_wider(names_from = trat, values_from = n)
+```
+
+En **A1** (albuminuria baja) solo el **30 %** recibe el fármaco, frente al **62 %** en A3: hay **menos información** para estimar el efecto en A1, pero **todos los estratos tienen tratados y no tratados**, de modo que no hay una violación grave de positividad. Con el puntaje de propensión (12.3) se examinará el solapamiento con más precisión.
+
+## ¿Cuándo basta la regresión?
+
+La regresión ajustada es un método **razonable** cuando:
+
+-   hay **pocos confusores** y están **bien medidos**;
+-   la **forma funcional** se conoce (se comprueba con *splines*, 8.5);
+-   hay **buen solapamiento** entre tratados y no tratados.
+
+Con más confusores o desbalance fuerte, los métodos basados en el **puntaje de propensión** (12.3-12.5) **separan** el diseño (equilibrar los grupos) del análisis del resultado, y permiten **verificar el equilibrio antes de mirar el desenlace**.
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   **Estratificar** y **ajustar por regresión** buscan lo mismo: intercambiabilidad **condicional** en los confusores.
+-   La estratificación **no escala** (muchos estratos vacíos); la regresión depende de la **forma del modelo** y **extrapola**.
+-   Con efectos **heterogéneos**, usa interacciones y **promedia** (`avg_comparisons`); el coeficiente solo no es el ATE.
+-   Revisa la **positividad**: sin pacientes comparables no hay estimación sin extrapolar.
+:::
+
+## Ejercicio
+
+1.  Estratifica por **albuminuria y categoría G** (G2, G3a, G3b, G4). ¿Cuántos estratos hay? ¿Alguno queda sin tratados o sin no tratados?
+2.  Añade `ns(tfg_basal, 3)` a la regresión. ¿Cambia el efecto estimado?
+3.  Calcula el **ATT** con la regresión con interacciones (usa `newdata = subset(ckd, isglt2 == 1)`).

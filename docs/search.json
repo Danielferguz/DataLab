@@ -5191,6 +5191,730 @@
     ]
   },
   {
+    "objectID": "capitulos/Capítulo12.html",
+    "href": "capitulos/Capítulo12.html",
+    "title": "Capítulo 12: Análisis inferencial en estudios observacionales",
+    "section": "",
+    "text": "Referencias\nSeguimos con la base ckd_isglt2 (simulada, Cap. 3). Conocemos la verdad (el efecto causal promedio es de +0.93 mL/min/1.73 m²/año en la pendiente de TFGe, y un HR de 0.70 para el evento renal) y la confusión no medida que se esconde (la fragilidad). Cada método se juzgará contra esa verdad.\nAl finalizar este capítulo podrás:\nPrerrequisitos: Caps. 3, 8, 9, 10. Prepara: Caps. 13, 18, 19.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.html#referencias",
+    "href": "capitulos/Capítulo12.html#referencias",
+    "title": "Capítulo 12: Análisis inferencial en estudios observacionales",
+    "section": "",
+    "text": "Hernán MA, Robins JM. Using big data to emulate a target trial when a randomized trial is not available. Am J Epidemiol. 2016;183:758-764.\nRosenbaum PR, Rubin DB. The central role of the propensity score in observational studies for causal effects. Biometrika. 1983;70:41-55.\nAustin PC. An introduction to propensity score methods for reducing the effects of confounding in observational studies. Multivariate Behav Res. 2011;46:399-424.\nHo DE, Imai K, King G, Stuart EA. MatchIt: nonparametric preprocessing for parametric causal inference. J Stat Softw. 2011;42(8).\nRobins JM, Rotnitzky A, Zhao LP. Estimation of regression coefficients when some regressors are not always observed. J Am Stat Assoc. 1994;89:846-866.\nHernán MA, Robins JM. Causal Inference: What If. Caps. 12-15, 17, 22.\nBarrett M, D’Agostino McGowan L, Gerke T. Causal Inference in R. https://www.r-causal.org/",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.1.html",
+    "href": "capitulos/Capítulo12.1.html",
+    "title": "Ensayo objetivo (target trial emulation)",
+    "section": "",
+    "text": "La idea\nAntes de elegir un método estadístico, se escribe el protocolo del ensayo ideal que contestaría la pregunta; luego se verifica cuánto de ese protocolo se puede reproducir con los datos observacionales. Cada desviación es una fuente de sesgo que hay que reconocer.\nEsto evita los errores del Cap. 10 (tiempo inmortal, selección, indicación) por diseño, no por corrección posterior.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>61</span>  <span class='chapter-title'>Ensayo objetivo (*target trial emulation*)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.1.html#los-siete-elementos-del-protocolo",
+    "href": "capitulos/Capítulo12.1.html#los-siete-elementos-del-protocolo",
+    "title": "Ensayo objetivo (target trial emulation)",
+    "section": "Los siete elementos del protocolo",
+    "text": "Los siete elementos del protocolo\n\n\n\n\n\n\n\nElemento\nEnsayo ideal\nEmulación con ckd_isglt2\n\n\n\n\n1. Elegibilidad\nAdultos con ERC G3-G4, diabetes tipo 2, sin iSGLT2 previo\nMismos criterios: la base ya los cumple (TFGe 20-75)\n\n\n2. Estrategias\n(a) Iniciar iSGLT2 al ingreso; (b) no iniciar\n\n\nisglt2 = 1 vs. isglt2 = 0 en la visita basal\n\n\n3. Asignación\nAleatoria\n\nObservacional: se emula con ajuste por confusores basales\n\n\n4. Tiempo cero\nAleatorización = inicio del seguimiento\nVisita basal: elegibilidad, asignación y seguimiento coinciden\n\n\n\n5. Desenlaces\nPendiente anual de TFGe; evento renal compuesto a 36 meses\n\npendiente_tfg; evento y tiempo_meses\n\n\n\n6. Contraste causal\n\nEfecto de iniciar (ITT) y/o de mantener (per protocolo)\nEfecto promedio (ATE) de iniciar vs. no iniciar\n\n\n7. Plan de análisis\nITT ajustado por la estratificación\nPS, emparejamiento, IPW, fórmula g, AIPW\n\n\n\n\n\n\n\n\n\nAdvertencia⚠️ Lo que la emulación no puede reproducir\n\n\n\n\n\nAleatorización: sustituida por intercambiabilidad condicional (supuesto no verificable).\n\nCeguera: los médicos y pacientes saben el tratamiento (sesgo de detección y de ejecución).\n\nCumplimiento: aquí la base solo registra “inició”; el efecto de mantener el fármaco exige métodos para tratamientos que varían en el tiempo (Cap. 19).",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>61</span>  <span class='chapter-title'>Ensayo objetivo (*target trial emulation*)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.1.html#los-datos-y-la-elegibilidad",
+    "href": "capitulos/Capítulo12.1.html#los-datos-y-la-elegibilidad",
+    "title": "Ensayo objetivo (target trial emulation)",
+    "section": "Los datos y la elegibilidad",
+    "text": "Los datos y la elegibilidad\n\nlibrary(tidyverse)\nsource(\"R/funciones_epi.R\")\n\nckd &lt;- read_csv(\"Bases/ckd_isglt2.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")),\n         luacr = log(uacr),\n         trat = factor(isglt2, levels = 0:1, labels = c(\"No inicia\", \"Inicia iSGLT2\")))\noraculo &lt;- read_csv(\"Bases/ckd_isglt2_oraculo.csv\")\n\n## Diagrama de flujo de elegibilidad (ya aplicada en esta base)\nckd |&gt;\n  summarise(pacientes = n(), con_diabetes_y_erc = n(), tfge_20_75 = sum(between(tfg_basal, 20, 75)))\n\n# A tibble: 1 × 3\n  pacientes con_diabetes_y_erc tfge_20_75\n      &lt;int&gt;              &lt;int&gt;      &lt;int&gt;\n1      5000               5000       5000\n\n\nTodos los pacientes cumplen los criterios. En una base real, el paso previo es filtrar con código y registrar cuántos quedan tras cada criterio (un diagrama de flujo similar al CONSORT).",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>61</span>  <span class='chapter-title'>Ensayo objetivo (*target trial emulation*)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.1.html#alinear-el-tiempo-cero",
+    "href": "capitulos/Capítulo12.1.html#alinear-el-tiempo-cero",
+    "title": "Ensayo objetivo (target trial emulation)",
+    "section": "Alinear el tiempo cero",
+    "text": "Alinear el tiempo cero\nLa regla central: en el tiempo cero deben coincidir (1) el cumplimiento de la elegibilidad, (2) la asignación a la estrategia y (3) el inicio del seguimiento. Si el tratamiento se asigna después, aparece sesgo de tiempo inmortal (10.2); si el seguimiento empieza antes, aparece sesgo de selección.\n\nlinea &lt;- tribble(\n  ~diseno, ~inicio, ~fin, ~tipo,\n  \"Ensayo ideal\", 0, 36, \"Seguimiento desde la asignación\",\n  \"Emulación correcta\", 0, 36, \"Seguimiento desde la asignación\",\n  \"Emulación con error\", 0, 6, \"Tiempo previo al tratamiento (inmortal)\",\n  \"Emulación con error\", 6, 36, \"Seguimiento tras iniciar\"\n) |&gt; mutate(diseno = fct_inorder(diseno))\n\nggplot(linea) +\n  geom_segment(aes(x = inicio, xend = fin, y = fct_rev(diseno), yend = fct_rev(diseno), color = tipo), linewidth = 6) +\n  scale_color_manual(values = c(\"Seguimiento desde la asignación\" = \"#0072B2\", \"Seguimiento tras iniciar\" = \"#0072B2\",\n                                \"Tiempo previo al tratamiento (inmortal)\" = \"#E69F00\"), name = NULL) +\n  labs(x = \"Meses desde el ingreso\", y = NULL, caption = \"Ilustración conceptual.\") +\n  theme_minimal(base_size = 11) + theme(legend.position = \"bottom\")",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>61</span>  <span class='chapter-title'>Ensayo objetivo (*target trial emulation*)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.1.html#cómo-se-aplica-con-una-cohorte-que-ya-incluye-tratados-y-no-tratados",
+    "href": "capitulos/Capítulo12.1.html#cómo-se-aplica-con-una-cohorte-que-ya-incluye-tratados-y-no-tratados",
+    "title": "Ensayo objetivo (target trial emulation)",
+    "section": "Cómo se aplica con una cohorte que ya incluye tratados y no tratados",
+    "text": "Cómo se aplica con una cohorte que ya incluye tratados y no tratados\nCon tratamientos que se inician en distintos momentos (la situación habitual con registros), se emula una secuencia de ensayos: en cada mes se toman los pacientes elegibles (sin tratamiento previo), se separa a quienes inician del resto y se sigue a ambos desde ese mes (esquema de ensayos anidados o sequential trials; clone-censor-weight para estrategias que se mantienen). Los detalles técnicos se retoman en el Cap. 19. En ckd_isglt2 el tratamiento ya está definido en la visita basal, como en un único ensayo.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>61</span>  <span class='chapter-title'>Ensayo objetivo (*target trial emulation*)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.1.html#marco-causal-qué-se-estima",
+    "href": "capitulos/Capítulo12.1.html#marco-causal-qué-se-estima",
+    "title": "Ensayo objetivo (target trial emulation)",
+    "section": "Marco causal: ¿qué se estima?",
+    "text": "Marco causal: ¿qué se estima?\n\n\n\n\n\n\n\nEstimando\nPregunta\nDefinición\n\n\n\nATE\nSi toda la población eligible iniciara el fármaco, ¿qué cambia?\n\\(E[Y^{1}] - E[Y^{0}]\\)\n\n\nATT\nEn los que sí iniciaron, ¿qué efecto tuvo?\n\\(E[Y^{1} - Y^{0} \\mid A=1]\\)\n\n\nATU\nEn los que no iniciaron, ¿qué efecto habría tenido?\n\\(E[Y^{1} - Y^{0} \\mid A=0]\\)\n\n\n\nCon la verdad del oráculo conocemos los tres. Como el efecto es heterogéneo (mayor con más albuminuria), difieren:\n\nverdad &lt;- tibble(\n  estimando = c(\"ATE\", \"ATT\", \"ATU\"),\n  pendiente = c(mean(oraculo$ite), mean(oraculo$ite[oraculo$isglt2 == 1]), mean(oraculo$ite[oraculo$isglt2 == 0])),\n  dif_riesgo_36m = c(mean(oraculo$evento_36m_1 - oraculo$evento_36m_0),\n                     mean((oraculo$evento_36m_1 - oraculo$evento_36m_0)[oraculo$isglt2 == 1]),\n                     mean((oraculo$evento_36m_1 - oraculo$evento_36m_0)[oraculo$isglt2 == 0]))\n)\nverdad |&gt; mutate(across(where(is.numeric), \\(x) round(x, 3)))\n\n# A tibble: 3 × 3\n  estimando pendiente dif_riesgo_36m\n  &lt;chr&gt;         &lt;dbl&gt;          &lt;dbl&gt;\n1 ATE           0.928         -0.045\n2 ATT           1.06          -0.04 \n3 ATU           0.81          -0.05 \n\n\nEl ATT (1.06) &gt; ATE (0.93) &gt; ATU (0.81): los tratados son quienes más se benefician (tienen más albuminuria). Cada método de este capítulo apunta a uno u otro:\n\n\n\n\n\n\nMétodo\nEstimando por defecto\n\n\n\nRegresión ajustada (sin interacciones)\nAprox. ATE bajo homogeneidad\n\n\nEmparejamiento 1:1 por PS\nATT\n\n\nIPW con pesos ATE\nATE\n\n\nIPW con pesos ATT\nATT\n\n\nFórmula g (estandarización)\nATE, ATT o ATU, según a quién se estandarice\n\n\n\n\n\n\n\n\n\nTip💡 Elige el estimando por la decisión clínica\n\n\n\n\n\nATE: ¿debería toda la población elegible recibirlo? (política de salud).\n\nATT: ¿qué ganaron los que lo recibieron? (evaluación de lo que se hizo).\n\nATU: ¿qué ganarían los que hoy no lo reciben? (ampliar el uso).\n\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\n\nPrimero el protocolo, luego el análisis: elegibilidad, estrategias, asignación, tiempo cero, desenlaces, contraste y plan.\nEl tiempo cero debe coincidir con la elegibilidad, la asignación y el inicio del seguimiento: evita sesgo de tiempo inmortal y de selección.\nDefine el estimando (ATE, ATT, ATU) según la decisión clínica; los métodos apuntan a distintos estimandos.\nToda desviación del ensayo ideal es una fuente de sesgo que hay que declarar.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>61</span>  <span class='chapter-title'>Ensayo objetivo (*target trial emulation*)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.1.html#ejercicio",
+    "href": "capitulos/Capítulo12.1.html#ejercicio",
+    "title": "Ensayo objetivo (target trial emulation)",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nEscribe el protocolo del ensayo objetivo (7 elementos) para una pregunta de tu servicio: ¿reduce el uso de IECA la mortalidad en pacientes en hemodiálisis?\n\n¿En qué momento fijarías el tiempo cero para pacientes que inician diálisis y reciben un fármaco después? ¿Qué sesgo aparece si lo fijas en el diagnóstico de ERC?\nCon el oráculo, calcula el ATE del riesgo relativo a 36 meses y compáralo con el ATT.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>61</span>  <span class='chapter-title'>Ensayo objetivo (*target trial emulation*)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.2.html",
+    "href": "capitulos/Capítulo12.2.html",
+    "title": "Regresión ajustada vs. estratificación",
+    "section": "",
+    "text": "Las dos formas clásicas de “ajustar”\nAntes del puntaje de propensión, el ajuste por confusores se hacía de dos maneras:\nAmbos buscan la intercambiabilidad condicional: dentro de cada nivel de los confusores, la asignación al tratamiento es “como aleatoria”.\nlibrary(tidyverse)\nlibrary(broom)\nlibrary(marginaleffects)\nlibrary(sandwich)\nlibrary(lmtest)\nsource(\"R/funciones_epi.R\")\n\noraculo &lt;- read_csv(\"Bases/ckd_isglt2_oraculo.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")), luacr = log(uacr),\n         trat = factor(isglt2, levels = 0:1, labels = c(\"No inicia\", \"Inicia iSGLT2\")))\nckd &lt;- oraculo |&gt; select(-fragilidad, -pendiente_0, -pendiente_1, -ite, -starts_with(\"evento_36m\"))   # lo que se observa\n\nate_verdadero &lt;- mean(oraculo$ite)",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>62</span>  <span class='chapter-title'>Regresión ajustada vs. estratificación</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.2.html#las-dos-formas-clásicas-de-ajustar",
+    "href": "capitulos/Capítulo12.2.html#las-dos-formas-clásicas-de-ajustar",
+    "title": "Regresión ajustada vs. estratificación",
+    "section": "",
+    "text": "Método\nIdea\nLímite\n\n\n\nEstratificación\nComparar tratados y no tratados dentro de grupos con confusores similares y combinar\nCon varios confusores continuos, los estratos quedan vacíos\n\n\n\nRegresión ajustada\nIncluir los confusores como covariables en un modelo\nDepende de la forma del modelo; extrapola donde no hay datos",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>62</span>  <span class='chapter-title'>Regresión ajustada vs. estratificación</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.2.html#estratificación",
+    "href": "capitulos/Capítulo12.2.html#estratificación",
+    "title": "Regresión ajustada vs. estratificación",
+    "section": "Estratificación",
+    "text": "Estratificación\nDividimos a los pacientes en estratos según los confusores más importantes: albuminuria (A1-A3) y grupo de edad (3), y comparamos dentro de cada estrato.\n\nckd &lt;- ckd |&gt;\n  mutate(cat_a = categoria_a(uacr),\n         gedad = cut(edad, c(0, 59, 69, 100), labels = c(\"&lt;60\", \"60-69\", \"≥70\")),\n         estrato = interaction(cat_a, gedad, sep = \" / \"))\n\npor_estrato &lt;- ckd |&gt;\n  group_by(estrato, isglt2) |&gt;\n  summarise(n = n(), pendiente = mean(pendiente_tfg), .groups = \"drop\") |&gt;\n  pivot_wider(names_from = isglt2, values_from = c(n, pendiente)) |&gt;\n  mutate(dif = pendiente_1 - pendiente_0, n_total = n_0 + n_1)\npor_estrato |&gt; mutate(across(where(is.numeric), \\(x) round(x, 2)))\n\n# A tibble: 9 × 7\n  estrato      n_0   n_1 pendiente_0 pendiente_1   dif n_total\n  &lt;fct&gt;      &lt;dbl&gt; &lt;dbl&gt;       &lt;dbl&gt;       &lt;dbl&gt; &lt;dbl&gt;   &lt;dbl&gt;\n1 A1 / &lt;60      97    77       -0.79       -0.25  0.54     174\n2 A2 / &lt;60     471   737       -1.9        -0.6   1.29    1208\n3 A3 / &lt;60      62   228       -2.71       -0.74  1.97     290\n4 A1 / 60-69   127    37       -1.47       -0.82  0.65     164\n5 A2 / 60-69   777   579       -2.41       -1.34  1.07    1356\n6 A3 / 60-69   129   252       -3.4        -1.31  2.08     381\n7 A1 / ≥70     104    23       -2.1        -1.66  0.44     127\n8 A2 / ≥70     697   275       -3.27       -1.92  1.35     972\n9 A3 / ≥70     186   142       -4.26       -1.96  2.31     328\n\n\nObserva que hay estratos con muy pocos pacientes en uno de los grupos (p. ej., A1 / ≥70 con pocos tratados). Un estimador global combina los estratos con pesos por tamaño:\n\nestrato_ate &lt;- weighted.mean(por_estrato$dif, por_estrato$n_total, na.rm = TRUE)\ncrudo &lt;- coef(lm(pendiente_tfg ~ isglt2, data = ckd))[\"isglt2\"]\nc(crudo = unname(crudo), estratificado = estrato_ate, verdad = ate_verdadero) |&gt; round(2)\n\n        crudo estratificado        verdad \n         1.50          1.34          0.93 \n\n\nLa estratificación por edad y albuminuria reduce el sesgo: pasa de 1.50 (crudo) a 1.34; quedan sin ajustar la TFGe, HbA1c, PAS, ECV (y, sobre todo, la fragilidad).\n\n\n\n\n\n\nAdvertencia⚠️ La maldición de la dimensionalidad\n\n\n\nCon 3 categorías de edad × 3 de albuminuria ya hay 9 estratos; añadir TFGe (3), HbA1c (3) y ECV (2) daría 162 estratos, con muchos vacíos. La estratificación no escala a muchos confusores, y dicotomizar los continuos deja confusión residual dentro de cada estrato.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>62</span>  <span class='chapter-title'>Regresión ajustada vs. estratificación</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.2.html#regresión-ajustada",
+    "href": "capitulos/Capítulo12.2.html#regresión-ajustada",
+    "title": "Regresión ajustada vs. estratificación",
+    "section": "Regresión ajustada",
+    "text": "Regresión ajustada\nUn modelo de regresión absorbe muchos confusores a la vez, con una forma funcional supuesta:\n\nm_aj &lt;- lm(pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv, data = ckd)\ntidy(m_aj, conf.int = TRUE) |&gt; filter(term == \"isglt2\") |&gt; select(estimate, conf.low, conf.high) |&gt; round(2)\n\n# A tibble: 1 × 3\n  estimate conf.low conf.high\n     &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;\n1     1.34     1.26      1.41\n\n\nEs el 1.34 del Cap. 8.2: más cerca de la verdad que el crudo (1.5), pero todavía lejos de 0.93.\nRegresión con interacciones: el efecto promedio correcto\nSi el efecto varía con las covariables (aquí con la albuminuria), el coeficiente del tratamiento ya no es el ATE. Se incluye una interacción y se promedian los efectos individuales (estandarización, 12.6):\n\nm_int &lt;- lm(pendiente_tfg ~ isglt2 * (I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv), data = ckd)\navg_comparisons(m_int, variables = \"isglt2\") |&gt; as_tibble() |&gt; select(estimate, conf.low, conf.high) |&gt; round(2)\n\n# A tibble: 1 × 3\n  estimate conf.low conf.high\n     &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;\n1     1.32     1.25       1.4",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>62</span>  <span class='chapter-title'>Regresión ajustada vs. estratificación</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.2.html#positividad-hay-pacientes-comparables",
+    "href": "capitulos/Capítulo12.2.html#positividad-hay-pacientes-comparables",
+    "title": "Regresión ajustada vs. estratificación",
+    "section": "Positividad: ¿hay pacientes comparables?",
+    "text": "Positividad: ¿hay pacientes comparables?\nEl supuesto de positividad exige que, para cada combinación de confusores, exista una probabilidad de recibir cada tratamiento &gt; 0. Si no hay tratados con cierto perfil, no hay datos para estimar ese efecto; la regresión extrapola sin avisar.\n\nckd |&gt;\n  count(cat_a, trat) |&gt;\n  group_by(cat_a) |&gt;\n  mutate(porcentaje_tratados = round(100 * n[trat == \"Inicia iSGLT2\"] / sum(n), 1)) |&gt;\n  pivot_wider(names_from = trat, values_from = n)\n\n# A tibble: 3 × 4\n# Groups:   cat_a [3]\n  cat_a porcentaje_tratados `No inicia` `Inicia iSGLT2`\n  &lt;ord&gt;               &lt;dbl&gt;       &lt;int&gt;           &lt;int&gt;\n1 A1                   29.5         328             137\n2 A2                   45          1945            1591\n3 A3                   62.3         377             622\n\n\nEn A1 (albuminuria baja) solo el 30 % recibe el fármaco, frente al 62 % en A3: hay menos información para estimar el efecto en A1, pero todos los estratos tienen tratados y no tratados, de modo que no hay una violación grave de positividad. Con el puntaje de propensión (12.3) se examinará el solapamiento con más precisión.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>62</span>  <span class='chapter-title'>Regresión ajustada vs. estratificación</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.2.html#cuándo-basta-la-regresión",
+    "href": "capitulos/Capítulo12.2.html#cuándo-basta-la-regresión",
+    "title": "Regresión ajustada vs. estratificación",
+    "section": "¿Cuándo basta la regresión?",
+    "text": "¿Cuándo basta la regresión?\nLa regresión ajustada es un método razonable cuando:\n\nhay pocos confusores y están bien medidos;\nla forma funcional se conoce (se comprueba con splines, 8.5);\nhay buen solapamiento entre tratados y no tratados.\n\nCon más confusores o desbalance fuerte, los métodos basados en el puntaje de propensión (12.3-12.5) separan el diseño (equilibrar los grupos) del análisis del resultado, y permiten verificar el equilibrio antes de mirar el desenlace.\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\n\nEstratificar y ajustar por regresión buscan lo mismo: intercambiabilidad condicional en los confusores.\nLa estratificación no escala (muchos estratos vacíos); la regresión depende de la forma del modelo y extrapola.\nCon efectos heterogéneos, usa interacciones y promedia (avg_comparisons); el coeficiente solo no es el ATE.\nRevisa la positividad: sin pacientes comparables no hay estimación sin extrapolar.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>62</span>  <span class='chapter-title'>Regresión ajustada vs. estratificación</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.2.html#ejercicio",
+    "href": "capitulos/Capítulo12.2.html#ejercicio",
+    "title": "Regresión ajustada vs. estratificación",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nEstratifica por albuminuria y categoría G (G2, G3a, G3b, G4). ¿Cuántos estratos hay? ¿Alguno queda sin tratados o sin no tratados?\nAñade ns(tfg_basal, 3) a la regresión. ¿Cambia el efecto estimado?\nCalcula el ATT con la regresión con interacciones (usa newdata = subset(ckd, isglt2 == 1)).",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>62</span>  <span class='chapter-title'>Regresión ajustada vs. estratificación</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.3.html",
+    "href": "capitulos/Capítulo12.3.html",
+    "title": "Puntaje de propensión",
+    "section": "",
+    "text": "Qué es\nEl puntaje de propensión (PS) es la probabilidad de recibir el tratamiento dado los confusores medidos:\n\\[\ne(X) = P(A = 1 \\mid X)\n\\]\nRosenbaum y Rubin (1983) demostraron que, dentro de pacientes con el mismo PS, los confusores medidos quedan balanceados entre tratados y no tratados: el PS es un resumen de todos los confusores en un solo número. Entonces se puede emparejar, ponderar o estratificar por el PS en lugar de por muchas variables.\nImportante: el PS sirve para diseñar (equilibrar los grupos) sin mirar el desenlace. Es un análisis en dos etapas: (1) modelo del tratamiento y verificación del balance; (2) estimación del efecto.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>63</span>  <span class='chapter-title'>Puntaje de propensión</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.3.html#paso-1-estimar-el-ps",
+    "href": "capitulos/Capítulo12.3.html#paso-1-estimar-el-ps",
+    "title": "Puntaje de propensión",
+    "section": "Paso 1: estimar el PS",
+    "text": "Paso 1: estimar el PS\nSe ajusta una regresión logística del tratamiento sobre los confusores (los de tu DAG):\n\nlibrary(tidyverse)\nsource(\"R/funciones_epi.R\")\n\noraculo &lt;- read_csv(\"Bases/ckd_isglt2_oraculo.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")), luacr = log(uacr),\n         trat = factor(isglt2, levels = 0:1, labels = c(\"No inicia\", \"Inicia iSGLT2\")))\nckd &lt;- oraculo |&gt; select(-fragilidad, -pendiente_0, -pendiente_1, -ite, -starts_with(\"evento_36m\"))\n\nformula_ps &lt;- isglt2 ~ I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv\nmodelo_ps &lt;- glm(formula_ps, data = ckd, family = binomial)\nckd$ps &lt;- fitted(modelo_ps)\n\nsummary(ckd$ps)\n\n   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. \n 0.0304  0.3100  0.4659  0.4700  0.6246  0.9648 \n\n\n\n\n\n\n\n\nTip💡 Qué variables incluir en el modelo de PS\n\n\n\n\n\nSí: confusores (causas del tratamiento y del desenlace) y causas solo del desenlace (mejoran la precisión).\n\nNo: causas solo del tratamiento (instrumentos: aumentan la varianza y pueden amplificar el sesgo), mediadores y colisionadores.\nPara variables continuas, incluye no linealidad (splines, términos cuadráticos) e interacciones plausibles si el balance no es bueno.\n\nNo uses el valor p para seleccionar variables ni evalúes el PS con “bondad de ajuste” o el AUC (un AUC alto implica poca superposición, no un mejor PS).",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>63</span>  <span class='chapter-title'>Puntaje de propensión</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.3.html#paso-2-hay-solapamiento-positividad",
+    "href": "capitulos/Capítulo12.3.html#paso-2-hay-solapamiento-positividad",
+    "title": "Puntaje de propensión",
+    "section": "Paso 2: ¿hay solapamiento? (positividad)",
+    "text": "Paso 2: ¿hay solapamiento? (positividad)\nUn PS útil requiere que ambos grupos tengan pacientes con PS comparables:\n\nggplot(ckd, aes(ps, fill = trat)) +\n  geom_histogram(aes(y = after_stat(density)), position = \"identity\", alpha = 0.55, bins = 40) +\n  scale_fill_manual(values = c(\"No inicia\" = \"#999999\", \"Inicia iSGLT2\" = \"#0072B2\"), name = NULL) +\n  labs(x = \"Puntaje de propensión (probabilidad de iniciar iSGLT2)\", y = \"Densidad\",\n       caption = \"Datos simulados.\") +\n  theme_minimal(base_size = 11) + theme(legend.position = \"bottom\")\n\n\n\n\n\n\n\nHay buen solapamiento en la zona central (0.2-0.8), con colas en que casi no hay tratados (PS bajo) o casi no hay no tratados (PS alto). Los pacientes en las colas se parecen poco a los del otro grupo: no hay contrafactual razonable.\n\nckd |&gt; group_by(trat) |&gt; summarise(minimo = min(ps), p1 = quantile(ps, 0.01), mediana = median(ps),\n                                  p99 = quantile(ps, 0.99), maximo = max(ps)) |&gt;\n  mutate(across(where(is.numeric), \\(x) round(x, 3)))\n\n# A tibble: 2 × 6\n  trat          minimo    p1 mediana   p99 maximo\n  &lt;fct&gt;          &lt;dbl&gt; &lt;dbl&gt;   &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt;\n1 No inicia      0.03  0.072   0.378 0.816  0.925\n2 Inicia iSGLT2  0.034 0.14    0.568 0.914  0.965\n\n\nRecortar o restringir\nUna práctica habitual es restringir el análisis a la región de solapamiento (por ejemplo, excluir PS &lt; 0.05 o &gt; 0.95, o fuera de los percentiles 2.5-97.5 del grupo tratado). Se define antes de ver el resultado y cambia el estimando (ahora es el efecto en la población comparable):\n\nckd_rec &lt;- ckd |&gt; filter(between(ps, 0.05, 0.95))\nc(original = nrow(ckd), tras_recorte = nrow(ckd_rec), excluidos = nrow(ckd) - nrow(ckd_rec))\n\n    original tras_recorte    excluidos \n        5000         4984           16",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>63</span>  <span class='chapter-title'>Puntaje de propensión</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.3.html#paso-3-comprobar-el-balance",
+    "href": "capitulos/Capítulo12.3.html#paso-3-comprobar-el-balance",
+    "title": "Puntaje de propensión",
+    "section": "Paso 3: comprobar el balance",
+    "text": "Paso 3: comprobar el balance\nLa prueba de que el PS funciona no es su AUC, sino que, al usarlo (emparejar, ponderar), los confusores queden balanceados. Antes de usarlo, medimos el desbalance crudo con las diferencias estandarizadas (DEM):\n\nvars &lt;- c(\"edad\", \"hba1c\", \"pas\", \"tfg_basal\", \"luacr\", \"ecv\")\ndem_crudo &lt;- tibble(variable = vars, DEM_cruda = map_dbl(vars, \\(v) smd(ckd[[v]], ckd$isglt2)))\ndem_crudo |&gt; mutate(DEM_cruda = round(DEM_cruda, 3))\n\n# A tibble: 6 × 2\n  variable  DEM_cruda\n  &lt;chr&gt;         &lt;dbl&gt;\n1 edad         -0.578\n2 hba1c         0.221\n3 pas          -0.041\n4 tfg_basal     0.438\n5 luacr         0.435\n6 ecv          -0.041\n\n\nLas DEM crudas de edad (−0.58), TFGe (0.44) y albuminuria (0.43) superan por mucho el umbral de 0.10. En 12.4 y 12.5 veremos cómo desaparecen al emparejar o ponderar por el PS.\nEl gráfico de balance (love plot)\nUn love plot resume el balance antes y después.\nLa función love_plot() está en R/funciones_epi.R (la cargamos con source()); recibe la base, las variables y, opcionalmente, listas de pesos para comparar el balance antes y después:\n\nlove_plot(ckd, vars)",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>63</span>  <span class='chapter-title'>Puntaje de propensión</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.3.html#tres-usos-del-ps",
+    "href": "capitulos/Capítulo12.3.html#tres-usos-del-ps",
+    "title": "Puntaje de propensión",
+    "section": "Tres usos del PS",
+    "text": "Tres usos del PS\n\n\n\n\n\n\n\nUso\nCómo\nSubcapítulo\n\n\n\nEmparejamiento\nCada tratado se pareja con un no tratado de PS similar\n12.4\n\n\n\nPonderación (IPW)\nCada paciente pesa \\(1/P(\\text{tratamiento recibido})\\)\n\n12.5\n\n\nEstratificación\nSe divide en quintiles de PS y se combinan\n12.4\n\n\nCovariable\nSe incluye el PS en el modelo del desenlace\nNo recomendado (supone una forma lineal en el PS)\n\n\n\n\n\n\n\n\n\nAdvertencia⚠️ Lo que el PS no puede hacer\n\n\n\n\n\nNo resuelve la confusión no medida: solo equilibra lo medido. En nuestro ejemplo, el PS equilibrará perfectamente edad, TFGe y albuminuria, pero no la fragilidad.\nUn PS “excelente” (muy buen balance) no es prueba de ausencia de sesgo.\nLa estimación depende de que el modelo de PS esté razonablemente bien especificado.\n\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nEl PS es \\(P(\\text{tratamiento} \\mid \\text{confusores})\\); equilibra los confusores medidos y permite diseñar sin mirar el desenlace.\nEstímalo con una logística de los confusores (no instrumentos, mediadores ni colisionadores).\n\nSolapamiento (histogramas) = positividad; recorta colas antes de ver los resultados.\nLa prueba del PS es el balance (DEM &lt; 0.10) tras usarlo, no el AUC.\nEl PS no corrige confusión no medida.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>63</span>  <span class='chapter-title'>Puntaje de propensión</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.3.html#ejercicio",
+    "href": "capitulos/Capítulo12.3.html#ejercicio",
+    "title": "Puntaje de propensión",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nAgrega ns(tfg_basal, 3) y ns(luacr, 3) al modelo de PS. ¿Cambia la distribución del PS?\nExcluye pacientes con PS &lt; 0.10 o &gt; 0.90 y recalcula las DEM crudas en la muestra recortada.\nCalcula el AUC del modelo de PS (pROC::auc). ¿Un AUC alto es bueno o malo para este propósito? ¿Por qué?",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>63</span>  <span class='chapter-title'>Puntaje de propensión</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.4.html",
+    "href": "capitulos/Capítulo12.4.html",
+    "title": "Emparejamiento (matching)",
+    "section": "",
+    "text": "La idea\nEl emparejamiento forma un grupo de comparación pareando a cada paciente tratado con uno (o más) no tratados con PS parecido. Resultado: dos grupos balanceados en los confusores medidos, que se comparan como si fueran de un ensayo.\nEstima por defecto el ATT (efecto en los tratados), porque se busca para cada tratado un control comparable.\nEl paquete MatchIt (Ho, Imai, King, Stuart) es el estándar.\nlibrary(tidyverse)\nlibrary(MatchIt)\nlibrary(sandwich)\nlibrary(lmtest)\nsource(\"R/funciones_epi.R\")\n\noraculo &lt;- read_csv(\"Bases/ckd_isglt2_oraculo.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")), luacr = log(uacr))\nckd &lt;- oraculo |&gt; select(-fragilidad, -pendiente_0, -pendiente_1, -ite, -starts_with(\"evento_36m\"))\n\natt_verdadero &lt;- mean(oraculo$ite[oraculo$isglt2 == 1])\natt_verdadero\n\n[1] 1.059651",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>64</span>  <span class='chapter-title'>Emparejamiento (*matching*)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.4.html#emparejamiento-11-con-calibrador",
+    "href": "capitulos/Capítulo12.4.html#emparejamiento-11-con-calibrador",
+    "title": "Emparejamiento (matching)",
+    "section": "Emparejamiento 1:1 con calibrador",
+    "text": "Emparejamiento 1:1 con calibrador\nEl método más usado: vecino más cercano en el PS, sin reposición, con un calibrador (caliper) que impide emparejar pacientes demasiado distintos (0.2 desviaciones estándar del PS):\n\nformula_ps &lt;- isglt2 ~ I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv\n\nm1 &lt;- matchit(formula_ps, data = ckd, method = \"nearest\", distance = \"glm\", caliper = 0.2, ratio = 1)\nm1\n\nA matchit object\n - method: 1:1 nearest neighbor matching without replacement\n - distance: Propensity score [caliper]\n             - estimated with logistic regression\n - caliper: &lt;distance&gt; (0.041)\n - number of obs.: 5000 (original), 3632 (matched)\n - target estimand: ATT\n - covariates: I(edad/10), sexo, hba1c, pas, tfg_basal, luacr, ecv\n\n\n\nsummary(m1)$nn          # cuántos pacientes se emparejaron\n\n              Control Treated\nAll (ESS)        2650    2350\nAll              2650    2350\nMatched (ESS)    1816    1816\nMatched          1816    1816\nUnmatched         834     534\nDiscarded           0       0\n\n\n\nSe emparejaron 1 816 pares (3 632 pacientes). Quedaron sin pareja 534 tratados (con PS alto sin control comparable) y 834 controles.\n\nEl estimando cambió: ahora es el efecto en los tratados emparejados (los que tienen controles comparables), no en todos los tratados.\n\n\n\n\n\n\n\nAdvertencia⚠️ Descartar tratados cambia la pregunta\n\n\n\nSi el 23 % de los tratados no tiene pareja, la estimación no es el ATT de todos los tratados; es el de los comparables. Reporta cuántos se descartaron y cómo difieren de los emparejados.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>64</span>  <span class='chapter-title'>Emparejamiento (*matching*)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.4.html#paso-crítico-comprobar-el-balance",
+    "href": "capitulos/Capítulo12.4.html#paso-crítico-comprobar-el-balance",
+    "title": "Emparejamiento (matching)",
+    "section": "Paso crítico: comprobar el balance",
+    "text": "Paso crítico: comprobar el balance\nAntes de mirar el desenlace, se verifica que el emparejamiento equilibró los confusores:\n\nbal &lt;- summary(m1, standardize = TRUE)$sum.matched[, \"Std. Mean Diff.\"]\nround(bal, 3)\n\n  distance I(edad/10)  sexoMujer sexoHombre      hba1c        pas  tfg_basal \n     0.133     -0.079     -0.008      0.008      0.032      0.007      0.071 \n     luacr        ecv \n     0.059     -0.011 \n\n\n\nmm &lt;- match.data(m1)          # base emparejada con la columna `weights` y `subclass` (par)\nvars &lt;- c(\"edad\", \"hba1c\", \"pas\", \"tfg_basal\", \"luacr\", \"ecv\")\n\nlove_plot(ckd, vars, pesos = list(`Emparejado 1:1` = {\n  w &lt;- rep(0, nrow(ckd)); w[match(mm$id, ckd$id)] &lt;- mm$weights; w }))\n\n\n\n\n\n\n\nTras emparejar, todas las covariables tienen |DEM| &lt; 0.08 (la distancia del PS, 0.13, es un resumen del modelo y queda algo por encima): el balance en lo medido es excelente. La edad (de −0.58 a −0.08) y la TFGe (0.44 a 0.07) quedan equilibradas.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>64</span>  <span class='chapter-title'>Emparejamiento (*matching*)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.4.html#paso-2-estimar-el-efecto-en-la-muestra-emparejada",
+    "href": "capitulos/Capítulo12.4.html#paso-2-estimar-el-efecto-en-la-muestra-emparejada",
+    "title": "Emparejamiento (matching)",
+    "section": "Paso 2: estimar el efecto en la muestra emparejada",
+    "text": "Paso 2: estimar el efecto en la muestra emparejada\nEl modelo es simple (desenlace ~ tratamiento) porque los grupos ya son comparables. Los errores estándar deben tener en cuenta los pares (agrupar por subclass):\n\nfit &lt;- lm(pendiente_tfg ~ isglt2, data = mm, weights = weights)\nres &lt;- coeftest(fit, vcov = vcovCL, cluster = ~subclass)[\"isglt2\", ]\nc(estimado = res[1], ee = res[2], ic_inf = res[1] - 1.96 * res[2], ic_sup = res[1] + 1.96 * res[2]) |&gt; round(2)\n\nestimado.Estimate     ee.Std. Error   ic_inf.Estimate   ic_sup.Estimate \n             1.37              0.05              1.27              1.46 \n\n\nEstimación: 1.37 (IC 1.27-1.46), frente al ATT verdadero de 1.06. El emparejamiento equilibró lo medido, pero el ATT queda sobreestimado por la fragilidad no medida (los tratados son más “robustos” de base).\nCon desenlace binario\n\nfit_r &lt;- lm(evento ~ isglt2, data = mm, weights = weights)\ncoeftest(fit_r, vcov = vcovCL, cluster = ~subclass)[\"isglt2\", 1:2] |&gt; round(3)\n\n  Estimate Std. Error \n    -0.075      0.012 \n\n\nLa diferencia de riesgo a 36 meses (−7.5 puntos) también es mayor que la verdadera en tratados (−4.0 puntos).\nAjuste adicional tras emparejar (doblemente robusto)\nSi queda un pequeño desbalance, se puede añadir las covariables al modelo de resultado (recomendado por Ho et al.):\n\nfit2 &lt;- lm(pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv,\n           data = mm, weights = weights)\ncoeftest(fit2, vcov = vcovCL, cluster = ~subclass)[\"isglt2\", 1:2] |&gt; round(2)\n\n  Estimate Std. Error \n      1.34       0.04",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>64</span>  <span class='chapter-title'>Emparejamiento (*matching*)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.4.html#variantes-del-emparejamiento",
+    "href": "capitulos/Capítulo12.4.html#variantes-del-emparejamiento",
+    "title": "Emparejamiento (matching)",
+    "section": "Variantes del emparejamiento",
+    "text": "Variantes del emparejamiento\n\n\n\n\n\n\n\n\nOpción\nArgumento en matchit()\n\nVentajas\nDesventajas\n\n\n\n1:1 sin reposición\nratio = 1\nSimple, interpretable\nDescarta datos; depende del orden\n\n\nCon reposición\nreplace = TRUE\nMejor balance; menos descartados\nControles repetidos; varianza mayor\n\n\n1:k\nratio = 2\nMás precisión\nMás sesgo si los vecinos 2.º-k son peores\n\n\nCalibrador\ncaliper = 0.2\nEvita malas parejas\nDescarta tratados\n\n\nEstratificación\nmethod = \"subclass\"\nUsa todos los datos\nBalance dentro de estratos\n\n\nEmparejamiento completo\n\nmethod = \"full\" (requiere optmatch)\nUsa a todos; óptimo\nPesos variables\n\n\nMahalanobis\ndistance = \"mahalanobis\"\nNo usa PS\nPeor con muchas covariables\n\n\n\nComparamos algunas variantes con el ATT verdadero:\n\nestimar_att &lt;- function(m, y = \"pendiente_tfg\") {\n  d &lt;- match.data(m)\n  cl &lt;- if (\"subclass\" %in% names(d)) ~subclass else ~id\n  ct &lt;- coeftest(lm(as.formula(paste(y, \"~ isglt2\")), data = d, weights = weights), vcov = vcovCL, cluster = cl)[\"isglt2\", ]\n  c(estimado = unname(ct[1]), ee = unname(ct[2]), n_analisis = nrow(d))\n}\nvariantes &lt;- list(\n  `1:1, calibrador 0.2` = m1,\n  `1:1 con reposición` = matchit(formula_ps, data = ckd, method = \"nearest\", distance = \"glm\", caliper = 0.2, replace = TRUE),\n  `1:2, calibrador 0.2` = matchit(formula_ps, data = ckd, method = \"nearest\", distance = \"glm\", caliper = 0.2, ratio = 2),\n  `Estratificación en 5` = matchit(formula_ps, data = ckd, method = \"subclass\", distance = \"glm\", subclass = 5)\n)\nmap_dfr(variantes, estimar_att, .id = \"variante\") |&gt;\n  mutate(across(c(estimado, ee), \\(x) round(x, 2)), verdad_ATT = round(att_verdadero, 2))\n\n# A tibble: 4 × 5\n  variante             estimado    ee n_analisis verdad_ATT\n  &lt;chr&gt;                   &lt;dbl&gt; &lt;dbl&gt;      &lt;dbl&gt;      &lt;dbl&gt;\n1 1:1, calibrador 0.2      1.37  0.05       3632       1.06\n2 1:1 con reposición       1.52  0.07       3501       1.06\n3 1:2, calibrador 0.2      1.36  0.05       4100       1.06\n4 Estratificación en 5     1.44  0.11       5000       1.06\n\n\nTodas las variantes dan estimaciones parecidas (1.36-1.52): el método de emparejamiento importa mucho menos que el conjunto de confusores medidos.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>64</span>  <span class='chapter-title'>Emparejamiento (*matching*)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.4.html#reporte-del-emparejamiento",
+    "href": "capitulos/Capítulo12.4.html#reporte-del-emparejamiento",
+    "title": "Emparejamiento (matching)",
+    "section": "Reporte del emparejamiento",
+    "text": "Reporte del emparejamiento\n\n\n\n\n\n\nTip💡 Qué debe reportar un artículo con emparejamiento\n\n\n\n\nVariables del modelo de PS y método (vecino más cercano, calibrador, razón, reposición).\nNúmero de tratados y controles antes y después (y cuántos se descartaron).\nTabla 1 / DEM antes y después (el love plot).\nEstimando: ATT en los emparejados.\nErrores estándar que tengan en cuenta los pares (cluster o bootstrap).\nSoftware y paquetes.\nAnálisis de sensibilidad para confusión no medida (12.8).\n\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nEl emparejamiento por PS forma pares comparables y estima el ATT; MatchIt es el estándar.\n\nComprueba el balance antes de estimar (DEM &lt; 0.10 en todas las covariables).\nLos tratados sin pareja se descartan y cambia el estimando: repórtalos.\nEstima con un modelo simple en la muestra emparejada con EE que consideren los pares; añadir covariables da robustez.\nEquilibra solo lo medido: aquí el ATT sigue sobreestimado por la fragilidad.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>64</span>  <span class='chapter-title'>Emparejamiento (*matching*)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.4.html#ejercicio",
+    "href": "capitulos/Capítulo12.4.html#ejercicio",
+    "title": "Emparejamiento (matching)",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nEmpareja con un calibrador de 0.1 en vez de 0.2. ¿Cuántos tratados se descartan? ¿Cambia el balance y la estimación?\nEmpareja por Mahalanobis (distance = \"mahalanobis\"). ¿Qué DEM obtienes?\nRepite el emparejamiento incluyendo fragilidad en el modelo de PS (solo es posible porque es simulada). ¿Qué estimación obtienes del ATT?",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>64</span>  <span class='chapter-title'>Emparejamiento (*matching*)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.5.html",
+    "href": "capitulos/Capítulo12.5.html",
+    "title": "Ponderación por probabilidad inversa (IPW)",
+    "section": "",
+    "text": "La idea\nEn lugar de descartar pacientes (emparejamiento), la ponderación da a cada paciente un peso que lo hace “representar” a más pacientes parecidos del otro grupo. Se construye una pseudopoblación en la que el tratamiento no depende de los confusores.\n\\[\nw_i^{ATE} = \\frac{1}{P(A = a_i \\mid X_i)} = \\begin{cases} 1/e(X_i) & \\text{tratados} \\\\ 1/(1 - e(X_i)) & \\text{no tratados} \\end{cases}\n\\]\nUn tratado con PS bajo (poco probable que recibiera el fármaco) pesa mucho: es un “raro” que representa a muchos no tratados parecidos.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>65</span>  <span class='chapter-title'>Ponderación por probabilidad inversa (IPW)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.5.html#pesos-para-distintos-estimandos",
+    "href": "capitulos/Capítulo12.5.html#pesos-para-distintos-estimandos",
+    "title": "Ponderación por probabilidad inversa (IPW)",
+    "section": "Pesos para distintos estimandos",
+    "text": "Pesos para distintos estimandos\n\n\nEstimando\nPeso de los tratados\nPeso de los no tratados\n\n\n\nATE\n\\(1/e(X)\\)\n\\(1/(1-e(X))\\)\n\n\nATT\n1\n\\(e(X)/(1-e(X))\\)\n\n\nATU\n\\((1-e(X))/e(X)\\)\n1\n\n\n\n\nlibrary(tidyverse)\nlibrary(sandwich)\nlibrary(lmtest)\nsource(\"R/funciones_epi.R\")\n\noraculo &lt;- read_csv(\"Bases/ckd_isglt2_oraculo.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")), luacr = log(uacr))\nckd &lt;- oraculo |&gt; select(-fragilidad, -pendiente_0, -pendiente_1, -ite, -starts_with(\"evento_36m\"))\n\nformula_ps &lt;- isglt2 ~ I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv\nckd$ps &lt;- fitted(glm(formula_ps, data = ckd, family = binomial))\n\nckd &lt;- ckd |&gt;\n  mutate(\n    w_ate = ifelse(isglt2 == 1, 1 / ps, 1 / (1 - ps)),\n    w_att = ifelse(isglt2 == 1, 1, ps / (1 - ps)),\n    w_atu = ifelse(isglt2 == 1, (1 - ps) / ps, 1)\n  )\n\nverdad &lt;- c(ATE = mean(oraculo$ite), ATT = mean(oraculo$ite[oraculo$isglt2 == 1]), ATU = mean(oraculo$ite[oraculo$isglt2 == 0]))\nround(verdad, 2)\n\n ATE  ATT  ATU \n0.93 1.06 0.81",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>65</span>  <span class='chapter-title'>Ponderación por probabilidad inversa (IPW)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.5.html#paso-1-revisar-los-pesos",
+    "href": "capitulos/Capítulo12.5.html#paso-1-revisar-los-pesos",
+    "title": "Ponderación por probabilidad inversa (IPW)",
+    "section": "Paso 1: revisar los pesos",
+    "text": "Paso 1: revisar los pesos\nLos pesos muy grandes dan inestabilidad: unos pocos pacientes dominan. Se revisan antes de seguir:\n\ness &lt;- function(w) sum(w)^2 / sum(w^2)           # tamaño de muestra efectivo\n\nckd |&gt; group_by(trat = factor(isglt2, labels = c(\"No inicia\", \"Inicia\"))) |&gt;\n  summarise(n = n(), peso_medio = mean(w_ate), peso_max = max(w_ate), ESS = ess(w_ate)) |&gt;\n  mutate(across(where(is.numeric), \\(x) round(x, 1)))\n\n# A tibble: 2 × 5\n  trat          n peso_medio peso_max   ESS\n  &lt;fct&gt;     &lt;dbl&gt;      &lt;dbl&gt;    &lt;dbl&gt; &lt;dbl&gt;\n1 No inicia  2650        1.9     13.2 2154.\n2 Inicia     2350        2.1     29   1695.\n\n\nLos pesos van de 1 a ~29 y el tamaño efectivo de muestra (ESS) es de ~2 150 y ~1 700, frente a 2 650 y 2 350 reales: perdemos ~20-30 % de información por la ponderación.\n\nggplot(ckd, aes(w_ate, fill = factor(isglt2, labels = c(\"No inicia\", \"Inicia\")))) +\n  geom_histogram(bins = 50, position = \"identity\", alpha = 0.55) +\n  scale_x_log10() +\n  scale_fill_manual(values = c(\"#999999\", \"#0072B2\"), name = NULL) +\n  labs(x = \"Peso ATE (escala logarítmica)\", y = \"Pacientes\", caption = \"Datos simulados.\") +\n  theme_minimal(base_size = 11) + theme(legend.position = \"bottom\")",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>65</span>  <span class='chapter-title'>Ponderación por probabilidad inversa (IPW)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.5.html#paso-2-comprobar-el-balance-ponderado",
+    "href": "capitulos/Capítulo12.5.html#paso-2-comprobar-el-balance-ponderado",
+    "title": "Ponderación por probabilidad inversa (IPW)",
+    "section": "Paso 2: comprobar el balance ponderado",
+    "text": "Paso 2: comprobar el balance ponderado\n\nvars &lt;- c(\"edad\", \"hba1c\", \"pas\", \"tfg_basal\", \"luacr\", \"ecv\")\nlove_plot(ckd, vars, pesos = list(`IPW (ATE)` = ckd$w_ate, `IPW (ATT)` = ckd$w_att))\n\n\n\n\n\n\n\nCon los pesos ATE, las DEM caen a &lt; 0.01. Con los pesos ATT, el balance es hacia la población de los tratados.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>65</span>  <span class='chapter-title'>Ponderación por probabilidad inversa (IPW)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.5.html#paso-3-estimar-el-efecto",
+    "href": "capitulos/Capítulo12.5.html#paso-3-estimar-el-efecto",
+    "title": "Ponderación por probabilidad inversa (IPW)",
+    "section": "Paso 3: estimar el efecto",
+    "text": "Paso 3: estimar el efecto\nCon pesos, el análisis es una regresión ponderada simple. Los errores estándar usuales son incorrectos (ignoran que los pesos son estimados): usa varianza robusta (vcovHC) o bootstrap que repita todo el proceso (modelo de PS + pesos + estimación).\n\nestimar_w &lt;- function(w, estimando) {\n  fit &lt;- lm(pendiente_tfg ~ isglt2, data = ckd, weights = w)\n  ct &lt;- coeftest(fit, vcov = vcovHC(fit, type = \"HC1\"))[\"isglt2\", ]\n  tibble(estimando, estimado = ct[1], ee_robusto = ct[2])\n}\nbind_rows(estimar_w(ckd$w_ate, \"ATE\"), estimar_w(ckd$w_att, \"ATT\"), estimar_w(ckd$w_atu, \"ATU\")) |&gt;\n  mutate(verdad = round(verdad[estimando], 2), across(c(estimado, ee_robusto), \\(x) round(x, 2)))\n\n# A tibble: 3 × 4\n  estimando estimado ee_robusto verdad\n  &lt;chr&gt;        &lt;dbl&gt;      &lt;dbl&gt;  &lt;dbl&gt;\n1 ATE           1.34       0.05   0.93\n2 ATT           1.44       0.05   1.06\n3 ATU           1.26       0.05   0.81\n\n\nCada versión estima un efecto distinto y los tres son mayores que la verdad por la misma razón: la fragilidad no medida.\n\nBootstrap que repite todo el proceso\nLos errores estándar robustos ignoran la incertidumbre del modelo de PS. El bootstrap completo (7.4) la incorpora:\n\nlibrary(boot)\nipw_fn &lt;- function(datos, i) {\n  d &lt;- datos[i, ]\n  ps &lt;- fitted(glm(formula_ps, data = d, family = binomial))\n  w &lt;- ifelse(d$isglt2 == 1, 1 / ps, 1 / (1 - ps))\n  unname(coef(lm(pendiente_tfg ~ isglt2, data = d, weights = w))[\"isglt2\"])\n}\nset.seed(12)\nb &lt;- boot(ckd, ipw_fn, R = 500)\nc(estimado = b$t0, ee_bootstrap = sd(b$t), quantile(b$t, c(0.025, 0.975))) |&gt; round(2)\n\n    estimado ee_bootstrap         2.5%        97.5% \n        1.34         0.04         1.26         1.43",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>65</span>  <span class='chapter-title'>Ponderación por probabilidad inversa (IPW)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.5.html#pesos-estabilizados-y-truncados",
+    "href": "capitulos/Capítulo12.5.html#pesos-estabilizados-y-truncados",
+    "title": "Ponderación por probabilidad inversa (IPW)",
+    "section": "Pesos estabilizados y truncados",
+    "text": "Pesos estabilizados y truncados\nSi los pesos son extremos:\n\n\nEstabilizar: multiplicar por la probabilidad marginal del tratamiento recibido: \\(sw_i = P(A=a_i) / P(A=a_i\\mid X_i)\\). Mantiene el efecto, reduce la varianza, y los pesos medios quedan alrededor de 1.\n\nTruncar: reemplazar los pesos por encima de un percentil (p. ej., 99) por ese valor. Introduce sesgo a cambio de menor varianza.\n\n\np_trat &lt;- mean(ckd$isglt2)\nckd &lt;- ckd |&gt;\n  mutate(w_est = ifelse(isglt2 == 1, p_trat / ps, (1 - p_trat) / (1 - ps)),\n         w_trunc = pmin(pmax(w_ate, quantile(w_ate, 0.01)), quantile(w_ate, 0.99)))\n\ntibble(tipo = c(\"ATE sin modificar\", \"Estabilizado\", \"Truncado 1-99 %\"),\n       media = c(mean(ckd$w_ate), mean(ckd$w_est), mean(ckd$w_trunc)),\n       maximo = c(max(ckd$w_ate), max(ckd$w_est), max(ckd$w_trunc)),\n       estimado = c(coef(lm(pendiente_tfg ~ isglt2, ckd, weights = w_ate))[2],\n                    coef(lm(pendiente_tfg ~ isglt2, ckd, weights = w_est))[2],\n                    coef(lm(pendiente_tfg ~ isglt2, ckd, weights = w_trunc))[2])) |&gt;\n  mutate(across(where(is.numeric), \\(x) round(x, 2)))\n\n# A tibble: 3 × 4\n  tipo              media maximo estimado\n  &lt;chr&gt;             &lt;dbl&gt;  &lt;dbl&gt;    &lt;dbl&gt;\n1 ATE sin modificar  2      29.0     1.34\n2 Estabilizado       1      13.6     1.34\n3 Truncado 1-99 %    1.97    6.2     1.35\n\n\nCon tratamiento en un solo momento (como aquí), el estimador de la media ponderada no cambia con la estabilización (el efecto marginal es el mismo); los pesos estabilizados importan sobre todo en tratamientos que varían en el tiempo (Cap. 19).",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>65</span>  <span class='chapter-title'>Ponderación por probabilidad inversa (IPW)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.5.html#ipw-para-desenlaces-binarios",
+    "href": "capitulos/Capítulo12.5.html#ipw-para-desenlaces-binarios",
+    "title": "Ponderación por probabilidad inversa (IPW)",
+    "section": "IPW para desenlaces binarios",
+    "text": "IPW para desenlaces binarios\nCon una pseudopoblación balanceada, el riesgo ponderado en cada grupo se calcula directamente:\n\nriesgo &lt;- ckd |&gt; group_by(isglt2) |&gt; summarise(r = weighted.mean(evento, w_ate))\nc(riesgo_no_inicia = riesgo$r[1], riesgo_inicia = riesgo$r[2],\n  diferencia = riesgo$r[2] - riesgo$r[1], razon = riesgo$r[2] / riesgo$r[1]) |&gt; round(3)\n\nriesgo_no_inicia    riesgo_inicia       diferencia            razon \n           0.190            0.109           -0.081            0.572 \n\n\nDR de −8.1 puntos (verdad: −4.5) y RR de 0.57 (verdad: 0.74): igual que los otros métodos, queda un sesgo por la fragilidad.\n\n\n\n\n\n\nAdvertencia⚠️ La trampa de los pesos extremos\n\n\n\n\nPesos &gt; 10-20 suelen indicar violación de positividad: pacientes sin comparables.\n\nVerifica: ¿quiénes tienen los pesos mayores? ¿Son clínicamente “raros”?\nRevisa el modelo de PS (¿falta no linealidad o interacciones?) y valora restringir la población (12.3).\nReporta el ESS y analiza con y sin truncamiento.\n\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\n\nIPW: ponderar a cada paciente por \\(1/P(\\text{su tratamiento}\\mid X)\\) crea una pseudopoblación sin confusión medida; los pesos ATE, ATT y ATU apuntan a distintos estimandos.\n\nRevisa los pesos (rango, ESS) y el balance ponderado (DEM).\nUsa errores estándar robustos o bootstrap que repita todo el proceso.\n\nPesos estabilizados y truncados reducen la varianza (truncar introduce sesgo).\nIPW no corrige la confusión no medida.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>65</span>  <span class='chapter-title'>Ponderación por probabilidad inversa (IPW)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.5.html#ejercicio",
+    "href": "capitulos/Capítulo12.5.html#ejercicio",
+    "title": "Ponderación por probabilidad inversa (IPW)",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nCalcula el ESS con los pesos ATT y compáralo con el de los pesos ATE.\nIdentifica los 20 pacientes con mayor peso ATE y describe su perfil (edad, UACR, TFGe). ¿Tiene sentido clínico que pesen tanto?\nEstima el efecto con el modelo de PS que incluye fragilidad (solo en simulación). ¿Se acerca a la verdad (0.93)?",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>65</span>  <span class='chapter-title'>Ponderación por probabilidad inversa (IPW)</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.6.html",
+    "href": "capitulos/Capítulo12.6.html",
+    "title": "Estandarización (fórmula g) y estimadores doblemente robustos",
+    "section": "",
+    "text": "La fórmula g: predecir y promediar\nLa estandarización (también llamada fórmula g o g-computation) no usa el PS. Se ajusta un modelo del desenlace y luego se predice a cada paciente dos veces: como si todos hubieran recibido el tratamiento y como si ninguno lo hubiera recibido. El efecto es la diferencia de los promedios.\n\\[\n\\widehat{ATE} = \\frac{1}{n}\\sum_{i=1}^{n}\\left[\\hat\\mu(1, X_i) - \\hat\\mu(0, X_i)\\right] \\qquad \\hat\\mu(a, X) = \\hat E[Y \\mid A=a, X]\n\\]\nEs la generalización de la estandarización por edad del 7.5: calcular el efecto en cada estrato (ahora, cada paciente) y promediar con los pesos de la población estándar (la población total, los tratados o los no tratados).\nlibrary(tidyverse)\nlibrary(marginaleffects)\nlibrary(boot)\nsource(\"R/funciones_epi.R\")\n\noraculo &lt;- read_csv(\"Bases/ckd_isglt2_oraculo.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")), luacr = log(uacr))\nckd &lt;- oraculo |&gt; select(-fragilidad, -pendiente_0, -pendiente_1, -ite, -starts_with(\"evento_36m\"))\n\nverdad &lt;- c(ATE = mean(oraculo$ite), ATT = mean(oraculo$ite[oraculo$isglt2 == 1]), ATU = mean(oraculo$ite[oraculo$isglt2 == 0]))",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>66</span>  <span class='chapter-title'>Estandarización (fórmula g) y estimadores doblemente robustos</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.6.html#paso-a-paso",
+    "href": "capitulos/Capítulo12.6.html#paso-a-paso",
+    "title": "Estandarización (fórmula g) y estimadores doblemente robustos",
+    "section": "Paso a paso",
+    "text": "Paso a paso\nModelo del desenlace con interacciones (el efecto varía con las covariables):\n\nx &lt;- \"I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv\"\nmodelo_y &lt;- lm(as.formula(paste(\"pendiente_tfg ~ isglt2 * (\", x, \")\")), data = ckd)\n\n## Predicciones contrafactuales para cada paciente\nmu1 &lt;- predict(modelo_y, newdata = mutate(ckd, isglt2 = 1))     # si TODOS iniciaran\nmu0 &lt;- predict(modelo_y, newdata = mutate(ckd, isglt2 = 0))     # si NINGUNO iniciara\n\nc(ATE = mean(mu1 - mu0),\n  ATT = mean((mu1 - mu0)[ckd$isglt2 == 1]),     # promedio solo en los tratados\n  ATU = mean((mu1 - mu0)[ckd$isglt2 == 0])) |&gt; round(2)\n\n ATE  ATT  ATU \n1.32 1.43 1.23 \n\n\nEl paquete marginaleffects hace lo mismo, con errores estándar:\n\navg_comparisons(modelo_y, variables = \"isglt2\") |&gt; as_tibble() |&gt; select(estimate, conf.low, conf.high) |&gt; round(2)                 # ATE\n\n# A tibble: 1 × 3\n  estimate conf.low conf.high\n     &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;\n1     1.32     1.25       1.4\n\navg_comparisons(modelo_y, variables = \"isglt2\", newdata = subset(ckd, isglt2 == 1)) |&gt; as_tibble() |&gt; select(estimate) |&gt; round(2)  # ATT\n\n# A tibble: 1 × 1\n  estimate\n     &lt;dbl&gt;\n1     1.43\n\n\nCambiando la población estándar (todos, tratados o no tratados) obtenemos ATE, ATT o ATU. Un solo modelo, tres estimandos.\nDesenlaces binarios: riesgo estandarizado\n\nmodelo_r &lt;- glm(as.formula(paste(\"evento ~ isglt2 * (\", x, \")\")), data = ckd, family = binomial)\nr1 &lt;- mean(predict(modelo_r, mutate(ckd, isglt2 = 1), type = \"response\"))\nr0 &lt;- mean(predict(modelo_r, mutate(ckd, isglt2 = 0), type = \"response\"))\nc(riesgo_si_todos = r1, riesgo_si_nadie = r0, DR = r1 - r0, RR = r1 / r0) |&gt; round(3)\n\nriesgo_si_todos riesgo_si_nadie              DR              RR \n          0.109           0.188          -0.080           0.577",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>66</span>  <span class='chapter-title'>Estandarización (fórmula g) y estimadores doblemente robustos</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.6.html#intervalos-de-confianza-por-bootstrap",
+    "href": "capitulos/Capítulo12.6.html#intervalos-de-confianza-por-bootstrap",
+    "title": "Estandarización (fórmula g) y estimadores doblemente robustos",
+    "section": "Intervalos de confianza por bootstrap\n",
+    "text": "Intervalos de confianza por bootstrap\n\n\ngf_fn &lt;- function(datos, i) {\n  d &lt;- datos[i, ]\n  m &lt;- lm(as.formula(paste(\"pendiente_tfg ~ isglt2 * (\", x, \")\")), data = d)\n  mean(predict(m, mutate(d, isglt2 = 1)) - predict(m, mutate(d, isglt2 = 0)))\n}\nset.seed(2)\nb &lt;- boot(ckd, gf_fn, R = 500)\nc(ATE = b$t0, quantile(b$t, c(0.025, 0.975))) |&gt; round(2)\n\n  ATE  2.5% 97.5% \n 1.32  1.26  1.40",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>66</span>  <span class='chapter-title'>Estandarización (fórmula g) y estimadores doblemente robustos</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.6.html#estimador-doblemente-robusto-aipw",
+    "href": "capitulos/Capítulo12.6.html#estimador-doblemente-robusto-aipw",
+    "title": "Estandarización (fórmula g) y estimadores doblemente robustos",
+    "section": "Estimador doblemente robusto: AIPW",
+    "text": "Estimador doblemente robusto: AIPW\nLa fórmula g depende del modelo del desenlace; el IPW, del modelo del tratamiento (PS). El estimador AIPW (augmented inverse probability weighting) combina ambos:\n\\[\n\\widehat{ATE}_{AIPW} = \\frac{1}{n}\\sum_i \\left[\\hat\\mu_1(X_i) - \\hat\\mu_0(X_i) + \\frac{A_i\\,(Y_i - \\hat\\mu_1(X_i))}{\\hat e(X_i)} - \\frac{(1-A_i)\\,(Y_i - \\hat\\mu_0(X_i))}{1-\\hat e(X_i)}\\right]\n\\]\nEs doblemente robusto: es consistente si al menos uno de los dos modelos (PS o desenlace) está bien especificado. Es el principio detrás de TMLE y de los estimadores de aprendizaje automático (double machine learning, Cap. 19).\n\nestimadores &lt;- function(d, f_ps, f_out) {\n  ps &lt;- fitted(glm(f_ps, data = d, family = binomial))\n  m &lt;- lm(f_out, data = d)\n  mu1 &lt;- predict(m, mutate(d, isglt2 = 1)); mu0 &lt;- predict(m, mutate(d, isglt2 = 0))\n  a &lt;- d$isglt2; y &lt;- d$pendiente_tfg\n  c(`Fórmula g` = mean(mu1 - mu0),\n    IPW = weighted.mean(y[a == 1], 1 / ps[a == 1]) - weighted.mean(y[a == 0], 1 / (1 - ps[a == 0])),\n    AIPW = mean(mu1 - mu0 + a * (y - mu1) / ps - (1 - a) * (y - mu0) / (1 - ps)))\n}\n\nCon lo medido: todos los métodos coinciden (y se equivocan igual)\n\nf_ps  &lt;- as.formula(paste(\"isglt2 ~\", x))\nf_out &lt;- as.formula(paste(\"pendiente_tfg ~ isglt2 * (\", x, \")\"))\n\nround(c(estimadores(ckd, f_ps, f_out), `Verdad (ATE)` = unname(verdad[\"ATE\"])), 2)\n\n   Fórmula g          IPW         AIPW Verdad (ATE) \n        1.32         1.34         1.35         0.93 \n\n\nFórmula g, IPW y AIPW dan 1.32-1.35, muy parecidos entre sí y lejos de la verdad (0.93). Que varios métodos coincidan no demuestra que acierten: comparten el mismo supuesto de intercambiabilidad condicional, que aquí no se cumple (falta la fragilidad).\nAislando el problema del modelo: si pudiéramos medir la fragilidad\nPara ver el valor de la doble robustez, aislamos el error de especificación del modelo de un posible confusor no medido. Usamos el oráculo (que incluye la fragilidad) y estropeamos a propósito uno de los modelos:\n\nx_ok &lt;- paste(x, \"+ fragilidad\")\nps_ok   &lt;- as.formula(paste(\"isglt2 ~\", x_ok))\nps_mal  &lt;- isglt2 ~ I(edad / 10) + sexo                                       # omite confusores\nout_ok  &lt;- as.formula(paste(\"pendiente_tfg ~ isglt2 * (\", x_ok, \")\"))\nout_mal &lt;- pendiente_tfg ~ isglt2 + I(edad / 10) + sexo                       # omite confusores e interacción\n\no &lt;- oraculo\nres &lt;- rbind(\n  `Ambos modelos correctos` = estimadores(o, ps_ok, out_ok),\n  `PS correcto, desenlace mal especificado` = estimadores(o, ps_ok, out_mal),\n  `PS mal especificado, desenlace correcto` = estimadores(o, ps_mal, out_ok),\n  `Ambos mal especificados` = estimadores(o, ps_mal, out_mal)\n)\nround(cbind(res, Verdad = verdad[\"ATE\"]), 2)\n\n                                        Fórmula g  IPW AIPW Verdad\nAmbos modelos correctos                      0.92 0.94 0.93   0.93\nPS correcto, desenlace mal especificado      1.15 0.94 0.93   0.93\nPS mal especificado, desenlace correcto      0.92 1.15 0.92   0.93\nAmbos mal especificados                      1.15 1.15 1.15   0.93\n\n\n\nCon ambos modelos correctos, los tres recuperan la verdad (≈ 0.93).\nCon un solo modelo estropeado, el AIPW sigue acertando (0.93), mientras que la fórmula g (desenlace malo) o el IPW (PS malo) se desvían a ~1.15.\nCon ambos mal, todos fallan.\n\n\n\n\n\n\n\nImportante🎯 Doble robustez, en palabras\n\n\n\nEl AIPW te da dos oportunidades de acertar con el modelo. No arregla un confusor no medido ni una violación de positividad, pero protege frente a errores de especificación. Por eso es el estándar actual en inferencia causal con datos observacionales, sobre todo combinado con aprendizaje automático y cross-fitting (Cap. 19).\n\n\nIC del AIPW por bootstrap\n\n\naipw_fn &lt;- function(datos, i) unname(estimadores(datos[i, ], f_ps, f_out)[\"AIPW\"])\nset.seed(5)\nb2 &lt;- boot(ckd, aipw_fn, R = 300)\nc(AIPW = b2$t0, quantile(b2$t, c(0.025, 0.975))) |&gt; round(2)\n\n AIPW  2.5% 97.5% \n 1.35  1.28  1.43",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>66</span>  <span class='chapter-title'>Estandarización (fórmula g) y estimadores doblemente robustos</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.6.html#comparar-métodos-en-una-tabla",
+    "href": "capitulos/Capítulo12.6.html#comparar-métodos-en-una-tabla",
+    "title": "Estandarización (fórmula g) y estimadores doblemente robustos",
+    "section": "Comparar métodos en una tabla",
+    "text": "Comparar métodos en una tabla\n\nresumen &lt;- tribble(\n  ~metodo, ~estimando, ~depende_de, ~estimacion,\n  \"Crudo\", \"—\", \"Nada\", coef(lm(pendiente_tfg ~ isglt2, ckd))[2],\n  \"Regresión ajustada\", \"ATE (sin interacción)\", \"Modelo del desenlace\", coef(lm(as.formula(paste(\"pendiente_tfg ~ isglt2 +\", x)), ckd))[2],\n  \"Fórmula g\", \"ATE\", \"Modelo del desenlace\", unname(estimadores(ckd, f_ps, f_out)[\"Fórmula g\"]),\n  \"IPW\", \"ATE\", \"Modelo del PS\", unname(estimadores(ckd, f_ps, f_out)[\"IPW\"]),\n  \"AIPW\", \"ATE\", \"Uno de los dos\", unname(estimadores(ckd, f_ps, f_out)[\"AIPW\"]),\n  \"Verdad\", \"ATE\", \"—\", unname(verdad[\"ATE\"])\n)\nresumen |&gt; mutate(estimacion = round(estimacion, 2))\n\n# A tibble: 6 × 4\n  metodo             estimando             depende_de           estimacion\n  &lt;chr&gt;              &lt;chr&gt;                 &lt;chr&gt;                     &lt;dbl&gt;\n1 Crudo              —                     Nada                       1.5 \n2 Regresión ajustada ATE (sin interacción) Modelo del desenlace       1.34\n3 Fórmula g          ATE                   Modelo del desenlace       1.32\n4 IPW                ATE                   Modelo del PS              1.34\n5 AIPW               ATE                   Uno de los dos             1.35\n6 Verdad             ATE                   —                          0.93\n\n\nTodos los métodos “ajustados” comparten el mismo sesgo (el de la fragilidad no medida): cada uno resuelve un problema estadístico distinto, pero ninguno resuelve un problema de datos (variables no medidas).\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\n\nFórmula g: modelar el desenlace, predecir con y sin tratamiento para cada paciente y promediar; cambiar la población estándar da ATE, ATT o ATU.\n\nAIPW combina el modelo del desenlace y el del PS: es doblemente robusto (acierta si uno de los dos es correcto).\nPara el IC, bootstrap repitiendo todo el procedimiento (modelo + estimación).\n\nVarios métodos concordantes no prueban validez: comparten el supuesto de intercambiabilidad condicional.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>66</span>  <span class='chapter-title'>Estandarización (fórmula g) y estimadores doblemente robustos</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.6.html#ejercicio",
+    "href": "capitulos/Capítulo12.6.html#ejercicio",
+    "title": "Estandarización (fórmula g) y estimadores doblemente robustos",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nCalcula el ATE de la diferencia de riesgos a 36 meses con AIPW (usa evento como desenlace y glm para el modelo).\nCalcula el ATT con la fórmula g restringiendo la población estándar a los tratados. ¿Se acerca más al ATT verdadero (1.06)?\nEstropea el modelo del desenlace quitando la interacción con luacr. ¿Cuánto cambia la fórmula g en las condiciones “con fragilidad”?",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>66</span>  <span class='chapter-title'>Estandarización (fórmula g) y estimadores doblemente robustos</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.7.html",
+    "href": "capitulos/Capítulo12.7.html",
+    "title": "Efectos causales con desenlaces de supervivencia",
+    "section": "",
+    "text": "El desenlace es “tiempo hasta evento”\nCon desenlaces de supervivencia (Cap. 9), los métodos causales se adaptan de tres maneras:\nlibrary(tidyverse)\nlibrary(survival)\nlibrary(boot)\nsource(\"R/funciones_epi.R\")\n\noraculo &lt;- read_csv(\"Bases/ckd_isglt2_oraculo.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")), luacr = log(uacr))\nckd &lt;- oraculo |&gt; select(-fragilidad, -pendiente_0, -pendiente_1, -ite, -starts_with(\"evento_36m\"))\n\n## Verdad (oráculo): efectos sobre el riesgo a 36 meses y HR simulado\nr1 &lt;- mean(oraculo$evento_36m_1); r0 &lt;- mean(oraculo$evento_36m_0)\nverdad &lt;- c(riesgo_si_todos = r1, riesgo_si_nadie = r0, DR = r1 - r0, RR = r1 / r0, HR = 0.70)\nround(verdad, 3)\n\nriesgo_si_todos riesgo_si_nadie              DR              RR              HR \n          0.126           0.172          -0.045           0.736           0.700\nEl efecto causal verdadero sobre el riesgo de evento renal a 36 meses: 12.6 % si todos reciben el iSGLT2 y 17.2 % si nadie; DR = −4.5 puntos; RR = 0.74; el HR constante simulado es 0.70.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>67</span>  <span class='chapter-title'>Efectos causales con desenlaces de supervivencia</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.7.html#el-desenlace-es-tiempo-hasta-evento",
+    "href": "capitulos/Capítulo12.7.html#el-desenlace-es-tiempo-hasta-evento",
+    "title": "Efectos causales con desenlaces de supervivencia",
+    "section": "",
+    "text": "Estrategia\nCómo\nEstimando\n\n\n\nKaplan-Meier ponderado\nKM con los pesos IPW\n\nRiesgo (o supervivencia) marginal a cada tiempo; DR y RR a t\n\n\n\nCox ponderado\n\ncoxph con pesos y errores robustos\nHR marginal\n\n\nEstandarización con un modelo de supervivencia\nPredecir la curva de cada paciente con y sin tratamiento y promediar\nRiesgo estandarizado a t, ATE, ATT",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>67</span>  <span class='chapter-title'>Efectos causales con desenlaces de supervivencia</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.7.html#preparar-los-pesos",
+    "href": "capitulos/Capítulo12.7.html#preparar-los-pesos",
+    "title": "Efectos causales con desenlaces de supervivencia",
+    "section": "Preparar los pesos",
+    "text": "Preparar los pesos\n\nx &lt;- \"I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv\"\nckd$ps &lt;- fitted(glm(as.formula(paste(\"isglt2 ~\", x)), data = ckd, family = binomial))\nckd$w &lt;- ifelse(ckd$isglt2 == 1, 1 / ckd$ps, 1 / (1 - ckd$ps))\nckd &lt;- ckd |&gt; mutate(trat = factor(isglt2, labels = c(\"No inicia\", \"Inicia iSGLT2\")))",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>67</span>  <span class='chapter-title'>Efectos causales con desenlaces de supervivencia</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.7.html#kaplan-meier-ponderado",
+    "href": "capitulos/Capítulo12.7.html#kaplan-meier-ponderado",
+    "title": "Efectos causales con desenlaces de supervivencia",
+    "section": "Kaplan-Meier ponderado",
+    "text": "Kaplan-Meier ponderado\nEl KM ponderado estima la curva en la pseudopoblación balanceada. Se compara con la curva cruda:\n\ncurva &lt;- function(datos, pesos, nombre) {\n  sf &lt;- survfit(Surv(tiempo_meses, evento) ~ trat, data = datos, weights = pesos)\n  tibble(tiempo = sf$time, riesgo = 1 - sf$surv, trat = rep(levels(datos$trat), sf$strata), tipo = nombre)\n}\nbind_rows(curva(ckd, NULL, \"Cruda\"), curva(ckd, ckd$w, \"Ponderada por IPW\")) |&gt;\n  ggplot(aes(tiempo, riesgo, color = trat)) +\n  geom_step(linewidth = 1) +\n  facet_wrap(~ tipo) +\n  scale_color_manual(values = c(\"No inicia\" = \"#999999\", \"Inicia iSGLT2\" = \"#0072B2\"), name = NULL) +\n  scale_y_continuous(labels = scales::percent_format()) +\n  labs(x = \"Meses\", y = \"Riesgo acumulado de evento renal\", caption = \"Datos simulados.\") +\n  theme_minimal(base_size = 11) + theme(legend.position = \"bottom\")\n\n\n\n\n\n\n\nCalculamos la DR y el RR a 12, 24 y 36 meses de forma explícita:\n\nriesgo_ponderado &lt;- function(datos, pesos, t) {\n  sf &lt;- survfit(Surv(tiempo_meses, evento) ~ isglt2, data = datos, weights = pesos)\n  s &lt;- summary(sf, times = t, extend = TRUE)\n  r &lt;- 1 - s$surv; c(riesgo_0 = r[1], riesgo_1 = r[2], DR = r[2] - r[1], RR = r[2] / r[1])\n}\ntibble(meses = c(12, 24, 36)) |&gt;\n  mutate(res = map(meses, \\(t) as_tibble(as.list(riesgo_ponderado(ckd, ckd$w, t))))) |&gt;\n  unnest(res) |&gt; mutate(across(-meses, \\(x) round(x, 3)))\n\n# A tibble: 3 × 5\n  meses riesgo_0 riesgo_1     DR    RR\n  &lt;dbl&gt;    &lt;dbl&gt;    &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt;\n1    12    0.071    0.037 -0.035 0.515\n2    24    0.136    0.079 -0.056 0.586\n3    36    0.19     0.109 -0.081 0.572\n\n\nA los 36 meses, el riesgo ponderado es 19.0 % sin iSGLT2 y 10.9 % con él: DR ≈ −8 puntos, RR ≈ 0.57. Es mayor que la verdad (−4.5 puntos; RR 0.74) por la fragilidad no medida. Igual que antes: el método (ponderación para supervivencia) es correcto; el supuesto de intercambiabilidad condicional es el que falla.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>67</span>  <span class='chapter-title'>Efectos causales con desenlaces de supervivencia</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.7.html#cox-ponderado-el-hr-marginal",
+    "href": "capitulos/Capítulo12.7.html#cox-ponderado-el-hr-marginal",
+    "title": "Efectos causales con desenlaces de supervivencia",
+    "section": "Cox ponderado: el HR marginal",
+    "text": "Cox ponderado: el HR marginal\n\ncx_cond &lt;- coxph(Surv(tiempo_meses, evento) ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv, data = ckd)\ncx_marg &lt;- coxph(Surv(tiempo_meses, evento) ~ isglt2, data = ckd, weights = w, robust = TRUE)\ncx_crudo &lt;- coxph(Surv(tiempo_meses, evento) ~ isglt2, data = ckd)\n\nhr &lt;- function(m) exp(coef(m)[\"isglt2\"])\ntibble(modelo = c(\"Cox crudo\", \"Cox ajustado (condicional)\", \"Cox ponderado (marginal)\", \"Verdad\"),\n       HR = c(hr(cx_crudo), hr(cx_cond), hr(cx_marg), 0.70)) |&gt; mutate(HR = round(HR, 2))\n\n# A tibble: 4 × 2\n  modelo                        HR\n  &lt;chr&gt;                      &lt;dbl&gt;\n1 Cox crudo                   0.54\n2 Cox ajustado (condicional)  0.55\n3 Cox ponderado (marginal)    0.55\n4 Verdad                      0.7 \n\n\nEl Cox ponderado con errores robustos (robust = TRUE) estima el HR marginal; el Cox ajustado, el HR condicional. Con riesgos proporcionales constantes y sin confusión no medida coincidirían; aquí ambos (~0.55) se desvían del 0.70 verdadero por la fragilidad.\n\n\n\n\n\n\nAdvertencia⚠️ HR marginal ≠ HR condicional\n\n\n\nEl HR no es colapsable: el HR marginal (poblacional) generalmente difiere del condicional (a covariables dadas), aun sin confusión. Por eso se prefieren riesgos acumulados (DR, RR a un tiempo) para comunicar efectos causales.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>67</span>  <span class='chapter-title'>Efectos causales con desenlaces de supervivencia</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.7.html#estandarización-con-un-modelo-de-cox",
+    "href": "capitulos/Capítulo12.7.html#estandarización-con-un-modelo-de-cox",
+    "title": "Efectos causales con desenlaces de supervivencia",
+    "section": "Estandarización con un modelo de Cox",
+    "text": "Estandarización con un modelo de Cox\nSe ajusta un Cox con covariables, se predice la curva de cada paciente bajo ambos tratamientos y se promedia:\n\nriesgo_estandarizado &lt;- function(datos, t = 36) {\n  m &lt;- coxph(Surv(tiempo_meses, evento) ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv, data = datos)\n  s1 &lt;- summary(survfit(m, newdata = mutate(datos, isglt2 = 1)), times = t, extend = TRUE)$surv\n  s0 &lt;- summary(survfit(m, newdata = mutate(datos, isglt2 = 0)), times = t, extend = TRUE)$surv\n  r1 &lt;- 1 - mean(s1); r0 &lt;- 1 - mean(s0)\n  c(riesgo_0 = r0, riesgo_1 = r1, DR = r1 - r0, RR = r1 / r0)\n}\nround(riesgo_estandarizado(ckd), 3)\n\nriesgo_0 riesgo_1       DR       RR \n   0.188    0.111   -0.078    0.588 \n\n\nDR ≈ −8 puntos y RR ≈ 0.59, coherente con el KM ponderado (los dos métodos comparten el mismo conjunto de confusores).\nIC por bootstrap\n\n\ndr_ipw &lt;- function(datos, i) {\n  d &lt;- datos[i, ]\n  ps &lt;- fitted(glm(as.formula(paste(\"isglt2 ~\", x)), data = d, family = binomial))\n  w &lt;- ifelse(d$isglt2 == 1, 1 / ps, 1 / (1 - ps))\n  riesgo_ponderado(d, w, 36)[\"DR\"]\n}\nset.seed(11)\nb &lt;- boot(ckd, dr_ipw, R = 200)\nc(DR_36m = b$t0, quantile(b$t, c(0.025, 0.975))) |&gt; round(3)\n\nDR_36m.DR      2.5%     97.5% \n   -0.081    -0.106    -0.058",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>67</span>  <span class='chapter-title'>Efectos causales con desenlaces de supervivencia</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.7.html#si-pudiéramos-medir-la-confusión-la-verdad-reaparece",
+    "href": "capitulos/Capítulo12.7.html#si-pudiéramos-medir-la-confusión-la-verdad-reaparece",
+    "title": "Efectos causales con desenlaces de supervivencia",
+    "section": "Si pudiéramos medir la confusión: la verdad reaparece",
+    "text": "Si pudiéramos medir la confusión: la verdad reaparece\nPara comprobar que el procedimiento es correcto, incluimos la fragilidad (solo posible en simulación) en el modelo de PS y repetimos:\n\no &lt;- oraculo |&gt; mutate(trat = factor(isglt2, labels = c(\"No inicia\", \"Inicia iSGLT2\")))\no$ps &lt;- fitted(glm(as.formula(paste(\"isglt2 ~\", x, \"+ fragilidad\")), data = o, family = binomial))\no$w &lt;- ifelse(o$isglt2 == 1, 1 / o$ps, 1 / (1 - o$ps))\n\nhr_f &lt;- hr(coxph(Surv(tiempo_meses, evento) ~ isglt2, data = o, weights = w, robust = TRUE))\nrf &lt;- riesgo_ponderado(o, o$w, 36)\nc(HR = unname(hr_f), DR_36m = unname(rf[\"DR\"]), RR_36m = unname(rf[\"RR\"])) |&gt; round(3)\n\n    HR DR_36m RR_36m \n 0.697 -0.050  0.719 \n\n\nHR 0.70, DR −5.0 puntos, RR 0.72: casi exactamente la verdad (0.70, −4.5, 0.74). El método funciona cuando el supuesto se cumple.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>67</span>  <span class='chapter-title'>Efectos causales con desenlaces de supervivencia</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.7.html#cuando-hay-censura-ipcw",
+    "href": "capitulos/Capítulo12.7.html#cuando-hay-censura-ipcw",
+    "title": "Efectos causales con desenlaces de supervivencia",
+    "section": "Cuando hay censura: IPCW",
+    "text": "Cuando hay censura: IPCW\nAquí todos los pacientes tienen seguimiento completo hasta 36 meses o evento. Si hay censura informativa (pérdidas relacionadas con el pronóstico), el KM ponderado debe incluir también pesos por censura (IPCW): se estima la probabilidad de seguir en observación y se pondera a los no censurados por su inversa (Cap. 19).\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nCon desenlaces de supervivencia: KM ponderado (riesgos a t), Cox ponderado con errores robustos (HR marginal) o estandarización con un modelo de Cox.\nComunica el riesgo acumulado (DR, RR) a un tiempo fijo: más interpretable y colapsable que el HR.\nEl HR marginal ≠ HR condicional (no colapsabilidad).\nLos IC deben provenir de bootstrap que repita todo el procedimiento.\nEl método es correcto, pero el resultado depende del supuesto de intercambiabilidad: con la fragilidad medida se recupera la verdad.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>67</span>  <span class='chapter-title'>Efectos causales con desenlaces de supervivencia</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.7.html#ejercicio",
+    "href": "capitulos/Capítulo12.7.html#ejercicio",
+    "title": "Efectos causales con desenlaces de supervivencia",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nCalcula el RMST a 36 meses en el pseudopoblación ponderada (usa summary(survfit(..., weights = w), rmean = 36)). ¿Cuántos meses libres de evento se ganan?\nCalcula el riesgo estandarizado en los tratados (ATT) con el modelo de Cox.\nIntroduce censura aleatoria (30 % de pacientes censurados en un tiempo uniforme) y compara el KM ponderado con y sin censura.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>67</span>  <span class='chapter-title'>Efectos causales con desenlaces de supervivencia</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.8.html",
+    "href": "capitulos/Capítulo12.8.html",
+    "title": "Análisis de sensibilidad",
+    "section": "",
+    "text": "Lo que los métodos no pueden decirte\nTodo lo que hicimos en este capítulo equilibra lo medido. La conclusión de que el iSGLT2 enlentece la pérdida de TFGe depende de un supuesto que no se puede comprobar con los datos: que no hay confusión no medida importante (intercambiabilidad condicional). En 10.6 vimos las herramientas para cuantificar ese riesgo; aquí las usamos en el flujo de análisis causal y añadimos dos más: la medición parcial del confusor y los controles negativos.\nlibrary(tidyverse)\nsource(\"R/funciones_epi.R\")\n\noraculo &lt;- read_csv(\"Bases/ckd_isglt2_oraculo.csv\") |&gt;\n  mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")), luacr = log(uacr))\nx &lt;- \"I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv\"\n\nipw_ate &lt;- function(d, formula_ps, y = \"pendiente_tfg\") {\n  ps &lt;- fitted(glm(formula_ps, data = d, family = binomial))\n  w &lt;- ifelse(d$isglt2 == 1, 1 / ps, 1 / (1 - ps))\n  unname(coef(lm(as.formula(paste(y, \"~ isglt2\")), data = d, weights = w))[\"isglt2\"])\n}\nate_verdadero &lt;- mean(oraculo$ite)\nestimado &lt;- ipw_ate(oraculo, as.formula(paste(\"isglt2 ~\", x)))\nc(estimado_IPW = estimado, verdad = ate_verdadero) |&gt; round(2)\n\nestimado_IPW       verdad \n        1.34         0.93",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>68</span>  <span class='chapter-title'>Análisis de sensibilidad</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.8.html#e-value-qué-fuerza-debe-tener-un-confusor-para-anular-el-efecto",
+    "href": "capitulos/Capítulo12.8.html#e-value-qué-fuerza-debe-tener-un-confusor-para-anular-el-efecto",
+    "title": "Análisis de sensibilidad",
+    "section": "1. E-value: ¿qué fuerza debe tener un confusor para anular el efecto?",
+    "text": "1. E-value: ¿qué fuerza debe tener un confusor para anular el efecto?\nYa visto en 10.6. Con el RR ponderado de evento renal a 36 meses (≈ 0.57):\n\ne_value(rr = 0.57, lim = NA)\n\n# A tibble: 1 × 2\n  e_value_punto e_value_ic\n          &lt;dbl&gt;      &lt;dbl&gt;\n1          2.90         NA\n\n\nUn confusor no medido tendría que asociarse con RR ≈ 2.9 con el tratamiento y con el desenlace para explicar todo el efecto. Referencia (benchmarking): la albuminuria, el confusor medido más fuerte, se asocia con el evento con un RR de ~1.4 por duplicación. ¿Hay un factor no medido más fuerte que la albuminuria? La fragilidad podría serlo, pero para anular el efecto necesitaría una asociación extrema.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>68</span>  <span class='chapter-title'>Análisis de sensibilidad</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.8.html#y-si-midiéramos-mal-el-confusor-medición-parcial",
+    "href": "capitulos/Capítulo12.8.html#y-si-midiéramos-mal-el-confusor-medición-parcial",
+    "title": "Análisis de sensibilidad",
+    "section": "2. ¿Y si midiéramos mal el confusor? Medición parcial",
+    "text": "2. ¿Y si midiéramos mal el confusor? Medición parcial\nUn confusor no medido es el caso extremo: normalmente se mide con error (un proxy: velocidad de marcha, albúmina, hospitalizaciones previas). ¿Cuánta de la confusión se corrige con un proxy imperfecto? Simulamos proxies de la fragilidad con distinto ruido y los añadimos al modelo de PS:\n\nset.seed(1)\nniveles &lt;- c(0, 0.5, 1, 2, 4)\nres &lt;- map_dfr(niveles, \\(s) {\n  d &lt;- oraculo |&gt; mutate(proxy = fragilidad + rnorm(n(), 0, s))\n  tibble(ruido = s, fiabilidad = var(d$fragilidad) / var(d$proxy),\n         estimado = ipw_ate(d, as.formula(paste(\"isglt2 ~\", x, \"+ proxy\"))))\n})\nbind_rows(res, tibble(ruido = Inf, fiabilidad = 0, estimado = estimado)) |&gt;\n  mutate(across(where(is.numeric), \\(x) round(x, 2)))\n\n# A tibble: 6 × 3\n  ruido fiabilidad estimado\n  &lt;dbl&gt;      &lt;dbl&gt;    &lt;dbl&gt;\n1   0         1        0.94\n2   0.5       0.82     1.03\n3   1         0.52     1.11\n4   2         0.22     1.26\n5   4         0.06     1.31\n6 Inf         0        1.34\n\n\n\nres |&gt;\n  ggplot(aes(fiabilidad, estimado)) +\n  geom_hline(yintercept = ate_verdadero, color = \"#D55E00\", linewidth = 1) +\n  geom_hline(yintercept = estimado, linetype = \"dashed\", color = \"grey40\") +\n  geom_line(color = \"#0072B2\") + geom_point(size = 3, color = \"#0072B2\") +\n  labs(x = \"Fiabilidad del proxy de fragilidad (0 = nada; 1 = perfecto)\",\n       y = \"Efecto estimado (IPW)\", caption = \"Naranja: verdad. Punteada: sin proxy. Datos simulados.\") +\n  theme_minimal(base_size = 11)\n\n\n\n\n\n\n\nCon un proxy de fiabilidad 0.5 ya se corrige más de la mitad del sesgo (de 0.41 a 0.18); con 0.8, cerca de tres cuartas partes. Moraleja práctica: mide lo mejor que puedas variables relacionadas con la fragilidad (marcha, fuerza de prensión, albúmina, hospitalizaciones, polifarmacia); aunque imperfectas, reducen el sesgo.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>68</span>  <span class='chapter-title'>Análisis de sensibilidad</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.8.html#controles-negativos",
+    "href": "capitulos/Capítulo12.8.html#controles-negativos",
+    "title": "Análisis de sensibilidad",
+    "section": "3. Controles negativos",
+    "text": "3. Controles negativos\nUn control negativo es un desenlace (o exposición) que no debería estar causalmente relacionado con el tratamiento, pero que comparte las mismas fuentes de sesgo. Si el análisis encuentra una asociación donde no puede haber efecto, revela confusión residual.\nSimulamos un desenlace de control negativo: fracturas por caídas, que dependen de la fragilidad y la edad, y no del iSGLT2:\n\nset.seed(5)\noraculo &lt;- oraculo |&gt;\n  mutate(fractura = rbinom(n(), 1, plogis(-3 + 0.7 * fragilidad + 0.02 * (edad - 64))))     # sin efecto del tratamiento\n\nckd &lt;- oraculo |&gt; select(-fragilidad, -pendiente_0, -pendiente_1, -ite, -starts_with(\"evento_36m\"))\nmodelo_cn &lt;- glm(as.formula(paste(\"fractura ~ isglt2 +\", x)), data = ckd, family = binomial)\nexp(cbind(OR = coef(modelo_cn), confint.default(modelo_cn)))[\"isglt2\", ] |&gt; round(2)\n\n    OR  2.5 % 97.5 % \n  0.53   0.41   0.69 \n\n\nEl iSGLT2 aparece “protector” contra fracturas (OR ≈ 0.53, IC 0.41-0.69), algo biológicamente poco plausible (no hay efecto en la simulación). La señal indica confusión residual por fragilidad: los pacientes tratados son “más robustos” en algo que no medimos.\n\n\n\n\n\n\nImportante🎯 Cómo usar el control negativo\n\n\n\n\nUna asociación nula en el control negativo tranquiliza (pero no demuestra ausencia de sesgo: puede haber confusores específicos del desenlace principal).\nUna asociación no nula alerta: hay sesgo compartido. El OR del control negativo (0.53) da una idea de su magnitud (se puede usar para calibrar empíricamente el efecto principal).\nEl control negativo debe ser creíble (sin efecto causal) y sensible a las mismas fuentes de sesgo.\n\n\n\nEjemplos de controles negativos en nefrología: vacuna antigripal como “tratamiento” frente a fracturas de cadera; uso de iSGLT2 y cáncer de piel; uso de fármaco antes de que se inicie (un desenlace que ocurrió antes del tratamiento no puede ser causado por él).",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>68</span>  <span class='chapter-title'>Análisis de sensibilidad</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.8.html#análisis-de-sesgo-cuantitativo",
+    "href": "capitulos/Capítulo12.8.html#análisis-de-sesgo-cuantitativo",
+    "title": "Análisis de sensibilidad",
+    "section": "4. Análisis de sesgo cuantitativo",
+    "text": "4. Análisis de sesgo cuantitativo\nResumido en 10.6: corrección simple, probabilística, tipping point. Para el iSGLT2, con una fragilidad alta en el 40 % de los no tratados y el 20 % de los tratados, RR 2 para el evento, el RR corregido es ~0.64, cerca de la verdad (0.70).",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>68</span>  <span class='chapter-title'>Análisis de sensibilidad</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.8.html#otras-comprobaciones-de-robustez",
+    "href": "capitulos/Capítulo12.8.html#otras-comprobaciones-de-robustez",
+    "title": "Análisis de sensibilidad",
+    "section": "5. Otras comprobaciones de robustez",
+    "text": "5. Otras comprobaciones de robustez\n\n\n\n\n\n\n\nAnálisis\nQué se hace\nQué se espera\n\n\n\nCambiar el modelo de PS\nAñadir no linealidad e interacciones\nResultados estables\n\n\n\nCambiar el método (emparejar, IPW, AIPW)\nComparar\nResultados parecidos (aunque eso no valida los supuestos)\n\n\nRestringir la población\nExcluir pesos extremos o colas del PS\nEfecto sin cambios drásticos\n\n\nCambiar el desenlace\nOtros desenlaces relacionados\nCoherencia biológica\n\n\nDosis-respuesta\nMás dosis, más efecto\nSi existe, apoya causalidad\n\n\nFalsificación temporal\nDesenlaces previos al inicio del fármaco\nSin efecto\n\n\n\n\n\n\n\n\n\nAdvertencia⚠️ No uses los análisis de sensibilidad como “salvoconducto”\n\n\n\nUn E-value alto o un control negativo nulo no prueban causalidad. Son argumentos para evaluar cuánto puede pesar la confusión no medida; la discusión crítica con los expertos clínicos sigue siendo indispensable.\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nEl supuesto central (no hay confusión no medida importante) no se verifica con datos: se cuantifica su posible efecto.\n\nE-value: fuerza mínima de un confusor no medido que anularía el efecto; compárala con confusores medidos (benchmarking).\nUn proxy imperfecto del confusor ya corrige parte del sesgo: mide lo mejor posible variables relacionadas.\nUn control negativo con asociación espuria delata confusión residual.\nCombina varios análisis y discute con clínicos la plausibilidad.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>68</span>  <span class='chapter-title'>Análisis de sensibilidad</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.8.html#ejercicio",
+    "href": "capitulos/Capítulo12.8.html#ejercicio",
+    "title": "Análisis de sensibilidad",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nCalcula el E-value del límite del IC del RR ponderado. ¿Cuánto cambia?\nUsa un control negativo con una exposición: ¿el iSGLT2 predice un desenlace que ocurrió antes (p. ej., hospitalización en los 12 meses previos)? Simúlalo.\nPropón un control negativo creíble para tu pregunta clínica y justifica por qué no debería haber efecto causal.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>68</span>  <span class='chapter-title'>Análisis de sensibilidad</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.9.html",
+    "href": "capitulos/Capítulo12.9.html",
+    "title": "Comparador activo y diseño de nuevo usuario",
+    "section": "",
+    "text": "Dos decisiones de diseño que valen más que cualquier modelo\nLos métodos de ajuste (PS, IPW, AIPW) corrigen lo medido. Pero el diseño puede reducir la confusión que no se mide. Dos decisiones, conocidas como el diseño de comparador activo y nuevo usuario (active comparator, new-user design), son las más eficaces:",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>69</span>  <span class='chapter-title'>Comparador activo y diseño de nuevo usuario</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.9.html#dos-decisiones-de-diseño-que-valen-más-que-cualquier-modelo",
+    "href": "capitulos/Capítulo12.9.html#dos-decisiones-de-diseño-que-valen-más-que-cualquier-modelo",
+    "title": "Comparador activo y diseño de nuevo usuario",
+    "section": "",
+    "text": "Comparador activo: comparar el fármaco de interés con otro fármaco para la misma indicación, en vez de con “no tratar”.\n\nNuevo usuario: incluir solo a pacientes que inician el tratamiento durante el estudio, excluyendo a los usuarios prevalentes (10.5).",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>69</span>  <span class='chapter-title'>Comparador activo y diseño de nuevo usuario</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.9.html#por-qué-un-comparador-activo-reduce-la-confusión",
+    "href": "capitulos/Capítulo12.9.html#por-qué-un-comparador-activo-reduce-la-confusión",
+    "title": "Comparador activo y diseño de nuevo usuario",
+    "section": "Por qué un comparador activo reduce la confusión",
+    "text": "Por qué un comparador activo reduce la confusión\nQuien no recibe ningún tratamiento difiere mucho de quien lo recibe: puede estar demasiado frágil, con contraindicaciones, con menos acceso. Entre dos pacientes que reciben un fármaco para la misma indicación, las razones de la prescripción son más parecidas.\nEn nuestra simulación, la fragilidad reduce la probabilidad de recibir el iSGLT2 cuando el comparador es “nada” (coeficiente −0.70). Con un comparador activo (por ejemplo, un iDPP4, también para diabetes), la fragilidad influye mucho menos en la elección (coeficiente −0.15):\n\nlibrary(tidyverse)\nsource(\"R/funciones_epi.R\")\nsource(\"R/simular_ckd.R\")\n\nx &lt;- \"I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv\"\npreparar &lt;- function(d) d |&gt; mutate(sexo = factor(sexo, levels = c(\"Mujer\", \"Hombre\")), luacr = log(uacr))\n\n## Escenario A: comparador = no tratar  (fragilidad pesa -0.70 en la decisión)\na &lt;- preparar(simular_ckd(peso_fragilidad = 0.70))\n## Escenario B: comparador activo (fragilidad pesa -0.15 en la decisión)\nb &lt;- preparar(simular_ckd(peso_fragilidad = 0.15))\n\nate_v &lt;- mean(a$ite)          # mismos resultados potenciales: la verdad no cambia\nc(ATE_verdadero = ate_v)\n\nATE_verdadero \n     0.927542 \n\n\nMedimos el sesgo de cada análisis (crudo y ajustado por IPW) en ambos escenarios:\n\nanalizar &lt;- function(d, nombre) {\n  ps &lt;- fitted(glm(as.formula(paste(\"isglt2 ~\", x)), data = d, family = binomial))\n  w &lt;- ifelse(d$isglt2 == 1, 1 / ps, 1 / (1 - ps))\n  tibble(escenario = nombre,\n         DEM_fragilidad = smd(d$fragilidad, d$isglt2),\n         crudo = coef(lm(pendiente_tfg ~ isglt2, d))[2],\n         ajustado_IPW = coef(lm(pendiente_tfg ~ isglt2, d, weights = w))[2],\n         verdad = mean(d$ite)) |&gt;\n    mutate(sesgo_crudo = crudo - verdad, sesgo_ajustado = ajustado_IPW - verdad)\n}\nbind_rows(analizar(a, \"Comparador: no tratar\"), analizar(b, \"Comparador activo\")) |&gt;\n  mutate(across(where(is.numeric), \\(x) round(x, 2)))\n\n# A tibble: 2 × 7\n  escenario  DEM_fragilidad crudo ajustado_IPW verdad sesgo_crudo sesgo_ajustado\n  &lt;chr&gt;               &lt;dbl&gt; &lt;dbl&gt;        &lt;dbl&gt;  &lt;dbl&gt;       &lt;dbl&gt;          &lt;dbl&gt;\n1 Comparado…          -0.78  1.5          1.34   0.93        0.57           0.41\n2 Comparado…          -0.3   1.18         1.03   0.93        0.25           0.1 \n\n\n\nEl desbalance de la fragilidad entre grupos (DEM) baja de −0.78 a −0.30.\nEl sesgo del estimador crudo baja de +0.57 a +0.25.\nEl sesgo del estimador ajustado baja de +0.41 a +0.10.\n\nEl comparador activo no elimina el sesgo, pero lo reduce 4 veces, sin medir nada más. Es una forma de diseñar la comparabilidad.\n\n\n\n\n\n\nAdvertencia⚠️ Lo que cambia con un comparador activo\n\n\n\n\nEl estimando es el efecto relativo al comparador (iSGLT2 vs. iDPP4), no vs. nada. Si el comparador tiene efecto propio (beneficio o daño), se mezcla.\nRequiere que existan ambos fármacos con indicación compartida (si no hay un comparador razonable, no se puede).\n\nEquipoise clínico: los médicos deben considerar ambos fármacos como opciones, no uno como “último recurso”.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>69</span>  <span class='chapter-title'>Comparador activo y diseño de nuevo usuario</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.9.html#diseño-de-nuevo-usuario-con-datos-de-dispensación",
+    "href": "capitulos/Capítulo12.9.html#diseño-de-nuevo-usuario-con-datos-de-dispensación",
+    "title": "Comparador activo y diseño de nuevo usuario",
+    "section": "Diseño de nuevo usuario con datos de dispensación",
+    "text": "Diseño de nuevo usuario con datos de dispensación\nUn nuevo usuario es quien inicia el fármaco sin haberlo usado en una ventana previa (el periodo de lavado, típicamente 6-12 meses). El tiempo cero es la fecha del primer despacho (índice). Se construye así con código:\n\n## Datos hipotéticos de dispensaciones de dos fármacos (cada fila = un despacho)\nset.seed(42)\ndisp &lt;- tibble(\n  id = rep(1:12, times = c(3, 1, 2, 4, 1, 2, 3, 1, 2, 1, 3, 2)),\n  farmaco = sample(c(\"iSGLT2\", \"iDPP4\"), 25, replace = TRUE),\n  fecha = as.Date(\"2022-01-01\") + sample(0:700, 25)\n) |&gt; arrange(id, fecha)\ninicio_observacion &lt;- as.Date(\"2022-01-01\")\n\nnuevos_usuarios &lt;- function(disp, lavado_dias = 180, inicio_obs, fin_inclusion) {\n  disp |&gt;\n    group_by(id) |&gt;\n    arrange(fecha, .by_group = TRUE) |&gt;\n    slice(1) |&gt;                                         # primer despacho de cualquiera de los dos\n    ungroup() |&gt;\n    filter(fecha &gt;= inicio_obs + lavado_dias,           # al menos 'lavado' de observación sin ninguno\n           fecha &lt;= fin_inclusion) |&gt;\n    transmute(id, fecha_indice = fecha, estrategia = farmaco)\n}\n\nindice &lt;- nuevos_usuarios(disp, lavado_dias = 180, inicio_obs = inicio_observacion, fin_inclusion = as.Date(\"2023-06-30\"))\nindice\n\n# A tibble: 9 × 3\n     id fecha_indice estrategia\n  &lt;int&gt; &lt;date&gt;       &lt;chr&gt;     \n1     1 2022-07-31   iSGLT2    \n2     2 2022-09-16   iSGLT2    \n3     3 2022-11-10   iDPP4     \n4     5 2023-02-10   iSGLT2    \n5     8 2022-12-14   iDPP4     \n6     9 2022-07-16   iDPP4     \n7    10 2022-08-14   iDPP4     \n8    11 2022-09-02   iSGLT2    \n9    12 2022-09-19   iSGLT2    \n\ncount(indice, estrategia)\n\n# A tibble: 2 × 2\n  estrategia     n\n  &lt;chr&gt;      &lt;int&gt;\n1 iDPP4          4\n2 iSGLT2         5\n\n\nCada paciente entra una vez, en la fecha de su primer despacho, con su estrategia; ese día es el tiempo cero. Después se construyen los confusores medidos antes de esa fecha y se siguen los desenlaces a partir de ella. Un paciente con despachos previos durante el lavado (usuario prevalente) no entra.\n\n\n\n\n\n\nTip💡 Reglas del diseño de nuevo usuario\n\n\n\n\nDefine una ventana de lavado sin exposición a ninguno de los fármacos comparados.\nEl tiempo cero es la fecha índice del primer despacho.\nMide los confusores antes del tiempo cero (nunca después: serían mediadores).\nIncluye una sola vez a cada paciente (primer inicio) o usa ensayos anidados si puede iniciar en distintos momentos.\nAnaliza desde el inicio (no desde que ya llevan meses tomándolo).\nDefine el seguimiento (ITT: sin importar si cambian de fármaco; o per protocol con censura y ponderación, Cap. 19).",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>69</span>  <span class='chapter-title'>Comparador activo y diseño de nuevo usuario</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.9.html#resumen-del-cap.-12-el-flujo-de-un-análisis-observacional",
+    "href": "capitulos/Capítulo12.9.html#resumen-del-cap.-12-el-flujo-de-un-análisis-observacional",
+    "title": "Comparador activo y diseño de nuevo usuario",
+    "section": "Resumen del Cap. 12: el flujo de un análisis observacional",
+    "text": "Resumen del Cap. 12: el flujo de un análisis observacional\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nImportante🎯 En resumen\n\n\n\n\nEl comparador activo reduce la confusión por indicación por diseño: en nuestra simulación, el sesgo ajustado baja de +0.41 a +0.10.\nEl nuevo usuario (con lavado y tiempo cero en el primer despacho) evita el sesgo de prevalentes y el de tiempo inmortal.\nEl diseño (qué comparar, a quién incluir y cuándo empezar) vale más que el modelo estadístico.\nFlujo completo: pregunta → ensayo objetivo → DAG → diseño → PS/balance → estimación → sensibilidad.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>69</span>  <span class='chapter-title'>Comparador activo y diseño de nuevo usuario</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.9.html#ejercicio",
+    "href": "capitulos/Capítulo12.9.html#ejercicio",
+    "title": "Comparador activo y diseño de nuevo usuario",
+    "section": "Ejercicio",
+    "text": "Ejercicio\n\nCon peso_fragilidad = 0.15, calcula el E-value del RR ajustado. ¿Es menor o mayor que con 0.70? ¿Qué implica?\nModifica nuevos_usuarios() para un lavado de 365 días. ¿Cuántos pacientes quedan?\nPropón un comparador activo creíble para estudiar el efecto de un fármaco para la hiperkalemia sobre la mortalidad. ¿Qué indicación comparte?",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>69</span>  <span class='chapter-title'>Comparador activo y diseño de nuevo usuario</span>"
+    ]
+  },
+  {
+    "objectID": "capitulos/Capítulo12.9.html#nota-editorial",
+    "href": "capitulos/Capítulo12.9.html#nota-editorial",
+    "title": "Comparador activo y diseño de nuevo usuario",
+    "section": "Nota editorial",
+    "text": "Nota editorial\n\nCapítulo redactado con asistencia de IA y revisado por el autor. Todos los datos son simulados o hipotéticos; los escenarios clínicos son ilustrativos.",
+    "crumbs": [
+      "Capítulo 12: Análisis inferencial en estudios observacionales",
+      "<span class='chapter-number'>69</span>  <span class='chapter-title'>Comparador activo y diseño de nuevo usuario</span>"
+    ]
+  },
+  {
     "objectID": "capitulos/Apéndice-resumen.html",
     "href": "capitulos/Apéndice-resumen.html",
     "title": "Apéndice: cuadros de resumen y plantillas",

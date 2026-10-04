@@ -31,7 +31,9 @@
 # observan): pendiente_0, pendiente_1, ite, t_evento_0, t_evento_1, ...
 # ------------------------------------------------------------------------
 
-simular_ckd <- function(n = 5000, semilla = 2025) {
+simular_ckd <- function(n = 5000, semilla = 2025, peso_fragilidad = 0.70) {
+  # peso_fragilidad: cuánto reduce la fragilidad la probabilidad de recibir iSGLT2 (0.70 = comparación vs. no tratar;
+  # un valor menor imita la comparación entre dos fármacos activos, con indicación más parecida)
   set.seed(semilla)
 
   edad    <- round(pmin(pmax(rnorm(n, 64, 10), 30), 90))
@@ -52,7 +54,7 @@ simular_ckd <- function(n = 5000, semilla = 2025) {
   # menos probable si: edad avanzada, fragilidad.
   lp_trat <- -0.35 + 0.045 * (tfg - 46) + 0.55 * (log_uacr - 4.8) +
              0.15 * (hba1c - 7.8) + 0.30 * ecv - 0.045 * (edad - 64) -
-             0.70 * fragilidad
+             peso_fragilidad * fragilidad
   isglt2  <- rbinom(n, 1, plogis(lp_trat))
 
   # ---- Resultado 1: pendiente anual de TFGe ------------------------------

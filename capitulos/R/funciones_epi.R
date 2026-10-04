@@ -150,3 +150,21 @@ riesgo_kdigo <- function(g, a) {
   out[ok] <- tabla[cbind(as.character(g[ok]), as.character(a[ok]))]
   factor(out, levels = c("Bajo", "Moderado", "Alto", "Muy alto"), ordered = TRUE)
 }
+
+#' Gráfico de balance (love plot): |DEM| de cada covariable antes y después de ajustar
+#' @param pesos lista nombrada de vectores de pesos, p. ej. list(`IPW` = w)
+love_plot <- function(datos, vars, grupo = "isglt2", pesos = list()) {
+  # pesos: lista nombrada de vectores de pesos (p. ej., list(`IPW` = w))
+  base <- tibble(variable = vars, `Sin ajustar` = map_dbl(vars, \(v) smd(datos[[v]], datos[[grupo]])))
+  for (nm in names(pesos)) {
+    base[[nm]] <- map_dbl(vars, \(v) smd(datos[[v]], datos[[grupo]], pesos[[nm]]))
+  }
+  larga <- base |> pivot_longer(-variable, names_to = "ajuste", values_to = "DEM") |>
+    mutate(ajuste = fct_inorder(ajuste), variable = fct_reorder(variable, abs(DEM), .fun = max))
+  ggplot(larga, aes(abs(DEM), variable, color = ajuste, shape = ajuste)) +
+    geom_vline(xintercept = 0.1, linetype = "dashed") +
+    geom_point(size = 3) +
+    scale_color_brewer(palette = "Dark2", name = NULL) + scale_shape_discrete(name = NULL) +
+    labs(x = "|DEM|", y = NULL, caption = "Línea punteada: 0.10. Datos simulados.") +
+    theme_minimal(base_size = 11) + theme(legend.position = "bottom")
+}

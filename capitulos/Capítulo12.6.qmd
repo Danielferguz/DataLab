@@ -1,0 +1,187 @@
+# Estandarización (fórmula g) y estimadores doblemente robustos
+
+## La fórmula g: predecir y promediar
+
+La **estandarización** (también llamada **fórmula g** o *g-computation*) no usa el PS. Se ajusta un **modelo del desenlace** y luego se **predice a cada paciente dos veces**: **como si todos hubieran recibido** el tratamiento y **como si ninguno** lo hubiera recibido. El efecto es la **diferencia de los promedios**.
+
+$$
+\widehat{ATE} = \frac{1}{n}\sum_{i=1}^{n}\left[\hat\mu(1, X_i) - \hat\mu(0, X_i)\right] \qquad \hat\mu(a, X) = \hat E[Y \mid A=a, X]
+$$
+
+Es la generalización de la **estandarización por edad** del 7.5: calcular el efecto en cada estrato (ahora, **cada paciente**) y promediar con los pesos de la población estándar (la población total, los tratados o los no tratados).
+
+```{r}
+#| label: setup-126
+library(tidyverse)
+library(marginaleffects)
+library(boot)
+source("R/funciones_epi.R")
+
+oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv") |>
+  mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")), luacr = log(uacr))
+ckd <- oraculo |> select(-fragilidad, -pendiente_0, -pendiente_1, -ite, -starts_with("evento_36m"))
+
+verdad <- c(ATE = mean(oraculo$ite), ATT = mean(oraculo$ite[oraculo$isglt2 == 1]), ATU = mean(oraculo$ite[oraculo$isglt2 == 0]))
+```
+
+## Paso a paso
+
+Modelo del desenlace **con interacciones** (el efecto varía con las covariables):
+
+```{r}
+#| label: gformula
+x <- "I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv"
+modelo_y <- lm(as.formula(paste("pendiente_tfg ~ isglt2 * (", x, ")")), data = ckd)
+
+## Predicciones contrafactuales para cada paciente
+mu1 <- predict(modelo_y, newdata = mutate(ckd, isglt2 = 1))     # si TODOS iniciaran
+mu0 <- predict(modelo_y, newdata = mutate(ckd, isglt2 = 0))     # si NINGUNO iniciara
+
+c(ATE = mean(mu1 - mu0),
+  ATT = mean((mu1 - mu0)[ckd$isglt2 == 1]),     # promedio solo en los tratados
+  ATU = mean((mu1 - mu0)[ckd$isglt2 == 0])) |> round(2)
+```
+
+El paquete `marginaleffects` hace lo mismo, con errores estándar:
+
+```{r}
+#| label: marg
+avg_comparisons(modelo_y, variables = "isglt2") |> as_tibble() |> select(estimate, conf.low, conf.high) |> round(2)                 # ATE
+avg_comparisons(modelo_y, variables = "isglt2", newdata = subset(ckd, isglt2 == 1)) |> as_tibble() |> select(estimate) |> round(2)  # ATT
+```
+
+Cambiando la **población estándar** (todos, tratados o no tratados) obtenemos ATE, ATT o ATU. Un solo modelo, tres estimandos.
+
+### Desenlaces binarios: riesgo estandarizado
+
+```{r}
+#| label: gformula-binario
+modelo_r <- glm(as.formula(paste("evento ~ isglt2 * (", x, ")")), data = ckd, family = binomial)
+r1 <- mean(predict(modelo_r, mutate(ckd, isglt2 = 1), type = "response"))
+r0 <- mean(predict(modelo_r, mutate(ckd, isglt2 = 0), type = "response"))
+c(riesgo_si_todos = r1, riesgo_si_nadie = r0, DR = r1 - r0, RR = r1 / r0) |> round(3)
+```
+
+## Intervalos de confianza por *bootstrap*
+
+```{r}
+#| label: gformula-boot
+gf_fn <- function(datos, i) {
+  d <- datos[i, ]
+  m <- lm(as.formula(paste("pendiente_tfg ~ isglt2 * (", x, ")")), data = d)
+  mean(predict(m, mutate(d, isglt2 = 1)) - predict(m, mutate(d, isglt2 = 0)))
+}
+set.seed(2)
+b <- boot(ckd, gf_fn, R = 500)
+c(ATE = b$t0, quantile(b$t, c(0.025, 0.975))) |> round(2)
+```
+
+## Estimador doblemente robusto: AIPW
+
+La fórmula g **depende del modelo del desenlace**; el IPW, **del modelo del tratamiento (PS)**. El estimador **AIPW** (*augmented inverse probability weighting*) combina ambos:
+
+$$
+\widehat{ATE}_{AIPW} = \frac{1}{n}\sum_i \left[\hat\mu_1(X_i) - \hat\mu_0(X_i) + \frac{A_i\,(Y_i - \hat\mu_1(X_i))}{\hat e(X_i)} - \frac{(1-A_i)\,(Y_i - \hat\mu_0(X_i))}{1-\hat e(X_i)}\right]
+$$
+
+Es **doblemente robusto**: es consistente si **al menos uno** de los dos modelos (PS o desenlace) está bien especificado. Es el principio detrás de TMLE y de los estimadores de aprendizaje automático (*double machine learning*, Cap. 19).
+
+```{r}
+#| label: aipw-fn
+estimadores <- function(d, f_ps, f_out) {
+  ps <- fitted(glm(f_ps, data = d, family = binomial))
+  m <- lm(f_out, data = d)
+  mu1 <- predict(m, mutate(d, isglt2 = 1)); mu0 <- predict(m, mutate(d, isglt2 = 0))
+  a <- d$isglt2; y <- d$pendiente_tfg
+  c(`Fórmula g` = mean(mu1 - mu0),
+    IPW = weighted.mean(y[a == 1], 1 / ps[a == 1]) - weighted.mean(y[a == 0], 1 / (1 - ps[a == 0])),
+    AIPW = mean(mu1 - mu0 + a * (y - mu1) / ps - (1 - a) * (y - mu0) / (1 - ps)))
+}
+```
+
+### Con lo medido: todos los métodos coinciden (y se equivocan igual)
+
+```{r}
+#| label: aipw-medido
+f_ps  <- as.formula(paste("isglt2 ~", x))
+f_out <- as.formula(paste("pendiente_tfg ~ isglt2 * (", x, ")"))
+
+round(c(estimadores(ckd, f_ps, f_out), `Verdad (ATE)` = unname(verdad["ATE"])), 2)
+```
+
+Fórmula g, IPW y AIPW dan **1.32-1.35**, muy parecidos entre sí y **lejos** de la verdad (0.93). **Que varios métodos coincidan no demuestra que acierten**: comparten el mismo supuesto de **intercambiabilidad condicional**, que aquí **no se cumple** (falta la fragilidad).
+
+### Aislando el problema del modelo: si pudiéramos medir la fragilidad
+
+Para ver el valor de la **doble robustez**, aislamos el error de especificación del modelo de un posible confusor no medido. Usamos el oráculo (que incluye la **fragilidad**) y **estropeamos a propósito** uno de los modelos:
+
+```{r}
+#| label: doble-robustez
+x_ok <- paste(x, "+ fragilidad")
+ps_ok   <- as.formula(paste("isglt2 ~", x_ok))
+ps_mal  <- isglt2 ~ I(edad / 10) + sexo                                       # omite confusores
+out_ok  <- as.formula(paste("pendiente_tfg ~ isglt2 * (", x_ok, ")"))
+out_mal <- pendiente_tfg ~ isglt2 + I(edad / 10) + sexo                       # omite confusores e interacción
+
+o <- oraculo
+res <- rbind(
+  `Ambos modelos correctos` = estimadores(o, ps_ok, out_ok),
+  `PS correcto, desenlace mal especificado` = estimadores(o, ps_ok, out_mal),
+  `PS mal especificado, desenlace correcto` = estimadores(o, ps_mal, out_ok),
+  `Ambos mal especificados` = estimadores(o, ps_mal, out_mal)
+)
+round(cbind(res, Verdad = verdad["ATE"]), 2)
+```
+
+-   Con **ambos modelos correctos**, los tres recuperan la verdad (≈ 0.93).
+-   Con **un solo modelo estropeado**, **el AIPW sigue acertando** (0.93), mientras que la fórmula g (desenlace malo) o el IPW (PS malo) se desvían a ~1.15.
+-   Con **ambos mal**, todos fallan.
+
+::: {.callout-important}
+## 🎯 Doble robustez, en palabras
+
+El AIPW te da **dos oportunidades** de acertar con el modelo. No arregla un **confusor no medido** ni una **violación de positividad**, pero **protege frente a errores de especificación**. Por eso es el estándar actual en inferencia causal con datos observacionales, sobre todo combinado con **aprendizaje automático** y *cross-fitting* (Cap. 19).
+:::
+
+### IC del AIPW por *bootstrap*
+
+```{r}
+#| label: aipw-boot
+aipw_fn <- function(datos, i) unname(estimadores(datos[i, ], f_ps, f_out)["AIPW"])
+set.seed(5)
+b2 <- boot(ckd, aipw_fn, R = 300)
+c(AIPW = b2$t0, quantile(b2$t, c(0.025, 0.975))) |> round(2)
+```
+
+## Comparar métodos en una tabla
+
+```{r}
+#| label: tabla-metodos
+resumen <- tribble(
+  ~metodo, ~estimando, ~depende_de, ~estimacion,
+  "Crudo", "—", "Nada", coef(lm(pendiente_tfg ~ isglt2, ckd))[2],
+  "Regresión ajustada", "ATE (sin interacción)", "Modelo del desenlace", coef(lm(as.formula(paste("pendiente_tfg ~ isglt2 +", x)), ckd))[2],
+  "Fórmula g", "ATE", "Modelo del desenlace", unname(estimadores(ckd, f_ps, f_out)["Fórmula g"]),
+  "IPW", "ATE", "Modelo del PS", unname(estimadores(ckd, f_ps, f_out)["IPW"]),
+  "AIPW", "ATE", "Uno de los dos", unname(estimadores(ckd, f_ps, f_out)["AIPW"]),
+  "Verdad", "ATE", "—", unname(verdad["ATE"])
+)
+resumen |> mutate(estimacion = round(estimacion, 2))
+```
+
+Todos los métodos "ajustados" **comparten el mismo sesgo** (el de la fragilidad no medida): cada uno resuelve un **problema estadístico** distinto, pero **ninguno resuelve un problema de datos** (variables no medidas).
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   **Fórmula g**: modelar el desenlace, **predecir con y sin tratamiento** para cada paciente y **promediar**; cambiar la población estándar da **ATE, ATT o ATU**.
+-   **AIPW** combina el modelo del desenlace y el del PS: es **doblemente robusto** (acierta si uno de los dos es correcto).
+-   Para el IC, ***bootstrap*** repitiendo **todo el procedimiento** (modelo + estimación).
+-   **Varios métodos concordantes no prueban validez**: comparten el supuesto de intercambiabilidad condicional.
+:::
+
+## Ejercicio
+
+1.  Calcula el ATE de la **diferencia de riesgos a 36 meses** con AIPW (usa `evento` como desenlace y `glm` para el modelo).
+2.  Calcula el **ATT** con la fórmula g restringiendo la población estándar a los tratados. ¿Se acerca más al ATT verdadero (1.06)?
+3.  Estropea el modelo del desenlace quitando la interacción con `luacr`. ¿Cuánto cambia la fórmula g en las condiciones "con fragilidad"?
