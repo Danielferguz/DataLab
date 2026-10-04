@@ -1,0 +1,175 @@
+# Intervalos de confianza y *bootstrap*
+
+## Del dato al intervalo
+
+Una estimación sin su incertidumbre es incompleta. En el Cap. 6 vimos que el IC refleja el **error de muestreo**; aquí aprendemos a construirlo para los estadísticos más usados en nefrología. Simulamos un escenario realista: una **pequeña cohorte de 120 pacientes** extraída de nuestra población de 5 000 (así sabemos la verdad para comparar).
+
+```{r}
+#| label: setup-74
+library(tidyverse)
+library(boot)
+
+ckd <- read_csv("Bases/ckd_isglt2.csv")
+set.seed(1)
+s <- slice_sample(ckd, n = 120)     # "nuestro estudio"
+nrow(s)
+```
+
+## IC clásicos
+
+| Estadístico | Método | Función en R |
+|---|---|---|
+| Media | *t* de Student | `t.test(x)$conf.int` |
+| Proporción | Wilson o exacto | `prop.test()`, `binom.test()` |
+| Diferencia de medias | *t* de Welch | `t.test(y ~ g)` |
+| Diferencia o razón de proporciones | Wald / Wilson | `prop.test()`, Cap. 2 |
+| Mediana, razón de medianas, cualquier estadístico "raro" | ***Bootstrap*** | `boot()` |
+
+```{r}
+#| label: ic-clasicos
+## Media de TFGe
+t.test(s$tfg_basal)$conf.int
+
+## Proporción con ECV previa (Wilson con corrección de continuidad)
+prop.test(sum(s$ecv), nrow(s))$conf.int
+
+## Diferencia de TFGe entre tratados y no tratados (Welch)
+t.test(tfg_basal ~ isglt2, data = s)
+```
+
+Los valores verdaderos en la población de 5 000 son: TFGe media = `r sprintf("%.1f", mean(ckd$tfg_basal))`, ECV = `r sprintf("%.1f", 100 * mean(ckd$ecv))` %. Ambos quedan dentro de sus intervalos.
+
+::: {.callout-tip}
+## 💡 Tip práctico: IC de una media geométrica
+
+Calcula el IC en la **escala logarítmica** y devuélvelo con `exp()`:
+
+```r
+exp(t.test(log(s$uacr))$conf.int)
+```
+:::
+
+## ¿Y si no existe una fórmula? El *bootstrap*
+
+¿Cuál es el error estándar de la **mediana** de la UACR? ¿Y el de una **razón de medianas** o de un **NNT**? No hay fórmulas simples. El *bootstrap* las sustituye por un procedimiento:
+
+1.  Toma, **con reposición**, una muestra del mismo tamaño que la tuya (una "muestra *bootstrap*").
+2.  Calcula el estadístico en esa muestra.
+3.  Repite **miles de veces**.
+4.  La **variación** de esos estadísticos aproxima la variación que tendrías en muestras nuevas.
+
+Lo programamos "a mano" para entender la idea:
+
+```{r}
+#| label: boot-manual
+set.seed(10)
+medianas <- replicate(2000, median(sample(s$uacr, replace = TRUE)))
+
+c(mediana_observada = median(s$uacr),
+  EE_bootstrap = sd(medianas),
+  quantile(medianas, c(0.025, 0.975)))       # IC por percentiles
+```
+
+```{r}
+#| label: boot-hist
+#| fig-width: 7
+#| fig-height: 3.4
+tibble(mediana = medianas) |>
+  ggplot(aes(mediana)) +
+  geom_histogram(bins = 35, fill = "#56B4E9", color = "white") +
+  geom_vline(xintercept = median(ckd$uacr), color = "#D55E00", linewidth = 1) +
+  geom_vline(xintercept = quantile(medianas, c(.025, .975)), linetype = "dashed") +
+  labs(x = "Mediana de UACR en cada muestra bootstrap (mg/g)", y = "Frecuencia",
+       caption = "Línea naranja: mediana verdadera en los 5 000. Líneas punteadas: IC 95 % por percentiles.") +
+  theme_minimal(base_size = 11)
+```
+
+## El paquete `boot`
+
+`boot()` hace lo mismo con más control y permite métodos de IC más finos (**BCa**, que corrige sesgo y asimetría). Se le entrega una función que recibe los datos y los **índices** de la muestra *bootstrap*:
+
+```{r}
+#| label: boot-paquete
+mediana_fn <- function(datos, i) median(datos$uacr[i])
+
+b <- boot(s, mediana_fn, R = 4000)
+b
+boot.ci(b, type = c("perc", "bca"))
+```
+
+::: {.callout-note}
+## Percentil vs. BCa
+
+-   **Percentil**: simple y casi siempre razonable.
+-   **BCa**: corrige sesgo y asimetría; es la opción más recomendada con muestras de tamaño pequeño o moderado, pero necesita más réplicas (≥ 2 000) y falla con muestras muy pequeñas.
+:::
+
+### Razón de medianas entre dos grupos
+
+El *bootstrap* de dos muestras debe **remuestrear dentro de cada grupo** (`strata`), para mantener el tamaño de cada uno:
+
+```{r}
+#| label: boot-razon
+razon_med <- function(datos, i) {
+  x <- datos[i, ]
+  median(x$uacr[x$isglt2 == 1]) / median(x$uacr[x$isglt2 == 0])
+}
+set.seed(4)
+s_300 <- slice_sample(ckd, n = 300)
+b2 <- boot(s_300, razon_med, R = 4000, strata = s_300$isglt2)
+c(estimado = b2$t0)
+boot.ci(b2, type = "perc")
+```
+
+La UACR mediana es mayor en los tratados (es lo que vimos en la Tabla 1): la razón de medianas es > 1 y su IC no incluye 1.
+
+### Diferencia de riesgos con IC *bootstrap*
+
+El riesgo de evento renal a 36 meses es 19.2 % en los no tratados y 10.9 % en los tratados (**crudo**, sin ajustar). Su diferencia y su IC:
+
+```{r}
+#| label: boot-rd
+dr_fn <- function(datos, i) {
+  x <- datos[i, ]
+  mean(x$evento[x$isglt2 == 1]) - mean(x$evento[x$isglt2 == 0])
+}
+set.seed(5)
+b3 <- boot(ckd, dr_fn, R = 2000, strata = ckd$isglt2)
+ic3 <- boot.ci(b3, type = "perc")$percent[4:5]
+c(dif_riesgos = b3$t0, IC_inf = ic3[1], IC_sup = ic3[2])
+
+## Comparación con la fórmula de Wald
+p1 <- mean(ckd$evento[ckd$isglt2 == 1]); n1 <- sum(ckd$isglt2 == 1)
+p0 <- mean(ckd$evento[ckd$isglt2 == 0]); n0 <- sum(ckd$isglt2 == 0)
+(p1 - p0) + c(-1, 1) * 1.96 * sqrt(p1 * (1 - p1) / n1 + p0 * (1 - p0) / n0)
+```
+
+Los dos IC casi coinciden: para estadísticos con fórmula, el *bootstrap* da lo mismo; su ventaja aparece cuando **no hay fórmula** (estimadores ajustados con IPW, g-fórmula, NNT). **Esta diferencia es cruda**: sin ajustar por las diferencias de la Tabla 1 no es el efecto causal.
+
+## Reglas del *bootstrap*
+
+::: {.callout-warning}
+## ⚠️ Cuándo el *bootstrap* falla o necesita cuidado
+
+-   **Datos agrupados** (varios registros por paciente, pacientes dentro de centros): se remuestrean **los pacientes (o centros) completos**, no las filas.
+-   **Muestras muy pequeñas** (n < 20) o estadísticos de **extremos** (máximo, percentil 99): el *bootstrap* no funciona bien.
+-   **No corrige sesgos** de selección ni de medición; solo cuantifica el error de muestreo.
+-   **Fija la semilla** (`set.seed()`) y usa **suficientes réplicas** (2 000-10 000).
+-   Si el estimador incluye **varios pasos** (ajustar un modelo de propensión y luego ponderar), todo el proceso debe repetirse en **cada** muestra *bootstrap*.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   Reporta **siempre** el IC junto a la estimación.
+-   Para medias, proporciones y diferencias existen **fórmulas** (`t.test`, `prop.test`).
+-   Para **medianas, razones y estimadores complejos**, el ***bootstrap***: remuestrear con reposición, recalcular, repetir y mirar la variación.
+-   Con `boot()`: función `f(datos, i)`, `R = 2000+`, `strata` para dos grupos, `boot.ci(type = c("perc","bca"))`.
+-   Remuestrea **unidades independientes** (pacientes o centros), no filas dependientes.
+:::
+
+## Ejercicio
+
+1.  Calcula el IC 95 % por *bootstrap* de la **media geométrica** de la UACR en la muestra `s` y compáralo con `exp(t.test(log(s$uacr))$conf.int)`.
+2.  Repite el IC de la mediana de UACR con `n = 30`, 120 y 500. ¿Cómo cambia el ancho del intervalo?
+3.  Calcula con `boot()` el IC de la **diferencia de medianas de TFGe** entre tratados y no tratados.

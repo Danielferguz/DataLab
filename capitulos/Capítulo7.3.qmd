@@ -1,0 +1,184 @@
+# Gráficos que comunican
+
+## Principios
+
+Un buen gráfico responde **una pregunta** de forma que el lector la entienda en pocos segundos.
+
+1.  **Muestra los datos, no solo el resumen.** Las barras con "media ± EE" ocultan la distribución; prefiere histogramas, cajas con puntos o curvas de densidad.
+2.  **Elige el gráfico según el tipo de variable** (tabla abajo).
+3.  **Ejes honestos y con unidades.** Las barras parten de cero; las líneas y puntos no necesariamente.
+4.  **Color con propósito y accesible** (paletas aptas para daltonismo, como `viridis` o la de Okabe-Ito).
+5.  **Sin adornos**: nada de 3D, pasteles o doble eje Y.
+
+| Pregunta | Tipo de variables | Gráfico |
+|---|---|---|
+| ¿Cómo se distribuye? | Continua | Histograma, densidad, caja |
+| ¿Cuántos hay de cada tipo? | Categórica | Barras (con porcentaje) |
+| ¿Cómo se comparan grupos? | Continua por categoría | Cajas + puntos, violín |
+| ¿Cómo se relacionan dos continuas? | Continua × continua | Dispersión + curva suavizada |
+| ¿Cómo evoluciona en el tiempo? | Continua × tiempo | Líneas (por paciente o promedio) |
+| ¿Cuál es la combinación de dos categorías? | Categórica × categórica | Mapa de calor |
+
+```{r}
+#| label: setup-73
+library(tidyverse)
+library(patchwork)
+source("R/funciones_epi.R")
+
+ckd <- read_csv("Bases/ckd_isglt2.csv") |>
+  mutate(
+    trat = factor(isglt2, levels = 0:1, labels = c("Sin iSGLT2", "Con iSGLT2")),
+    sexo = factor(sexo, levels = c("Mujer", "Hombre")),
+    cat_g = categoria_g(tfg_basal), cat_a = categoria_a(uacr),
+    riesgo = riesgo_kdigo(cat_g, cat_a)
+  )
+
+# Paleta de Okabe-Ito (apta para daltonismo) y tema del capítulo
+col_trat <- c("Sin iSGLT2" = "#999999", "Con iSGLT2" = "#0072B2")
+tema <- theme_minimal(base_size = 11) + theme(legend.position = "bottom")
+```
+
+## Distribución de una variable continua entre grupos
+
+Un **histograma superpuesto** o **densidades** comparan la forma entre grupos:
+
+```{r}
+#| label: densidad
+#| fig-width: 9
+#| fig-height: 3.6
+ggplot(ckd, aes(edad, fill = trat, color = trat)) +
+  geom_density(alpha = 0.35, linewidth = 0.8) +
+  scale_fill_manual(values = col_trat, name = NULL) +
+  scale_color_manual(values = col_trat, name = NULL) +
+  labs(x = "Edad (años)", y = "Densidad",
+       title = "Los pacientes tratados con iSGLT2 son más jóvenes",
+       caption = "Datos simulados.") +
+  tema
+```
+
+El **gráfico de cajas con los puntos** muestra la mediana, el RIC y los valores individuales (con `geom_jitter`, que los separa horizontalmente para que no se tapen):
+
+```{r}
+#| label: cajas
+#| fig-width: 9
+#| fig-height: 3.8
+ggplot(ckd, aes(trat, uacr, fill = trat)) +
+  geom_jitter(width = 0.2, alpha = 0.12, size = 0.6, color = "grey30") +
+  geom_boxplot(alpha = 0.55, outlier.shape = NA, width = 0.5) +
+  scale_y_log10(breaks = c(10, 30, 100, 300, 1000, 3000)) +
+  scale_fill_manual(values = col_trat, guide = "none") +
+  labs(x = NULL, y = "UACR (mg/g, escala log)", caption = "Datos simulados.") +
+  tema
+```
+
+::: {.callout-tip}
+## 💡 Tip práctico: guardar para el artículo
+
+```r
+ggsave("figuras/uacr_por_tratamiento.png", width = 7, height = 4, dpi = 300)
+```
+
+Los diarios piden normalmente **300 dpi** y un ancho de 7 pulgadas (una página) o 3.5 (una columna). `ggsave()` guarda el **último gráfico**; o pasa el objeto con `plot = g`.
+:::
+
+## Frecuencias: barras con porcentaje
+
+```{r}
+#| label: barras
+#| fig-width: 9
+#| fig-height: 3.8
+ckd |>
+  count(trat, cat_a) |>
+  group_by(trat) |>
+  mutate(pct = n / sum(n)) |>
+  ggplot(aes(cat_a, pct, fill = trat)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.75) +
+  geom_text(aes(label = scales::percent(pct, accuracy = 1)),
+            position = position_dodge(width = 0.8), vjust = -0.4, size = 3.3) +
+  scale_y_continuous(labels = scales::percent_format(), expand = expansion(mult = c(0, 0.1))) +
+  scale_fill_manual(values = col_trat, name = NULL) +
+  labs(x = "Categoría de albuminuria (KDIGO)", y = "% dentro de cada grupo",
+       caption = "Datos simulados.") +
+  tema
+```
+
+## Dos variables continuas: dispersión y curva suavizada
+
+Con 5 000 puntos, la nube se vuelve una mancha. Se reduce la opacidad y se agrega una curva suavizada (`geom_smooth`) que muestra la tendencia:
+
+```{r}
+#| label: dispersion
+#| fig-width: 9
+#| fig-height: 4
+ggplot(ckd, aes(tfg_basal, pendiente_tfg)) +
+  geom_point(alpha = 0.12, size = 0.7, color = "grey30") +
+  geom_smooth(aes(color = trat), method = "loess", formula = y ~ x, se = TRUE, linewidth = 1) +
+  scale_color_manual(values = col_trat, name = NULL) +
+  labs(x = "TFGe basal (mL/min/1.73 m²)", y = "Cambio anual de TFGe (mL/min/1.73 m²/año)",
+       title = "Pérdida anual de TFGe según la TFGe basal",
+       caption = "Datos simulados. Las curvas son asociaciones crudas, no efectos causales.") +
+  tema
+```
+
+::: {.callout-warning}
+## ⚠️ Gráfico crudo ≠ efecto causal
+
+La curva de los tratados queda por encima de la de los no tratados, pero ya vimos en la Tabla 1 que ambos grupos **difieren en edad, albuminuria y más**. El gráfico describe; para estimar el efecto hay que ajustar (Caps. 8 y 12).
+:::
+
+## Mapa de calor KDIGO
+
+La clasificación **G × A** se presenta en un mapa de calor con el número de pacientes en cada celda:
+
+```{r}
+#| label: kdigo-calor
+#| fig-width: 7
+#| fig-height: 4
+niveles_riesgo <- c("Bajo" = "#9bd49b", "Moderado" = "#ffe38a", "Alto" = "#f5a35a", "Muy alto" = "#d9534f")
+
+ckd |>
+  count(cat_g, cat_a, .drop = FALSE) |>
+  mutate(riesgo = riesgo_kdigo(cat_g, cat_a),
+         pct = n / sum(n)) |>
+  ggplot(aes(cat_a, fct_rev(cat_g), fill = riesgo)) +
+  geom_tile(color = "white", linewidth = 1.2) +
+  geom_text(aes(label = paste0(n, "\n(", scales::percent(pct, accuracy = 0.1), ")")), size = 3.2) +
+  scale_fill_manual(values = niveles_riesgo, name = "Riesgo KDIGO") +
+  labs(x = "Albuminuria (A)", y = "Categoría de TFGe (G)", caption = "Datos simulados.") +
+  theme_minimal(base_size = 11) + theme(panel.grid = element_blank())
+```
+
+## Varios gráficos juntos: `patchwork` y facetas
+
+`facet_wrap()` repite el mismo gráfico por subgrupo; `patchwork` ordena gráficos distintos con `+` (lado a lado), `/` (apilados) y `plot_annotation()`:
+
+```{r}
+#| label: patchwork
+#| fig-width: 9
+#| fig-height: 5.2
+g1 <- ggplot(ckd, aes(hba1c, fill = trat)) + geom_histogram(bins = 30, position = "identity", alpha = 0.55) +
+  scale_fill_manual(values = col_trat, name = NULL) + labs(x = "HbA1c (%)", y = "Pacientes") + tema
+g2 <- ggplot(ckd, aes(pas, fill = trat)) + geom_histogram(bins = 30, position = "identity", alpha = 0.55) +
+  scale_fill_manual(values = col_trat, name = NULL) + labs(x = "PAS (mmHg)", y = NULL) + tema
+g3 <- ggplot(ckd, aes(tfg_basal, fill = trat)) + geom_histogram(bins = 30, position = "identity", alpha = 0.55) +
+  scale_fill_manual(values = col_trat, name = NULL) + labs(x = "TFGe basal", y = "Pacientes") + tema
+
+(g1 + g2) / g3 + plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+```
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   Un gráfico = **una pregunta**; elígelo según el **tipo de variable**.
+-   Para continuas: histograma/densidad/caja con puntos; para categóricas: barras con porcentaje; para dos continuas: dispersión con curva suavizada; para dos categóricas: mapa de calor.
+-   **Escala logarítmica** para variables asimétricas como la UACR; **paletas accesibles**; **unidades** en los ejes.
+-   Los gráficos crudos **describen**: no se interpretan como efectos causales.
+-   Guarda con `ggsave(dpi = 300)` y deja el **código** junto a la figura.
+:::
+
+## Ejercicio
+
+1.  Haz un gráfico de cajas de la **PAS por categoría G** (`cat_g`). ¿Aumenta o disminuye con la TFGe?
+2.  Dibuja la **TFGe basal por sexo y tratamiento** con `facet_wrap(~ sexo)`.
+3.  Reproduce el mapa de calor KDIGO **solo para pacientes con iSGLT2**. ¿Cambia la distribución?
