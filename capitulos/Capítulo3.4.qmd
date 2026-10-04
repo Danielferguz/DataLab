@@ -1,489 +1,367 @@
-```{r echo =FALSE}
-library(ggplot2)
-options(
-  # set default colors in ggplot2 to colorblind-friendly
-  # Okabe-Ito and Viridis palettes
-  ggplot2.discrete.colour = ggokabeito::palette_okabe_ito(),
-  ggplot2.discrete.fill = ggokabeito::palette_okabe_ito(),
-  ggplot2.continuous.colour = "viridis",
-  ggplot2.continuous.fill = "viridis",
-  # set theme font and size
-  book.base_family = "sans",
-  book.base_size = 14
-)
+# El análisis causal completo, paso a paso
 
-library(ggplot2)
+Hasta aquí vimos las piezas por separado: resultados potenciales (Capítulo 3.2) y DAG y métodos de ajuste (Capítulo 3.3). Ahora las juntamos en **un flujo de trabajo reproducible** que puedes copiar para tus propios análisis. Seguiremos seis pasos:
 
-# set default theme
-theme_set(
-  theme_minimal(
-    base_size = getOption("book.base_size"),
-    base_family = getOption("book.base_family")
-  ) %+replace%
-    theme(
-      panel.grid.minor = element_blank(),
-      legend.position = "bottom"
-    )
-)
+::: {.callout-important}
+## 🎯 El flujo en seis pasos
 
-theme_dag <- function() {
-  ggdag::theme_dag(base_family = getOption("book.base_family"))
-}
+| Paso | Pregunta | Herramienta |
+|---|---|---|
+| 1. **Especificar** la pregunta causal | ¿Efecto de qué, contra qué, en quién, medido cómo? | Ensayo objetivo (*target trial*), PICO |
+| 2. **Dibujar** las suposiciones | ¿Qué causa qué? ¿Qué debo ajustar? | DAG |
+| 3. **Modelar** las suposiciones | ¿Cómo ajusto? | Puntaje de propensión, pesos |
+| 4. **Diagnosticar** el modelo | ¿Quedaron comparables los grupos? ¿Hay pesos extremos? | SMD, solapamiento, pesos |
+| 5. **Estimar** el efecto | ¿Cuál es el efecto y con qué incertidumbre? | Modelo ponderado + *bootstrap* |
+| 6. **Evaluar la sensibilidad** | ¿Y si faltó un confusor? | E-value, análisis de sesgo cuantitativo |
+:::
 
-geom_dag_label_repel <- function(..., seed = 10) {
-  ggdag::geom_dag_label_repel(
-    aes(x, y, label = label),
-    box.padding = 3.5,
-    inherit.aes = FALSE,
-    max.overlaps = Inf,
-    family = getOption("book.base_family"),
-    seed = seed,
-    label.size = NA,
-    label.padding = 0.1,
-    size = getOption("book.base_size") / 3,
-    ...
-  )
-}
+No te preocupes por entender cada detalle ahora: esta es la visión de conjunto del resto del programa.
 
-```
-
-# Causalidad - integrando DAGs y potential outcomes framework
-
-Analizaremos el siguiente ejemplo "relación causal entre uso de mosquiteros y malaria" con técnicas que aprendemos a lo largo de este programa.
-
-**Pasos**
-
-1.  Especifique una pregunta causal
-
-2.  Dibujar nuestras suposiciones usando un diagrama causal.
-
-3.  Modele nuestras suposiciones
-
-4.  Diagnosticar nuestros modelos
-
-5.  Estimar el efecto causal.
-
-6.  Realizar análisis de sensibilidad sobre la estimación del efecto.
-
-Nos centraremos en las ideas más amplias detrás de cada paso y cómo se ven en conjunto; sin embargo, no esperamos que digiera completamente cada idea. Pasaremos el resto del programa analizando cada paso en detalle.
-
-## Especificar una pregunta causal
-
-Pregunta: ¿el uso de un mosquitero reduce el riesgo de malaria?
-
-Alrededor del 86% de las muertes por malaria ocurrieron en 29 países. Casi la mitad de todas las muertes por malaria ocurrieron en sólo seis de esos países: Nigeria (27%), la República Democrática del Congo (12%), Uganda (5%), Mozambique (4%), Angola (3%) y Burkina Faso (3%). La mayoría de estas muertes ocurrieron en niños menores de 5 años.
-
-Los mosquiteros previenen la morbilidad y la mortalidad debidas a la malaria al proporcionar una barrera contra las picaduras infecciosas del principal huésped de los parásitos de la malaria, el mosquito. Los seres humanos han utilizado mosquiteros desde la antigüedad. Heródoto, el autor griego de Las Historias del siglo V a. C. , observó que los egipcios usaban sus redes de pesca como mosquiteros.
-
-Muchas redes modernas también se tratan con insecticida, que se remonta a los soldados rusos en la Segunda Guerra Mundial ( Nevill et al. 1996 ) , aunque algunas personas todavía las usan como redes de pesca ( Gettleman 2015 ) .
-
-Es fácil imaginar un ensayo aleatorio que aborde esta pregunta: los participantes de un estudio son asignados aleatoriamente para usar un mosquitero y los seguimos a lo largo del tiempo para ver si hay una diferencia en el riesgo de malaria entre los grupos. La aleatorización es a menudo la mejor manera de estimar un efecto causal de una intervención porque reduce la cantidad de supuestos que necesitamos hacer para que esa estimación sea válida (analizaremos estos supuestos en la Sección 3.3 ). En particular, la aleatorización aborda muy bien los factores de confusión, teniendo en cuenta factores de confusión que tal vez ni siquiera conozcamos.
-
-Varios ensayos históricos han estudiado los efectos del uso de mosquiteros sobre el riesgo de malaria, y varios estudios esenciales se realizaron en la década de 1990. Un metaanálisis de 2004 encontró que los mosquiteros tratados con insecticida reducían la mortalidad infantil en un 17%, la prevalencia del parásito de la malaria en un 13% y los casos de malaria grave y no complicada en aproximadamente un 50% (en comparación con ningún mosquitero) ( Lengeler 2004 ) . Desde que la Organización Mundial de la Salud comenzó a recomendar mosquiteros tratados con insecticidas, la resistencia a los insecticidas ha sido una gran preocupación. Sin embargo, un análisis de seguimiento de los ensayos encontró que aún no ha impactado los beneficios de los mosquiteros para la salud pública ( Pryce, Richardson y Lengeler 2018 ) .
-
-Hay varias razones por las que es posible que no podamos realizar un ensayo aleatorio, incluidas la ética, el costo y el tiempo. Disponemos de pruebas sustanciales y sólidas a favor del uso de mosquiteros, pero consideremos algunas condiciones en las que la inferencia causal observacional podría ayudar.
-
--   Es interesante cómo los estudios observacionales pueden proporcionar información valiosa, especialmente en situaciones donde realizar ensayos controlados aleatorios podría ser difícil, poco ético o llevar mucho tiempo. En el caso del uso de mosquiteros para combatir la malaria, los estudios observacionales pueden ser una herramienta poderosa para comprender mejor los efectos en diferentes poblaciones y contextos.
-
--   Por ejemplo, en el caso ético que mencionamos, donde ya sabemos que los mosquiteros son muy eficaces, sería poco ético retenerlos para llevar a cabo un ensayo controlado aleatorio. En su lugar, los estudios observacionales pueden proporcionar información sobre los efectos a largo plazo del uso de mosquiteros en la primera infancia, como el estudio que mencionamos sobre la supervivencia hasta la edad adulta en Tanzania.
-
--   Además, como mencionamos, los estudios observacionales también pueden ayudar a comprender efectos que pueden ser difíciles de investigar con ensayos controlados aleatorios, como el impacto de los mosquiteros en toda la comunidad, no solo en aquellos que los usan directamente. Esto puede ser especialmente relevante para políticas de salud pública y programas de intervención.
-
-Cuando realizamos un estudio observacional, sigue siendo útil pensar en el ensayo aleatorio que realizaríamos si fuera posible. El ensayo que intentamos emular en este análisis causal es el ensayo objetivo. Considerar el ensayo objetivo nos ayuda a hacer que nuestra pregunta causal sea más precisa. Consideremos la pregunta causal planteada anteriormente: ¿el uso de un mosquitero reduce el riesgo de malaria?
-
-Esta pregunta es relativamente sencilla, pero aún vaga, por lo que, necesitamos aclarar algunas áreas clave:
-
--   ¿Qué queremos decir con “mosquitero”? Hay varios tipos de mosquiteros: mosquiteros sin tratar, mosquiteros tratados con insecticida y mosquiteros más nuevos y duraderos tratados con insecticida.
-
--   ¿Riesgo comparado con qué? ¿Estamos, por ejemplo, comparando los mosquiteros tratados con insecticida con la ausencia de mosquiteros? ¿Redes sin tratar? ¿O estamos comparando un nuevo tipo de mosquitero, como los mosquiteros de larga duración tratados con insecticida, con mosquiteros que ya están en uso?
-
--   ¿Riesgo definido por qué? ¿Una persona contrajo malaria o no? ¿Si una persona murió de malaria?
-
--   ¿Riesgo entre quiénes? ¿Cuál es la población a la que estamos tratando de aplicar este conocimiento? ¿A quién es práctico incluir en nuestro estudio? ¿A quién podríamos necesitar excluir?
-
-Usaremos datos simulados para responder una pregunta más específica: ¿El uso de mosquiteros tratados con insecticida, en comparación con ningún mosquitero, disminuye el riesgo de contraer malaria después de 1 año?
-
-*Los investigadores están interesados en saber si el uso de mosquiteros disminuye el riesgo de que un individuo contraiga malaria. Han recopilado datos de 1.752 hogares en un país no identificado y tienen variables relacionadas con factores ambientales, salud individual y características del hogar. Los datos no son experimentales : los investigadores no tienen control sobre quién usa mosquiteros, y los hogares individuales toman sus propias decisiones sobre si solicitar mosquiteros gratuitos o comprar sus propios mosquiteros, así como si los usan si los tienen.*
-
-Los investigadores están interesados ​​en saber si el uso de mosquiteros disminuye el riesgo de que un individuo contraiga malaria. Han recopilado datos de 1.752 hogares en un país no identificado y tienen variables relacionadas con factores ambientales, salud individual y características del hogar. Los datos no son experimentales : los investigadores no tienen control sobre quién usa mosquiteros, y los hogares individuales toman sus propias decisiones sobre si solicitar mosquiteros gratuitos o comprar sus propios mosquiteros, así como si los usan si los tienen.
-
-$id$ una variable de identificación
-
-$netynetnum$ una variable binaria que indica si el participante usó una red (1) o no usó una red (0)
-
-$malariarisk$ escala de riesgo de malaria que va de 0 a 100
-
-$income$ ingreso semanal, medido en dólares
-
-$health$ una escala de puntuación de salud que va de 0 a 100
-
-$household$ número de personas que viven en el hogar
-
-$eligible$ una variable binaria que indica si el hogar es elegible para el programa neto gratuito.
-
-$temperature$ la temperatura promedio por la noche, en grados Celsius
-
-$resistance$ Resistencia a los insecticidas de los mosquitos locales. Una escala de 0 a 100, donde los valores más altos indican una mayor resistencia.
-
-La distribución del riesgo de malaria parece ser bastante diferente según el uso de la red.
-
-```{r fig.cap="Figure 2.1: Gráfico de densidad del riesgo de malaria para quienes usaron y no usaron mosquiteros. El riesgo de malaria es menor para quienes usan mosquiteros."}
-# install.packages('BiocManager')
+```{r}
+#| label: setup-34
 library(tidyverse)
-#remotes::install_github("malcolmbarrett/causalworkshop")
-library(causalworkshop)
+source("R/funciones_epi.R")
 
-net_data |>
-  ggplot(aes(malaria_risk, fill = net)) +
-  geom_density(color = NA, alpha = .8)
+theme_set(theme_minimal(base_size = 13) + theme(panel.grid.minor = element_blank()))
+
+ckd <- read_csv("Bases/ckd_isglt2.csv", show_col_types = FALSE)
+glimpse(ckd)
 ```
 
-En la Figura 2.1 , la densidad de quienes usaron mosquiteros está a la izquierda de quienes no usaron mosquiteros. La diferencia media en el riesgo de malaria es de aproximadamente 16,4, lo que sugiere que el uso de mosquiteros podría proteger contra la malaria.
+## Paso 1. Especificar una pregunta causal
+
+**Pregunta inicial:** *¿Los iSGLT2 enlentecen la progresión de la enfermedad renal?*
+
+Es demasiado vaga. Un ensayo clínico para responderla tendría que decir quiénes, qué, contra qué, y cómo se mide el resultado. Especificamos el **ensayo objetivo**:
+
+| Elemento | Especificación |
+|---|---|
+| **P**oblación | Adultos con ERC G3-G4 (TFGe 20-59) y diabetes tipo 2, atendidos en nefrología, sin diálisis ni trasplante |
+| **I**ntervención | Iniciar un iSGLT2 (dosis habitual) en el momento cero |
+| **C**omparador | No iniciar iSGLT2 (atención habitual) |
+| **O**utcome primario | Pendiente anual de TFGe (mL/min/1.73 m²/año) |
+| **O**utcome secundario | Evento renal compuesto a 36 meses (TFGe −40 %, diálisis o trasplante) |
+| **Momento cero** | Visita en que se cumple la elegibilidad y se decide iniciar o no |
+| **Contraste causal** | Efecto de **iniciar** vs. **no iniciar** (análogo al ITT) |
+| **Estimando** | **ATE** en la población de la consulta |
+
+::: {.callout-note}
+## 🩺 Por qué importa especificar
+
+"iSGLT2" puede significar tres cosas: haber recibido *alguna* receta, estar tomándolo *de forma continua*, o haberlo tomado *durante todo el seguimiento*. Son preguntas distintas con respuestas distintas. Escribirlo evita comparar sin saber qué se compara.
+:::
+
+Los ensayos aleatorizados (DAPA-CKD, EMPA-KIDNEY, CREDENCE) ya han mostrado beneficio renal con esta clase de fármacos. Aquí, el objetivo es **didáctico**: queremos ver si, con datos de una consulta real (simulada) donde nadie fue aleatorizado, podemos acercarnos al efecto verdadero.
+
+## Paso 2. Dibujar nuestras suposiciones
+
+Usamos el DAG del Capítulo 3.3. Lo importante para el análisis:
+
+-   La **exposición** (iniciar iSGLT2) depende de edad, TFGe, albuminuria, HbA1c, ECV previa **y fragilidad** (no medida).
+-   El **desenlace** depende de esas mismas variables y de la PAS.
+-   Conjunto de ajuste con lo medido: **edad, sexo, HbA1c, PAS, TFGe basal, albuminuria y ECV previa** (según el DAG, la PAS y el sexo no son estrictamente necesarios; los incluimos porque predicen el desenlace o la ECV y suelen mejorar la precisión sin introducir sesgo).
+-   La **fragilidad** no se mide: *sabemos* que dejará un sesgo residual (paso 6).
+
+## Paso 3. Modelar las suposiciones
+
+Estimaremos el **puntaje de propensión** (probabilidad de iniciar iSGLT2 dado el perfil del paciente) con regresión logística y calcularemos los pesos de probabilidad inversa para el ATE.
 
 ```{r}
-net_data |>
-  group_by(net) |>
-  summarize(malaria_risk = mean(malaria_risk))
-```
+#| label: ps-34
+f_ps <- isglt2 ~ edad + sexo + hba1c + pas + tfg_basal + log(uacr) + ecv
 
-Y eso es lo que también vemos con la regresión lineal simple, como era de esperar.
+modelo_ps <- glm(f_ps, data = ckd, family = binomial())
 
-```{r}
-library(broom)
-net_data |>
-  lm(malaria_risk ~ net, data = _) |>
-  tidy()
-```
-
-## Dibujar nuestras suposiciones usando un diagrama causal
-
-El problema al que nos enfrentamos es que otros factores pueden ser responsables del efecto que estamos viendo. En este ejemplo, nos centraremos en la confusión: una causa común del uso de redes y la malaria sesgará el efecto que vemos a menos que lo tengamos en cuenta de alguna manera. Una de las mejores formas de determinar qué variables debemos tener en cuenta es utilizar un diagrama causal. Estos diagramas, también llamados gráficos acíclicos dirigidos causalmente (DAG), visualizan las suposiciones que hacemos sobre las relaciones causales entre la exposición, el resultado y otras variables que creemos que podrían estar relacionadas.
-
-Aquí está el DAG que proponemos para esta pregunta.
-
-```{r, echo=FALSE, fig.cap="Figura 2.2: Diagrama causal propuesto del efecto del uso de mosquiteros en la malaria. Este gráfico acíclico dirigido (DAG) establece nuestra suposición de que el uso de mosquiteros provoca una reducción en el riesgo de malaria. También dice que asumimos que el riesgo de malaria se ve afectado por el uso de mosquiteros, los ingresos, la salud, la temperatura y la resistencia a los insecticidas; el uso de Internet se ve afectado por los ingresos, la salud, la temperatura, la elegibilidad para el programa de Internet gratuito y la cantidad de personas en un hogar; la elegibilidad para los programas netos gratuitos se ve afectada por los ingresos y el número de personas en un hogar; y la salud se ve afectada por los ingresos."}
-knitr::include_graphics("fig/dag1.png")
-```
-
-En los DAG, cada punto representa una variable y cada flecha representa una causa. En otras palabras, este diagrama declara cuáles creemos que son las relaciones causales entre estas variables. En la Figura 2.2 , decimos que creemos:
-
--   El riesgo de malaria se ve afectado causalmente por el uso de mosquiteros, los ingresos, la salud, la temperatura y la resistencia a los insecticidas.
-
--   El uso de Internet se ve afectado causalmente por los ingresos, la salud, la temperatura, la elegibilidad para el programa de Internet gratuito y la cantidad de personas en un hogar.
-
--   La elegibilidad para los programas netos gratuitos está determinada por los ingresos y la cantidad de personas en un hogar.
-
--   La salud se ve afectada causalmente por los ingresos.
-
-Puede estar de acuerdo o en desacuerdo con algunas de estas afirmaciones. ¡Eso es bueno! Dejar al descubierto nuestras suposiciones nos permite considerar la credibilidad científica de nuestro análisis. Otro beneficio de usar DAG es que, gracias a sus matemáticas, podemos determinar con precisión el subconjunto de variables que debemos tener en cuenta si asumimos que este DAG es correcto.
-
-El principal problema al que nos enfrentamos es que, cuando analizamos los datos con los que trabajamos, vemos el impacto del uso de la red en el riesgo de malaria y de todas estas otras relaciones . En la terminología DAG, tenemos más de una vía causal abierta. Si este DAG es correcto, tenemos ocho vías causales: la ruta entre el uso de redes y el riesgo de malaria y otras siete vías de confusión .
-
-```{r, echo=FALSE, fig.cap="Figura 2.3: En el DAG propuesto, hay ocho vías abiertas que contribuyen al efecto causal observado en la regresión ingenua: el efecto real (en verde) del uso de mosquiteros sobre el riesgo de malaria y otras siete vías de confusión (en naranja). La estimación ingenua es errónea porque es una combinación de todos estos efectos."}
-knitr::include_graphics("fig/dag2.png")
-```
-
-Cuando calculamos una regresión lineal ingenua que solo incluye el uso de redes y el riesgo de malaria, el efecto que vemos es incorrecto porque las otras siete vías de confusión en la Figura 2.3 lo distorsionan. En terminología DAG, debemos bloquear estos caminos abiertos que distorsionan la estimación causal que buscamos. (Podemos bloquear caminos a través de varias técnicas, incluyendo estratificación, emparejamiento, ponderación y más). Afortunadamente, al especificar un DAG, podemos determinar con precisión las variables que necesitamos controlar. Para este DAG, necesitamos controlar tres variables: salud, ingresos y temperatura. Estas tres variables son un conjunto de ajuste mínimo , el conjunto (o conjuntos) mínimo de variables que necesita para bloquear todas las vías de confusión.
-
-## Modele nuestras suposiciones
-
-Usaremos una técnica llamada Ponderación de probabilidad inversa (IPW) para controlar estas variables. Usaremos la regresión logística para predecir la probabilidad de tratamiento: la puntuación de propensión. Luego, calcularemos ponderaciones de probabilidad inversa para aplicarlas al modelo de regresión lineal que ajustamos anteriormente. El modelo de puntuación de propensión incluye la exposición (uso neto) como variable dependiente y el ajuste mínimo establecido como variables independientes.
-
-El modelo de puntuación de propensión es un modelo de regresión logística con la fórmula $net ~ income + health + temperature$, que predice la probabilidad de uso de mosquiteros en función de los factores de confusión ingreso, salud y temperatura.
-
-```{r}
-propensity_model <- glm(
-  net ~ income + health + temperature,
-  data = net_data,
-  family = binomial()
-)
-
-# the first six propensity scores
-head(predict(propensity_model, type = "response"))
-```
-
-Podemos utilizar las puntuaciones de propensión para controlar los factores de confusión de varias maneras. En este ejemplo, nos centraremos en la ponderación. En concreto, calcularemos la ponderación de probabilidad inversa para el efecto medio del tratamiento (EAT). El ATE representa una pregunta causal concreta: ¿qué pasaría si todos los participantes en el estudio utilizaran mosquiteras frente a qué pasaría si nadie en el estudio utilizara mosquiteras?
-
-Para calcular el ATE, utilizaremos los paquetes broom y propensity. La función augment() de broom extrae información relacionada con la predicción del modelo y la une a los datos. La función wt_ate() de propensity calcula la ponderación de probabilidad inversa dada la puntuación de propensión y la exposición.
-
-Para la ponderación de probabilidad inversa, la ponderación ATE es la probabilidad de recibir el tratamiento que realmente recibió. En otras palabras, si utilizó un mosquitero, la ponderación ATE es la probabilidad de que utilizara un mosquitero, y si no lo utilizó, es la probabilidad de que no lo utilizara.
-
-```{r}
-library(broom)
-library(propensity)
-net_data_wts <- propensity_model |>
-  augment(newdata = net_data, type.predict = "response") |>
-  # .fitted is the value predicted by the model
-  # for a given observation
-  mutate(wts = wt_ate(.fitted, net))
-
-net_data_wts |>
-  select(net, .fitted, wts) 
-```
-
-wts representa la cantidad en que cada observación será ponderada al alza o a la baja en el modelo de resultados que pronto ajustaremos. Por ejemplo, el hogar número 16 utilizó un mosquitero y tuvo una probabilidad prevista de 0,41. Es una probabilidad bastante baja teniendo en cuenta que, de hecho, utilizaron un mosquitero. Se trata de una probabilidad bastante baja teniendo en cuenta que, de hecho, utilizaron un mosquitero, por lo que su ponderación es mayor, 2,42. En otras palabras, este hogar tendrá una ponderación superior a la del modelo lineal ingenuo que ajustamos anteriormente. El primer hogar no utilizó mosquitero; su probabilidad prevista de utilizar mosquitero fue de 0,25 (o dicho de otro modo, una probabilidad prevista de no utilizar mosquitero de 0,75). Esto está más en consonancia con el valor observado del mosquitero, pero sigue existiendo cierta probabilidad prevista de utilizar mosquitero, por lo que su ponderación es de 1,28.
-
-## Diagnosticar nuestros modelos
-
-El objetivo de la ponderación del puntaje de propensión es ponderar la población de observaciones de manera que la distribución de los factores de confusión esté equilibrada entre los grupos de exposición. Dicho de otra manera, en principio estamos eliminando las flechas entre los factores de confusión y la exposición en el DAG, de modo que las rutas de confusión ya no distorsionen nuestras estimaciones. Aquí está la distribución de la puntuación de propensión por grupo, creada a partir geom_mirror_histogram()del paquete de *halfmoon* para evaluar el equilibrio en los modelos de puntuación de propensión:
-
-```{r fig.cap="Figura 2.4: Histograma reflejado de las puntuaciones de propensión de quienes usaron mosquiteros (arriba, azul) versus quienes no los usaron (abajo, naranja). El rango de puntuaciones de propensión es similar entre los grupos, con aquellos que usaron mosquiteros ligeramente a la izquierda de aquellos que no lo hicieron, pero las formas de la distribución son diferentes."}
-library(halfmoon)
-ggplot(net_data_wts, aes(.fitted)) +
-  geom_mirror_histogram(
-    aes(fill = net),
-    bins = 50
-  ) +
-  scale_y_continuous(labels = abs) +
-  labs(x = "propensity score")
-```
-
-La puntuación de propensión ponderada crea una pseudopoblación donde las distribuciones son mucho más similares:
-
-```{r fig.cap="Figura 2.5: Histograma reflejado de las puntuaciones de propensión de quienes usaron mosquiteros (arriba, azul) versus quienes no los usaron (abajo, naranja). La región sombreada representa la distribución no ponderada y la región coloreada representa las distribuciones ponderadas. El ATE pondera los grupos para que sean similares en el rango y la forma de la distribución de las puntuaciones de propensión."}
-
-ggplot(net_data_wts, aes(.fitted)) +
-  geom_mirror_histogram(
-    aes(group = net),
-    bins = 50
-  ) +
-  geom_mirror_histogram(
-    aes(fill = net, weight = wts),
-    bins = 50,
-    alpha = .5
-  ) +
-  scale_y_continuous(labels = abs) +
-  labs(x = "propensity score")
-```
-
-En este ejemplo, las distribuciones no ponderadas no son terribles (las formas son algo similares aquí y la superposición bastante), pero las distribuciones ponderadas en la Figura 2.5 son mucho más similares.
-
-**NOTA: Confusión no medida** *La ponderación del puntaje de propensión y la mayoría de las otras técnicas de inferencia causal solo ayudan con los factores de confusión observados (aquellos que modelamos correctamente, además). Lamentablemente, es posible que todavía tengamos factores de confusión no medidos, que analizaremos a continuación. La aleatorización es una técnica de inferencia causal que aborda la confusión no medida, una de las razones por las que es tan poderosa.*
-
-También es posible que deseemos saber qué tan equilibrados están los grupos según cada factor de confusión. Una forma de hacerlo es calcular las diferencias de medias estandarizadas (DME) para cada factor de confusión con y sin ponderaciones. Calcularemos los SMD y tidy_smd()luego los trazaremos con geom_love().
-
-```{r fig.cap="Figura 2.6: Gráfico de love que representa las diferencias de medias estandarizadas (DME) entre grupos de exposición de tres factores de confusión: temperatura, ingresos y salud. Antes de la ponderación, existen diferencias considerables entre los grupos. Después de la ponderación, los factores de confusión están mucho más equilibrados entre los grupos."}
-plot_df <- tidy_smd(
-  net_data_wts,
-  c(income, health, temperature),
-  .group = net,
-  .wts = wts
-)
-
-ggplot(
-  plot_df,
-  aes(
-    x = abs(smd),
-    y = variable,
-    group = method,
-    color = method
-  )
-) +
-  geom_love()
-```
-
-Una pauta estándar es que los factores de confusión equilibrados deben tener una DME inferior a 0,1 en la escala absoluta. 0,1 es sólo una regla general, pero si la seguimos, las variables de la Figura 2.6 están bien equilibradas después de la ponderación (y desequilibradas antes de la ponderación).
-
-Antes de aplicar las ponderaciones al modelo de resultados, verifiquemos su distribución general en busca de ponderaciones extremas. Las ponderaciones extremas pueden desestabilizar la estimación y la varianza en el modelo de resultados, por lo que queremos ser conscientes de ello.
-
-```{r fig.cap="Figura 2.7: Gráfico de densidad de las ponderaciones promedio del efecto del tratamiento (ATE). La gráfica está sesgada, con valores más altos hacia 8. Esto puede indicar un problema con el modelo, pero las ponderaciones no son tan extremas como para desestabilizar la varianza de la estimación."}
-net_data_wts |>
-  ggplot(aes(wts)) +
-  geom_density(fill = "#CC79A7", color = NA, alpha = 0.8)
-```
-
-Las ponderaciones de la Figura 2.7 están sesgadas, pero no hay valores escandalosos. Si viéramos pesos extremos, podríamos intentar recortarlos o estabilizarlos, o considerar calcular un efecto para una estimación diferente
-
-## Estimar el efecto causal
-
-Ahora estamos listos para usar las ponderaciones ATE para (intentar) tener en cuenta la confusión en el ingenuo modelo de regresión lineal. En este caso, ajustar un modelo de este tipo es agradablemente sencillo: ajustamos el mismo modelo que antes pero con weights = wts, que incorporará las ponderaciones de probabilidad inversas.
-
-```{r}
-net_data_wts |>
-  lm(malaria_risk ~ net, data = _, weights = wts) |>
-  tidy(conf.int = TRUE)
-```
-
-La estimación del efecto promedio del tratamiento es -12,5 (IC del 95%: -13,8; -11,3). Desafortunadamente, los intervalos de confianza que estamos usando son incorrectos porque no tienen en cuenta la dependencia dentro de las ponderaciones. Generalmente, los intervalos de confianza para los modelos ponderados por puntuación de propensión serán demasiado estrechos a menos que corrijamos esta dependencia. Por lo tanto, la cobertura nominal de los intervalos de confianza será incorrecta (no son IC del 95% porque su cobertura es mucho menor que el 95%) y puede dar lugar a interpretaciones erróneas.
-
-Tenemos varias formas de abordar este problema, incluido el bootstrap, los errores estándar robustos y la contabilidad manual de la dependencia con estimadores empíricos tipo sándwich. Para este ejemplo, usaremos bootstrap, una herramienta flexible que calcula distribuciones de parámetros mediante remuestreo. Usaremos el paquete rsample del ecosistema tidymodels para trabajar con muestras de arranque.
-
-¡Acabamos de estimarlos usando regresión logística! Necesitamos dar cuenta de esta incertidumbre iniciando todo el proceso de modelación . Para cada muestra de arranque, debemos ajustar el modelo de puntuación de propensión, calcular las ponderaciones de probabilidad inversa y luego ajustar el modelo de resultado ponderado.
-
-```{r}
-library(rsample)
-
-fit_ipw <- function(split, ...) {
-  # get bootstrapped data sample with `rsample::analysis()`
-  .df <- analysis(split)
-
-  # fit propensity score model
-  propensity_model <- glm(
-    net ~ income + health + temperature,
-    data = .df,
-    family = binomial()
-  )
-
-  # calculate inverse probability weights
-  .df <- propensity_model |>
-    augment(type.predict = "response", data = .df) |>
-    mutate(wts = wt_ate(.fitted, net))
-
-  # fit correctly bootstrapped ipw model
-  lm(malaria_risk ~ net, data = .df, weights = wts) |>
-    tidy()
-}
-```
-
-Ahora que sabemos exactamente cómo calcular la estimación para cada iteración, creemos el conjunto de datos de arranque con bootstraps()la función rsample. El timesargumento determina cuántos conjuntos de datos arrancados se crearán; haremos 1.000.
-
-```{r}
-bootstrapped_net_data <- bootstraps(
-  net_data,
-  times = 1000,
-  # required to calculate CIs later
-  apparent = TRUE
-)
-
-bootstrapped_net_data
-```
-
-El resultado es un marco de datos anidado: cada splitsobjeto contiene metadatos que rsample utiliza para subconjuntos de muestras de arranque para cada una de las 1000 muestras. A continuación, ejecutaremos fit_ipw()1000 veces para crear una distribución para estimate. En esencia, el cálculo que estamos haciendo es
-
-```{r eval=FALSE}
-fit_ipw(bootstrapped_net_data$splits[[n]])
-```
-
-Donde n es uno de 1000 índices. Usaremos map()la función de purrr para iterar a través de cada splitobjeto.
-
-```{r include=FALSE}
-ipw_results <- bootstrapped_net_data |>
-  mutate(boot_fits = map(splits, fit_ipw))
-```
-
-```{r eval=FALSE}
-ipw_results <- bootstrapped_net_data |>
-  mutate(boot_fits = map(splits, fit_ipw))
-```
-
-```{r }
-ipw_results
-```
-
-El resultado es otro marco de datos anidado con una nueva columna, boot_fits. Cada elemento de boot_fitses el resultado del IPW para el conjunto de datos iniciado. Por ejemplo, en el primer conjunto de datos iniciado, los resultados de IPW fueron:
-
-```{r}
-ipw_results$boot_fits[[1]]
-```
-
-Ahora tenemos una distribución de estimaciones:
-
-```{r fig.cap="Figura 2.8: “Un histograma de 1.000 estimaciones iniciales del efecto del uso de mosquiteros sobre el riesgo de malaria. La dispersión de estas estimaciones explica la dependencia y la incertidumbre en el uso de ponderaciones IPW”."}
-ipw_results |>
+ckd <- ckd |>
   mutate(
-    estimate = map_dbl(
-      boot_fits,
-      # pull the `estimate` for `netTRUE` for each fit
-      \(.fit) .fit |>
-        filter(term == "netTRUE") |>
-        pull(estimate)
-    )
-  ) |>
-  ggplot(aes(estimate)) +
-  geom_histogram(fill = "#D55E00FF", color = "white", alpha = 0.8)
-```
-
-La Figura 2.8 da una idea de la variación en estimate, pero calculemos intervalos de confianza del 95% a partir de la distribución inicializada utilizando rsample int_t():
-
-```{r}
-boot_estimate <- ipw_results |>
-  # calculate T-statistic-based CIs
-  int_t(boot_fits) |>
-  filter(term == "netTRUE")
-
-boot_estimate
-```
-
-Ahora tenemos una estimación ajustada por factores de confusión con errores estándar correctos. La estimación del efecto de que todos los hogares usen mosquiteros versus ningún hogar que los use sobre el riesgo de malaria es -12,6 (IC del 95%: -13,4, -11,7). De hecho, los mosquiteros parecen reducir el riesgo de malaria en este estudio.
-
-## Realizar análisis de sensibilidad sobre la estimación del efecto.
-
-Hemos trazado una hoja de ruta para tomar datos de observación, pensar críticamente sobre la pregunta causal que queremos plantear, identificar los supuestos que necesitamos para llegar allí y luego aplicar esos supuestos a un modelo estadístico. Obtener la respuesta correcta a la pregunta causal depende de que nuestras suposiciones sean más o menos correctas. ¿Pero qué pasa si estamos más en el lado menos correcto?
-
-Alerta de spoiler: la respuesta que acabamos de calcular es incorrecta . ¡Después de todo ese esfuerzo!
-
-Al realizar un análisis causal, es una buena idea utilizar análisis de sensibilidad para probar sus suposiciones. Hay muchas fuentes potenciales de sesgo en cualquier estudio y muchos análisis de sensibilidad que las acompañan; Nos centraremos en el supuesto de que no hay confusión.
-
-Comencemos con un análisis de sensibilidad amplio; luego, haremos preguntas sobre factores de confusión específicos no medidos. Cuando tenemos menos información sobre los factores de confusión no medidos, podemos utilizar el análisis del punto de inflexión para preguntar cuántos factores de confusión se necesitarían para inclinar mi estimación al valor nulo. En otras palabras, ¿cuál tendría que ser la fuerza del factor de confusión no medido para explicar nuestros resultados? El paquete tipr es un conjunto de herramientas para realizar análisis de sensibilidad. Examinemos el punto de inflexión de un factor de confusión desconocido y de distribución normal. La tip_coef()función toma una estimación (un coeficiente beta de un modelo de regresión, o el límite superior o inferior del coeficiente). Además, requiere 1) diferencias escaladas en las medias del factor de confusión entre los grupos de exposición o 2) efecto del factor de confusión sobre el resultado. Para la estimación, usaremos conf.high, que está más cerca de 0 (el nulo), y preguntaremos: ¿en qué medida el factor de confusión tendría que afectar el riesgo de malaria para tener un intervalo de confianza superior insesgado de 0? Usaremos tipr para calcular esta respuesta para 5 escenarios, donde la diferencia media en el factor de confusión entre los grupos de exposición es 1, 2, 3, 4 o 5.
-
-```{r}
-library(tipr)
-tipping_points <- tip_coef(boot_estimate$.upper, exposure_confounder_effect = 1:5)
-```
-
-```{r fig.cap="Figura 2.9: Un análisis del punto de inflexión bajo varios escenarios de confusión donde el factor de confusión no medido es una variable continua normalmente distribuida. La línea representa la fuerza de la confusión necesaria para inclinar el intervalo de confianza superior de la estimación del efecto causal a 0. El eje x representa el coeficiente de la relación entre el factor de confusión y el resultado ajustado para la exposición y el conjunto de factores de confusión medidos. El eje y representa la diferencia media escalada del factor de confusión entre los grupos de exposición."}
-tipping_points |>
-  ggplot(aes(confounder_outcome_effect, exposure_confounder_effect)) +
-  geom_line(color = "#009E73", linewidth = 1.1) +
-  geom_point(fill = "#009E73", color = "white", size = 2.5, shape = 21) +
-  labs(
-    x = "Confounder-Outcome Effect",
-    y = "Scaled mean differences in\n confounder between exposure groups"
-  )
-```
-
-Si tuviéramos un factor de confusión no medido donde la diferencia de medias estandarizada entre los grupos de exposición fuera 1, el factor de confusión necesitaría disminuir el riesgo de malaria en aproximadamente -11,7. Esto es bastante fuerte en comparación con otros efectos, pero puede ser factible si tenemos una idea de algo que podríamos haber pasado por alto. Por el contrario, supongamos que la relación entre el uso neto y el factor de confusión no medido es muy fuerte, con una diferencia media escalada de 5. En ese caso, la relación entre el factor de confusión y la malaria sólo necesita ser 5. Ahora tenemos que considerar: ¿cuáles de estos escenarios son ¿Es plausible dado nuestro conocimiento del dominio y los efectos que vemos en este análisis?
-
-Ahora consideremos un análisis de sensibilidad mucho más específico. Algunos grupos étnicos, como los fulani, tienen resistencia genética a la malaria ( Arama et al. 2015 ) . Digamos que en nuestros datos simulados, un grupo étnico no identificado en el país no identificado comparte esta resistencia genética a la malaria. Por razones históricas, el uso de mosquiteros en este grupo también es muy elevado. No tenemos esta variable en net_data, pero digamos que sabemos por la literatura que en esta muestra podemos estimar en:
-
--   Las personas con esta resistencia genética tienen, en promedio, un riesgo de malaria de aproximadamente 10 veces menor.
-
--   Alrededor del 26% de las personas que usan mosquiteros en nuestro estudio tienen esta resistencia genética.
-
--   Alrededor del 5% de las personas que no usan mosquiteros tienen esta resistencia genética.
-
-Con esta cantidad de información, podemos usar tipr para ajustar las estimaciones que calculamos para el factor de confusión no medido. Usaremos adjust_coef_with_binary()para calcular las estimaciones ajustadas.
-
-```{r}
-adjusted_estimates <- boot_estimate |>
-  select(.estimate, .lower, .upper) |>
-  unlist() |>
-  adjust_coef_with_binary(
-    exposed_confounder_prev = 0.26,
-    unexposed_confounder_prev = 0.05,
-    confounder_outcome_effect = -10
+    ps    = fitted(modelo_ps),
+    w_ate = isglt2 / ps + (1 - isglt2) / (1 - ps)
   )
 
-adjusted_estimates
-
+ckd |> select(id, isglt2, ps, w_ate) |> head()
 ```
 
-La estimación ajustada para una situación en la que la resistencia genética a la malaria es un factor de confusión es -12,3 (IC del 95%: -13,1; -11,5).
+Interpretación de los pesos: el paciente `r ckd$id[1]` `r if (ckd$isglt2[1] == 1) "inició" else "no inició"` iSGLT2; su probabilidad estimada de iniciarlo era `r scales::percent(ckd$ps[1], 0.1)`, por lo que su peso es `r round(ckd$w_ate[1], 2)`. **Cuanto más "inesperado" es lo que le ocurrió, más pesa.**
 
-De hecho, estos datos fueron simulados con ese factor de confusión. El verdadero efecto del uso de mosquiteros sobre la malaria es aproximadamente -10, y el verdadero DAG que generó estos datos es:
+## Paso 4. Diagnosticar el modelo
 
-```{r, echo=FALSE, fig.cap="Figura 2.10: El verdadero diagrama causal de net_data. Este DAG es idéntico al que propusimos con una adición: la resistencia genética a la malaria reduce causalmente el riesgo de malaria e impacta el uso de redes. Por lo tanto, es un factor de confusión y forma parte del conjunto de ajustes mínimo necesario para obtener una estimación imparcial del efecto. En otras palabras, al no incluirlo, hemos calculado el efecto equivocado."}
-knitr::include_graphics("fig/DAG3.png")
+El objetivo del ajuste no es predecir bien el tratamiento: es **lograr comparabilidad**. Tres revisiones:
+
+### 4a. Solapamiento (positividad)
+
+Debe haber pacientes tratados y no tratados en todo el rango del puntaje de propensión.
+
+```{r}
+#| label: fig-solapamiento
+#| fig-cap: "Distribución del puntaje de propensión por grupo. Se requiere solapamiento: pacientes comparables en ambos grupos en todo el rango."
+#| fig-width: 7
+#| fig-height: 3.6
+ckd |>
+  mutate(grupo = if_else(isglt2 == 1, "Con iSGLT2", "Sin iSGLT2")) |>
+  ggplot(aes(ps, fill = grupo)) +
+  geom_density(alpha = 0.5, color = NA) +
+  scale_fill_manual(values = c("#0072B2", "#D55E00")) +
+  labs(x = "Puntaje de propensión", y = "Densidad", fill = NULL)
 ```
 
-El factor de confusión no medido en la Figura 2.10 está disponible en el conjunto de datos net_data_fullcomo genetic_resistance. Si volvemos a calcular la estimación del IPW del efecto promedio del tratamiento con mosquiteros sobre el riesgo de malaria, obtenemos -10,2 (IC del 95%: -11,2; -9,3), mucho más cerca de la respuesta real de -10.
+### 4b. Balance de los confusores (SMD)
 
-¿Qué opinas? ¿Es confiable esta estimación? ¿Hicimos un buen trabajo al abordar los supuestos que debemos hacer para un efecto causal, principalmente que no hay confusión? ¿Cómo criticarías este modelo y qué harías diferente? Vale, sabemos que -10 es la respuesta correcta porque los datos son simulados, pero en la práctica nunca podemos estar seguros, por lo que debemos seguir investigando nuestras suposiciones hasta que estemos seguros de que son sólidas.
+```{r}
+#| label: balance-34
+vars <- c("edad", "hba1c", "pas", "tfg_basal", "uacr", "ecv")
 
-# Referencias
+balance <- tibble(
+  variable = vars,
+  `Sin ponderar`  = map_dbl(vars, ~ smd(ckd[[.x]], ckd$isglt2)),
+  `Ponderado`     = map_dbl(vars, ~ smd(ckd[[.x]], ckd$isglt2, ckd$w_ate))
+)
+balance |> mutate(across(where(is.numeric), ~ round(., 3)))
+```
 
--   Ross, R.D., Shi, X., Caram, M.E.V. et al. Veridical causal inference using propensity score methods for comparative effectiveness research with medical claims. Health Serv Outcomes Res Method (2020). <https://doi.org/10.1007/s10742-020-00222-8>
+```{r}
+#| label: fig-love-34
+#| fig-cap: "Gráfico de Love. Antes de ponderar hay desequilibrios; después, los |SMD| son < 0.1 (línea punteada)."
+#| fig-width: 6.5
+#| fig-height: 3.4
+balance |>
+  pivot_longer(-variable, names_to = "método", values_to = "smd") |>
+  mutate(`método` = factor(`método`, levels = c("Sin ponderar", "Ponderado"))) |>
+  ggplot(aes(abs(smd), variable, color = `método`)) +
+  geom_vline(xintercept = 0.1, linetype = "dashed") +
+  geom_point(size = 3) +
+  scale_color_manual(values = c("#D55E00", "#0072B2")) +
+  labs(x = "|Diferencia de medias estandarizada|", y = NULL, color = NULL)
+```
 
--   Elwert, F. (2013). Graphical Causal Models. In S. L. Morgan (Ed.), *Handbook of Causal Analysis for Social Research* (pp. 245--273). Springer.
+Antes de ponderar, los tratados eran más jóvenes (SMD `r round(balance$"Sin ponderar"[1], 2)`) y con mejor TFGe (SMD `r round(balance$"Sin ponderar"[4], 2)`); después, todos los |SMD| son menores de 0.1.
 
--   Hernán, M. A., & Robbins, J. M. (2020). *Causal Inference: What If*. CRC Press.
+### 4c. Pesos extremos
 
--   Morgan, S. L., & Winship, C. (2007). *Counterfactuals and Causal Inference: Methods and Principles for Social Research*. Cambridge University Press.
+Pesos muy grandes dan a unos pocos pacientes demasiada influencia y desestabilizan la estimación.
 
--   Pearl, J., Glymour, M., & Jewell, N. P. (2016). *Causal Inference in Statistics: A Primer*. Wiley.
+```{r}
+#| label: pesos
+summary(ckd$w_ate)
+quantile(ckd$w_ate, c(0.9, 0.99, 0.999))
+```
 
--   Pearl, J., & Mackenzie, D. (2018). *The Book of Why: The New Science of Cause and Effect*. Basic Books.
+::: {.callout-warning}
+## ⚠️ Cuidado con los pesos extremos
 
--   Rohrer, J. M. (2018). Thinking Clearly About Correlations and Causation: Graphical Causal Models for Observational Data. *Advances in Methods and Practices in Psychological Science*, *1*(1), 27--42.
+Pesos > 10 señalan pacientes cuyo tratamiento era **muy improbable**: casi no hay comparables. Opciones: **recortar** (truncar) los pesos en percentiles (p. ej., 1 % y 99 %), **estabilizarlos**, o restringir la población al rango donde hay solapamiento (recorte por PS). Reporta qué hiciste y si cambia el resultado.
+:::
 
--   Shalizi, C. R. (2019). *Advanced Data Analysis From an Elementary Point of view*. <https://www.stat.cmu.edu/~cshalizi/ADAfaEPoV/ADAfaEPoV.pdf>
+## Paso 5. Estimar el efecto causal
+
+Con los pesos, ajustamos un modelo del desenlace. El coeficiente de `isglt2` es el **ATE**:
+
+```{r}
+#| label: efecto-ponderado
+modelo_ipw <- lm(pendiente_tfg ~ isglt2, data = ckd, weights = w_ate)
+coef(summary(modelo_ipw))["isglt2", ]
+```
+
+El error estándar que muestra `lm()` **no es válido**: ignora que los pesos se estimaron con otro modelo. Corregimos con ***bootstrap***: remuestreamos pacientes y **repetimos todo el proceso** (modelo de PS, pesos y modelo del desenlace) en cada muestra.
+
+```{r}
+#| label: bootstrap
+# Función que ejecuta TODO el análisis en un conjunto de datos
+analizar <- function(d) {
+  ps <- fitted(glm(f_ps, data = d, family = binomial()))
+  w  <- d$isglt2 / ps + (1 - d$isglt2) / (1 - ps)
+
+  # Desenlace primario: ATE sobre la pendiente de TFGe
+  efecto <- coef(lm(pendiente_tfg ~ isglt2, data = d, weights = w))[["isglt2"]]
+
+  # Desenlace secundario: riesgo ponderado de evento renal a 36 meses
+  r1 <- weighted.mean(d$evento[d$isglt2 == 1], w[d$isglt2 == 1])
+  r0 <- weighted.mean(d$evento[d$isglt2 == 0], w[d$isglt2 == 0])
+
+  c(efecto = efecto, riesgo_iSGLT2 = r1, riesgo_control = r0,
+    dif_riesgo = r1 - r0, riesgo_relativo = r1 / r0)
+}
+
+set.seed(2025)
+estimado <- analizar(ckd)
+remuestras <- t(replicate(500, analizar(ckd[sample(nrow(ckd), replace = TRUE), ])))
+
+resultados <- tibble(
+  medida     = names(estimado),
+  estimado   = estimado,
+  ic_inf     = apply(remuestras, 2, quantile, probs = 0.025),
+  ic_sup     = apply(remuestras, 2, quantile, probs = 0.975)
+)
+resultados |> mutate(across(where(is.numeric), ~ round(., 3)))
+```
+
+```{r}
+#| label: fig-bootstrap
+#| fig-cap: "Distribución de 500 estimaciones bootstrap del efecto sobre la pendiente de TFGe. La línea es la estimación puntual; la zona sombreada, el IC 95 % por percentiles."
+#| fig-width: 6.5
+#| fig-height: 3.2
+ggplot(tibble(efecto = remuestras[, "efecto"]), aes(efecto)) +
+  geom_histogram(bins = 30, fill = "#0072B2", color = "white", alpha = 0.85) +
+  geom_vline(xintercept = estimado[["efecto"]], linewidth = 1) +
+  labs(x = "Efecto estimado (mL/min/1.73 m²/año)", y = "Remuestras")
+```
+
+**Resultado principal:** iniciar iSGLT2 se asocia, tras ajustar por los confusores medidos, con una pendiente de TFGe **`r round(estimado[["efecto"]], 2)`** mL/min/1.73 m²/año mejor (IC 95 % bootstrap `r round(resultados$ic_inf[1], 2)` a `r round(resultados$ic_sup[1], 2)`), en comparación con no iniciar.
+
+**Resultado secundario (escala de riesgo):** el riesgo ajustado de evento renal a 36 meses fue `r scales::percent(estimado[["riesgo_iSGLT2"]], 0.1)` con iSGLT2 vs. `r scales::percent(estimado[["riesgo_control"]], 0.1)` sin él: diferencia de `r round(100 * estimado[["dif_riesgo"]], 1)` puntos porcentuales (IC 95 % `r round(100 * resultados$ic_inf[4], 1)` a `r round(100 * resultados$ic_sup[4], 1)`) y **NNT ≈ `r round(1 / abs(estimado[["dif_riesgo"]]))`** a 36 meses.
+
+::: {.callout-tip}
+## 💡 Tip práctico: mismos pasos, otro desenlace
+
+Para una **diferencia de medias** (pendiente de TFGe) usa un modelo lineal ponderado; para un **evento binario** compara las proporciones ponderadas (diferencia y razón de riesgos); para **tiempo hasta un evento**, usa un modelo de Cox ponderado o curvas de Kaplan-Meier ponderadas (capítulos de supervivencia). El flujo (PS → pesos → estimación → *bootstrap*) es el mismo.
+:::
+
+Hasta aquí, un informe típico diría: *"tras ajustar por confusores, el iSGLT2 mejora la pendiente de TFGe."* **Pero la respuesta que acabamos de calcular es incorrecta.** Veamos por qué.
+
+## Paso 6. Análisis de sensibilidad
+
+Nuestra estimación asume que **no hay confusores no medidos**. Eso rara vez es cierto. El análisis de sensibilidad responde: *¿qué tan fuerte tendría que ser un confusor no medido para cambiar mi conclusión?*
+
+### 6a. El E-value
+
+El **E-value** (VanderWeele y Ding) es la fuerza mínima de asociación que un confusor no medido tendría que tener, **con la exposición y con el desenlace** (en escala de razón de riesgos, y tras ajustar por lo medido), para **explicar completamente** el resultado observado.
+
+```{r}
+#| label: evalue
+ev <- e_value(rr = estimado[["riesgo_relativo"]], lim = resultados$ic_sup[5])
+ev
+```
+
+El riesgo relativo ajustado fue `r round(estimado[["riesgo_relativo"]], 2)`. El **E-value es `r round(ev$e_value_punto, 2)`**: un confusor no medido tendría que asociarse tanto con el tratamiento como con el evento renal con un riesgo relativo de al menos `r round(ev$e_value_punto, 1)` cada uno para anular el resultado, y de `r round(ev$e_value_ic, 1)` para que el IC incluya 1.
+
+::: {.callout-warning}
+## ⚠️ Cómo (no) interpretar el E-value
+
+-   Un E-value alto **no demuestra** que no haya sesgo: solo dice cuánta confusión haría falta para *anular* el efecto, no cuánta hay.
+-   Compáralo con la fuerza de los confusores que **sí mediste** (¿la edad se asocia con riesgos relativos de 2 con el desenlace?) y con tu conocimiento clínico de lo que podría faltar (fragilidad, adherencia, acceso a la atención).
+:::
+
+### 6b. Análisis de sesgo cuantitativo
+
+Si podemos **imaginar** el confusor no medido (aquí, la fragilidad), podemos **cuantificar** su efecto. Para un confusor $U$ estandarizado (media 0, DE 1), el sesgo de un estimador ajustado es aproximadamente:
+
+$$
+\text{sesgo} \approx \gamma \times \delta
+$$
+
+donde $\gamma$ es el efecto de $U$ (por 1 DE) sobre el desenlace y $\delta$ la diferencia de $U$ (en DE) entre tratados y no tratados, **ya ajustada** por lo medido. Estimación corregida = estimación − sesgo.
+
+```{r}
+#| label: fig-sesgo
+#| fig-cap: "Estimación corregida del efecto según la fuerza de un confusor no medido. Eje x: diferencia de U (en DE) entre tratados y no tratados. Eje y: efecto de U (por DE) sobre la pendiente de TFGe. La línea negra marca el punto en que el efecto se anula."
+#| fig-width: 7
+#| fig-height: 4.6
+est <- estimado[["efecto"]]
+
+escenarios <- expand_grid(
+  delta = seq(-1.5, 0, by = 0.05),     # los tratados tienen MENOS fragilidad
+  gamma = seq(-1.5, 0, by = 0.05)      # la fragilidad EMPEORA la pendiente
+) |>
+  mutate(corregido = est - gamma * delta)
+
+ggplot(escenarios, aes(delta, gamma, fill = corregido)) +
+  geom_tile() +
+  geom_contour(aes(z = corregido), breaks = 0, color = "black", linewidth = 1) +
+  geom_contour(aes(z = corregido), breaks = c(0.5, 1), color = "white", linetype = "dashed") +
+  scale_fill_gradient2(midpoint = 0, low = "#D55E00", mid = "white", high = "#0072B2",
+                       name = "Efecto\ncorregido") +
+  labs(x = "δ: diferencia de fragilidad (DE) tratados − no tratados",
+       y = "γ: efecto de la fragilidad (por DE) sobre la pendiente de TFGe")
+```
+
+Con confusión moderada (γ = −0.5 y δ = −0.5) el efecto corregido sería `r round(est - (-0.5) * (-0.5), 2)`; con confusión muy fuerte (γ = −1.2 y δ = −1.0) sería `r round(est - (-1.2) * (-1), 2)`. **El efecto estimado depende mucho de qué tan frágiles eran los pacientes que no recibieron el fármaco**, algo que el registro no capta.
+
+### 6c. La revelación (solo posible con datos simulados)
+
+Como simulamos los datos, sabemos que la fragilidad existe. Usemos la versión "oráculo" para ver qué ocurre si la hubiéramos medido:
+
+```{r}
+#| label: revelacion
+oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv", show_col_types = FALSE)
+ate_verdadero <- mean(oraculo$ite)
+
+# (1) Parámetros reales del confusor no medido (por 1 DE)
+sd_frag <- sd(oraculo$fragilidad)
+gamma_real <- coef(lm(pendiente_tfg ~ isglt2 + fragilidad + edad + sexo + hba1c + pas +
+                        tfg_basal + log(uacr) + ecv, data = oraculo))[["fragilidad"]] * sd_frag
+delta_real <- coef(lm(fragilidad ~ isglt2 + edad + sexo + hba1c + pas + tfg_basal +
+                        log(uacr) + ecv, data = oraculo))[["isglt2"]] / sd_frag
+
+# (2) IPW incluyendo la fragilidad en el modelo del PS
+ps_f <- fitted(glm(isglt2 ~ edad + sexo + hba1c + pas + tfg_basal + log(uacr) + ecv + fragilidad,
+                   data = oraculo, family = binomial()))
+w_f  <- oraculo$isglt2 / ps_f + (1 - oraculo$isglt2) / (1 - ps_f)
+ate_con_fragilidad <- coef(lm(pendiente_tfg ~ isglt2, data = oraculo, weights = w_f))[["isglt2"]]
+
+tibble(
+  análisis = c("Verdad (ATE oráculo)", "IPW sin fragilidad (lo que tendríamos)",
+               "Corrección por sesgo con γ y δ reales", "IPW con fragilidad medida"),
+  efecto   = c(ate_verdadero, est, est - gamma_real * delta_real, ate_con_fragilidad)
+) |> mutate(efecto = round(efecto, 2))
+```
+
+-   Los parámetros reales de la fragilidad son γ = `r round(gamma_real, 2)` y δ = `r round(delta_real, 2)`: **cae en la zona de confusión "moderada-fuerte" del gráfico**.
+-   La corrección por sesgo con esos valores devuelve casi exactamente el ATE verdadero (`r round(ate_verdadero, 2)`), y al **medir la fragilidad** el IPW lo recupera (`r round(ate_con_fragilidad, 2)`).
+
+::: {.callout-important}
+## 🎯 La lección
+
+El análisis "bien hecho" (DAG, balance excelente, *bootstrap*) dio un resultado **precisamente estimado pero sesgado**, porque faltaba un confusor. En la práctica **no sabremos** cuánto sesgo hay; lo que sí podemos hacer es:
+
+1.  **Pensar qué confusores faltan** (con el DAG) y **medirlos** cuando sea posible (en este caso, una escala de fragilidad en la consulta).
+2.  **Cuantificar** cuánto podrían cambiar los resultados (E-value, análisis de sesgo).
+3.  **Reportar con honestidad** las limitaciones: *"estimaciones ajustadas por X, Y, Z; no se midió W"*.
+:::
+
+## Plantilla reutilizable
+
+Para tu propio análisis, cambia el nombre de las variables y reutiliza esta estructura:
+
+```{r}
+#| label: plantilla
+#| eval: false
+# 1. Datos y pregunta -------------------------------------------------------
+datos <- read_csv("mis_datos.csv")           # una fila por paciente
+
+# 2. Modelo del puntaje de propensión (confusores del DAG) -----------------
+f_ps <- tratamiento ~ edad + sexo + tfg_basal + log(uacr) + hba1c   # <- tus confusores
+
+# 3. Función que corre TODO el análisis -------------------------------------
+analizar <- function(d) {
+  ps <- fitted(glm(f_ps, data = d, family = binomial()))
+  w  <- d$tratamiento / ps + (1 - d$tratamiento) / (1 - ps)       # ATE
+  coef(lm(desenlace ~ tratamiento, data = d, weights = w))[["tratamiento"]]
+}
+
+# 4. Estimación e IC por bootstrap ------------------------------------------
+set.seed(1)
+est   <- analizar(datos)
+boot  <- replicate(1000, analizar(datos[sample(nrow(datos), replace = TRUE), ]))
+c(estimado = est, quantile(boot, c(0.025, 0.975)))
+
+# 5. Diagnóstico y sensibilidad: balance (smd), pesos, E-value ---------------
+```
+
+## Preguntas para reflexionar
+
+1.  ¿Es creíble el DAG? ¿Qué flechas añadirías o quitarías?
+2.  ¿Qué otro confusor podría faltar en una consulta real (adherencia, nutrición, acceso a la atención, otras terapias)?
+3.  ¿Responde la estimación a la pregunta clínica (ATE vs. ATT)?
+4.  ¿Qué le pedirías a un autor que te presente este análisis en un artículo?
+
+## Referencias
+
+-   Barrett M, D'Agostino McGowan L, Gerke T. *Causal Inference in R*. 2025. <https://www.r-causal.org/> (capítulo "Whole game", cuya estructura de seis pasos seguimos).
+-   Hernán MA, Robins JM. *Causal Inference: What If*. Chapman & Hall/CRC; 2020.
+-   VanderWeele TJ, Ding P. Sensitivity analysis in observational research: introducing the E-value. *Ann Intern Med*. 2017;167(4):268-274.
+-   Austin PC. An introduction to propensity score methods for reducing the effects of confounding in observational studies. *Multivariate Behav Res*. 2011;46(3):399-424.
+-   Cole SR, Hernán MA. Constructing inverse probability weights for marginal structural models. *Am J Epidemiol*. 2008;168(6):656-664.
+-   Ensayos aleatorizados de iSGLT2 en ERC: Perkovic V, et al. (CREDENCE), *N Engl J Med*. 2019; Heerspink HJL, et al. (DAPA-CKD), *N Engl J Med*. 2020; The EMPA-KIDNEY Collaborative Group, *N Engl J Med*. 2023.
+
+## Nota editorial
+
+-   Esta sección fue editada con asistencia de IA (ChatGPT; revisión editorial con Claude). Los datos son simulados. Se reescribió el capítulo con un ejemplo nefrológico original, siguiendo la secuencia de seis pasos de la bibliografía citada.

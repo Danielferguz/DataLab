@@ -1,75 +1,160 @@
-# Medidas de Impacto
+# Medidas de impacto
 
-Debemos tener en cuenta que las medidas de impacto deben evaluarse en el escenario en el que se ha demostrado **asociación** **causal** entre la variable de exposición y la variable de desenlace. Las medidas de impacto estiman la carga de enfermedad atribuible a un factor dado, y pronostican el beneficio que se derivará de cierta intervención. Si bien su se suele reservar al contexto de ensayos clínicos, también podrían evaluarse con cautela en estudios observacionales. Las principales medidas de asociación son:
+Las medidas de asociación nos dicen **cuántas veces** más (o menos) frecuente es un desenlace. Las **medidas de impacto** traducen esa asociación a una escala **absoluta y clínica**: *¿a cuántos pacientes beneficia (o daña) una intervención?, ¿qué parte del problema se debe a la exposición?*
 
-## Riesgo Atribuible (RA)
+::: {.callout-important}
+## 🎯 En resumen
 
-También es denominado como reducción absoluta del riesgo o riesgo atribuible en los expuestos (RAE). Es la incidencia de un evento (por ejemplo, una enfermedad o la mortalidad) en la población expuesta que se eliminaría si se eliminara la exposición (3,4). Cuando el desenlace es dicotómico, el RA se calcula como la diferencia en las incidencias acumuladas (diferencia de riesgo).
+| Medida | Abreviatura | Fórmula | Pregunta clínica que responde |
+|---|---|---|---|
+| Diferencia (reducción absoluta) de riesgo | RA / RD | $R_{exp} - R_{no\ exp}$ | ¿Cuántos eventos más/menos por 100 pacientes? |
+| Reducción relativa del riesgo | RRR | $1 - RR$ | ¿Qué fracción del riesgo basal se elimina? |
+| Número necesario a tratar / dañar | NNT / NND | $1 / \lvert RA \rvert$ | ¿A cuántos debo tratar para evitar (o causar) 1 evento? |
+| Fracción atribuible en expuestos | FAE | $(RR-1)/RR$ | ¿Qué % del riesgo **de los expuestos** se debe a la exposición? |
+| Fracción atribuible poblacional | FAP | $\dfrac{p_e (RR-1)}{1 + p_e (RR-1)}$ | ¿Qué % de **todos los casos** de la población se evitaría sin la exposición? |
 
-$\text{RA} = \text{Riesgo en expuestos} - \text{Riesgo en no expuestos}$ $\text{RA} = \text{𝐼𝑛𝑐𝑖𝑑𝑒𝑛𝑐𝑖𝑎 𝑒𝑛 𝑛𝑜 𝑒𝑥𝑝𝑢𝑒𝑠𝑡𝑜𝑠 × (𝑅𝑅 − 1)}$
+**Siempre** acompaña la medida de impacto con el **horizonte de tiempo** (p. ej., "a 36 meses").
+:::
 
-*Ejemplo:*
+::: {.callout-warning}
+## ⚠️ Condición previa: causalidad
 
-Para interpretar el RA propondremos un ejemplo. Supongamos que, para cierto estudio, la probabilidad de presentar el desenlace es de 2% en el grupo expuesto y 3% en el grupo no expuesto. Podemos calcular el RR dividiendo estas probabilidades (2% / 3% = 0,67). Si asumimos que este valor fue estadísticamente significativo, procederemos a calcular el RA, para lo cual tenemos que restar estas probabilidades (2% - 3% = - 1%). Para interpretar este RA, lo trasladaremos a una población de 1000 personas. Para ello, tengamos en cuenta que el RA calculado de -1% nos dice que tendremos 1 caso menos por cada 100 personas tratadas, lo cual será igual a 10 casos menos por cada 1000 personas. De esta manera, la interpretación será: Si 1000 personas hubieran recibido la exposición en lugar de no recibirla, 10 personas menos hubieran desarrollado el desenlace.
+Las medidas de impacto **asumen que la asociación es causal**. Calcular un NNT con una asociación confundida da una cifra precisa pero engañosa. Por eso se reservan para ensayos clínicos o para análisis observacionales causales bien hechos (Parte 3).
+:::
 
-![](fig/Articulo_cap2_3.png){width="600" height="450"}
+## Diferencia de riesgos (riesgo atribuible, RA)
 
-Nota que mientras el RR nos brinda un dato relativo, el RA puede interpretarse como número de personas que se benefician o se perjudican (de una población de 1000 personas). De esta manera, un mismo RR puede estar indicándonos distintos RA. Por ello, en general, las medidas de asociación se usan para comparar entre estudios (pues se espera que se mantengan estables entre estudios), en tanto que el RA se usa para la toma de decisiones ya sea en la práctica clínica o en salud pública (pues nos permite evaluar el impacto en término de número de personas beneficiadas o dañadas en contextos específicos).
+También llamada *reducción absoluta del riesgo* (cuando el tratamiento protege) o *aumento absoluto del riesgo* (cuando daña).
 
-En el contexto de GRADE (Grading of Recommendations Assessment, Development and Evaluation), una RA significativa (es decir, que supere umbrales de diferencia minima importante) refuerza la confianza en la certeza de la evidencia, ya que indica que el efecto observado es sustancial y relevante a nivel clínico, y no solo una diferencia estadística sin relevancia práctica. La RA contribuye también a una mejor comprensión del tamaño del efecto, lo que facilita la toma de decisiones informada sobre los beneficios de un tratamiento o intervención, ajustados por la población específica en el que se desarolle una recomendación (contexto de guías de practica clinica).
+$$
+\text{RA} = \text{Riesgo}_{\text{expuestos}} - \text{Riesgo}_{\text{no expuestos}} \;=\; R_{\text{no exp}} \times (RR - 1)
+$$
 
-## Número Necesario a Tratar (NNT) o Número necesario a dañar (NND)
+Retomemos la base simulada con iSGLT2 (medidas **crudas**, solo para practicar el cálculo):
 
-Esta medida establece el número de personas a las que se debe dar un determinado tratamiento o medida preventiva, con respecto al tratamiento estándar, para prevenir un caso de enfermedad, o el desenlace no deseado
+```{r}
+#| label: setup-23
+library(tidyverse)
+source("R/funciones_epi.R")
 
-$\text{NNT} = \frac{1}{\text{RA}}$
+ckd <- read_csv("Bases/ckd_isglt2.csv", show_col_types = FALSE)
 
-Si el desenlace es favorable (como dejar de fumar o curarse de alguna enfermedad), la fórmula 1/RA nos brindará el NNT (cuántas personas deben haber estado expuestas para que una persona más tenga este desenlace favorable). Por otro lado, si el desenlace es desfavorable (como morir o enfermar), la fórmula 1/RA nos brindará el NND (cuántas personas deben estar expuestas para que una persona más tenga este desenlace desfavorable).
+tabla <- table(isglt2 = ckd$isglt2, evento = ckd$evento)
+res <- medidas_2x2(a = tabla["1", "1"], b = tabla["1", "0"],
+                   c = tabla["0", "1"], d = tabla["0", "0"])
+res
+```
 
-En nuestro ejemplo inicial, uno de los RA fue de -5%, es decir “cinco menos de cada cien” (5/100 o 50/1000). Para calcular el NNT o el NND, usaremos la fórmula 1/RA, que sería 100/5 = 20.
+El RA fue **`r round(100 * res$estimado[3], 1)` puntos porcentuales** (IC 95 % `r round(100 * res$ic_inf[3], 1)` a `r round(100 * res$ic_sup[3], 1)`): *"por cada 1000 pacientes que inician iSGLT2 habría unos `r round(abs(res$estimado[3]) * 1000)` eventos renales menos a 36 meses"*.
 
-Esto se podría interpretar de la siguiente manera: “En la población evaluada, era necesario que la exposición este presente en lugar de no brindarla a 20 personas para que una más se beneficie o dañe (por ejemplo, para evitar un caso de infarto)”.
+::: {.callout-tip}
+## 💡 Tip: misma RR, distinto impacto
 
-Es importante recordar que, para efectos prácticos, solo tiene sentido interpretar estas medidas (RA, NNT y NND) cuando estamos seguros de que existe un efecto (por ejemplo, cuando la medida de asociación calculada fue estadísticamente significativa).
+Un RR de 0.57 no significa lo mismo en un paciente de bajo riesgo que en uno de alto riesgo. Mira cómo cambia el beneficio absoluto con el riesgo basal:
 
-## Fracción etiológica del riesgo (FER)
+```{r}
+#| label: riesgo-basal
+tibble(riesgo_basal = c(0.02, 0.10, 0.20, 0.40), rr = 0.57) |>
+  mutate(riesgo_tratado = riesgo_basal * rr,
+         ra  = riesgo_tratado - riesgo_basal,
+         nnt = 1 / abs(ra)) |>
+  mutate(across(c(riesgo_basal, riesgo_tratado, ra), ~ scales::percent(., 0.1)),
+         nnt = round(nnt))
+```
 
-La Fracción Etiológica del Riesgo (FER) mide la proporción de riesgo en un grupo expuesto que puede ser atribuida a una exposición específica. Es una medida de cuánta parte del riesgo de enfermedad (o evento) se debe a la exposición en un grupo de individuos.
+Con riesgo basal de 2 %, hay que tratar a ~116 pacientes para evitar un evento; con 40 %, a ~6. **Por eso el NNT sirve para decidir *a quién* tratar.**
+:::
 
-$\text{FER} = \frac{(RR - 1)}{RR} \times 100$
+## Número necesario a tratar (NNT) y a dañar (NND)
 
-La FER nos dice el porcentaje de la incidencia del evento que podría ser eliminado si se eliminara la exposición.
+Número de pacientes que deben recibir la intervención (en lugar del comparador) para **evitar un evento** adicional (NNT) o **causar uno** (NND).
 
-**Ejemplo**
+$$
+\text{NNT} = \frac{1}{\lvert \text{RA} \rvert}
+$$
 
-Pregunta: En adultos mayores con hipertensión, ¿cuál es la fracción de riesgo atribuible a la terapia con IECAs en el riesgo de eventos cardiovasculares?
+-   Desenlace **desfavorable** (muerte, diálisis) y RA < 0 → **NNT** (la intervención lo previene).
+-   Desenlace **desfavorable** y RA > 0 → **NND** (la intervención lo causa).
+-   Desenlace **favorable** (remisión) y RA > 0 → **NNT** (la intervención lo favorece).
 
-P: Pacientes adultos mayores
+```{r}
+#| label: nnt
+nnt_desde_rd(rd = res$estimado[3], rd_inf = res$ic_inf[3], rd_sup = res$ic_sup[3])
+```
 
-I: IECAs
+**NNT ≈ `r round(1 / abs(res$estimado[3]))` a 36 meses** (IC 95 % `r round(1 / abs(res$ic_inf[3]), 1)`–`r round(1 / abs(res$ic_sup[3]), 1)`): *"es necesario tratar a unos `r round(1 / abs(res$estimado[3]))` pacientes con iSGLT2 durante 3 años para evitar un evento renal"*.
 
-C: no uso de IECAs
+::: {.callout-warning}
+## ⚠️ Cuidado con el NNT
 
-O: Evento cardiovascular (como infarto de miocardio)
+- **Siempre** indica el horizonte de tiempo: NNT = 12 a 3 años no es NNT = 12 a 1 año.
+- **Redondea hacia arriba** (12.0 → 12; 12.1 → 13): el NNT es un número de personas.
+- Si el IC de la diferencia de riesgos **incluye 0**, el IC del NNT no es un intervalo continuo (va de un valor a infinito y vuelve desde el infinito). La función `nnt_desde_rd()` te avisa con `ic_incluye_cero`.
+- El NNT **no es transferible** entre poblaciones con distinto riesgo basal (ver la tabla anterior).
+:::
 
-Supongamos que la razón de riesgo (RR) para los pacientes con hipertensión tratados es 2.5, lo que significa que los pacientes con hipertensión tienen 2.5 veces más riesgo de sufrir un evento cardiovascular que los pacientes sin hipertensión.
+## Reducción relativa del riesgo (RRR)
 
-Cálculo de la FER:
+$$
+\text{RRR} = 1 - \text{RR} = \frac{R_{\text{no exp}} - R_{\text{exp}}}{R_{\text{no exp}}}
+$$
 
-$$\text{FER} = \frac{(\text{2.5} - 1)}{\text{2.5}} = \frac{1.5}{\text{2.5}} = 0.6$$
+Con RR = `r round(res$estimado[4], 2)`, la **RRR es `r round(100 * (1 - res$estimado[4]))` %**: el iSGLT2 elimina esa fracción del riesgo basal. Es la forma "atractiva" de comunicar un resultado (siempre sale mayor que la RA), por eso **no debe usarse sola**.
 
-Esto significa que el 60% del riesgo de los eventos cardiovasculares en este grupo puede ser atribuido a la hipertensión, es decir, el riesgo que se podría reducir si se eliminara la hipertensión en estos pacientes.
+## Fracciones atribuibles (FAE y FAP)
 
-Interpretación: Si el tratamiento para reducir la hipertensión fuera completamente efectivo, se podría eliminar el 60% del riesgo de eventos cardiovasculares en la población evaluada, bajo la suposición de que no habría otros factores de riesgo involucrados.
+Se usan cuando la exposición **daña** (RR > 1) y queremos saber cuánto del problema se debe a ella.
 
-Consideraciones importantes: La FER solo tiene sentido en situaciones donde hay una relación causal directa entre la exposición y el desenlace.
+$$
+\text{FAE} = \frac{RR - 1}{RR} \qquad\qquad \text{FAP} = \frac{p_e\,(RR-1)}{1 + p_e\,(RR-1)}
+$$
 
-La FER también depende de la razón de riesgo (RR), por lo que solo puede calcularse cuando esta medida es significativa.
+donde $p_e$ es la proporción de expuestos en la **población** (no solo en la muestra de enfermos).
+
+::: {.callout-note}
+## 🩺 Ejemplo (hipotético)
+
+Supón que en pacientes con ERC avanzada la **hiperfosfatemia persistente** (fósforo > 5.5 mg/dL) se asocia con mayor mortalidad cardiovascular, con **RR = 1.8**, y que **30 %** de la población tiene hiperfosfatemia.
+:::
+
+```{r}
+#| label: fraccion-atribuible
+rr  <- 1.8
+p_e <- 0.30
+
+fae <- (rr - 1) / rr
+fap <- p_e * (rr - 1) / (1 + p_e * (rr - 1))
+tibble(FAE = scales::percent(fae, 0.1), FAP = scales::percent(fap, 0.1))
+```
+
+-   **FAE = `r scales::percent(fae, 0.1)`**: de la mortalidad cardiovascular de los pacientes con hiperfosfatemia, `r scales::percent(fae, 1)` sería atribuible a ella (**si** la asociación es causal).
+-   **FAP = `r scales::percent(fap, 0.1)`**: si se eliminara la hiperfosfatemia en toda la población, se evitaría `r scales::percent(fap, 1)` de **todas** las muertes cardiovasculares. Es menor porque solo 30 % está expuesto.
+
+::: {.callout-tip}
+## 💡 Tip práctico
+
+- **FAE** → útil en la consulta individual ("en este paciente, ¿cuánto de su riesgo es por la exposición?").
+- **FAP** → útil en salud pública ("¿cuánto ganaríamos si controláramos la exposición en el servicio o en el país?").
+- Cuando la intervención **protege**, usa la RRR o el NNT en lugar de la fracción atribuible.
+:::
+
+::: {.callout-important}
+## 🎯 Para llevarte
+
+1. Reporta **siempre** una medida relativa (RR/HR) **y** una absoluta (RA o NNT).
+2. El NNT es válido solo para el **riesgo basal, la población y el horizonte de tiempo** en que se calculó.
+3. Las medidas de impacto presuponen **causalidad**: una asociación confundida produce un NNT atractivo pero falso.
+4. Ninguna depende de "p < 0.05": mira el **IC** de la medida absoluta.
+:::
 
 ## Referencias
 
-1.  Zafra-Tanaka JH, Taype-Rondan A, Fernandez-Guzman D. Cómo entender las medidas de efecto en la investigación clínica: Interpretación práctica y aplicación. Revista del Cuerpo Medico Hospital Nacional Almanzor Aguinaga Asenjo. 2023;16. Disponible en: <https://cmhnaaa.org.pe/ojs/index.php/rcmhnaaa/article/view/1935>
+1.  Zafra-Tanaka JH, Taype-Rondan A, Fernandez-Guzman D. Cómo entender las medidas de efecto en la investigación clínica: Interpretación práctica y aplicación. Revista del Cuerpo Médico Hospital Nacional Almanzor Aguinaga Asenjo. 2023;16. <https://cmhnaaa.org.pe/ojs/index.php/rcmhnaaa/article/view/1935>
 
-## Disclaimer
+2.  Altman DG. Confidence intervals for the number needed to treat. *BMJ*. 1998;317:1309-1312.
 
--   Esta sección fue editada usando ChatGPT.
+3.  Rothman KJ, Greenland S, Lash TL. *Modern Epidemiology*. 3.ª ed. Lippincott Williams & Wilkins; 2008.
+
+## Nota editorial
+
+-   Esta sección fue editada con asistencia de IA (ChatGPT; revisión editorial con Claude). Los ejemplos con datos hipotéticos o simulados no corresponden a pacientes reales.

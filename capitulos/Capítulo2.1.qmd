@@ -1,229 +1,258 @@
-# Medidas de Frecuencia
+# Medidas de frecuencia
 
-::: callout-note
-## ¡Recuerda!
+Antes de comparar grupos necesitamos saber **contar bien**: ¿cuántos pacientes tienen la condición?, ¿cuántos la desarrollan?, ¿con qué rapidez? Las medidas de frecuencia responden estas tres preguntas.
 
--   Proporción: Es una medida en la que el numerador está incluido dentro del denominador. Se expresa como un valor entre 0 y 1 o como un porcentaje. Ejemplo: La prevalencia de hipertensión en una comunidad durante el 2020 fue del 20%.
+::: {.callout-note}
+## 🩺 En la consulta de nefrología
 
--   Razón: Es una comparación entre dos cantidades que pueden o no estar relacionadas. A diferencia de la proporción, el numerador no necesariamente está contenido en el denominador. Ejemplo: La razón de sexos en una población es de 2 hombres por cada mujer.
+Imagina que revisas el registro de tu servicio:
+
+- *"¿Cuántos pacientes de mi clínica de ERC tienen anemia hoy?"* → **prevalencia**.
+- *"De los que hoy no tienen anemia, ¿cuántos la desarrollarán en 3 años?"* → **incidencia acumulada (riesgo)**.
+- *"¿A qué velocidad aparece la anemia en mi cohorte, si unos se siguen 2 años y otros 7?"* → **tasa de incidencia**.
 :::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+| Medida | Qué cuenta | Denominador | ¿Incluye tiempo? | Rango |
+|---|---|---|---|---|
+| **Prevalencia** | Casos existentes (nuevos y antiguos) | Personas observadas en el momento de corte | No | 0–1 (o %) |
+| **Incidencia acumulada** (riesgo) | Casos **nuevos** en un periodo | Personas en riesgo al inicio | Solo como "ventana" fija | 0–1 (o %) |
+| **Tasa de incidencia** | Casos **nuevos** | Persona-tiempo en riesgo | Sí | 0–∞ (casos por 100 persona-años) |
+:::
+
+::: {.callout-tip}
+## 💡 Tip práctico: proporción vs. razón vs. tasa
+
+- **Proporción**: el numerador está *dentro* del denominador (prevalencia, incidencia acumulada). Va de 0 a 1.
+- **Razón**: compara dos cantidades que pueden ser independientes (p. ej., 2 hombres por cada mujer).
+- **Tasa**: tiene **tiempo** en el denominador (casos por persona-año). Es la única que admite seguimientos de distinta duración.
+
+Ojo: en el lenguaje clínico se dice "tasa de mortalidad" o "tasa de prevalencia" para proporciones. Pregúntate siempre: *¿el denominador lleva tiempo?*
+:::
+
+## Un ejemplo con diez pacientes
+
+Para ver los conceptos, usaremos una **cohorte pequeña e hipotética** de 10 pacientes con ERC avanzada seguidos en nefrología. Cada barra es el seguimiento de un paciente. El punto rojo marca el **inicio de anemia** (Hb < 10 g/dL), que una vez aparece persiste; el triángulo negro marca **fallecimiento**.
+
+```{r}
+#| label: datos-seguimiento
+library(tidyverse)
+
+seguimiento <- tribble(
+  ~id,  ~entrada, ~salida, ~anemia_inicio, ~muerte,
+  "P1",  2015.0,  2021.0,  2018.0, 0,
+  "P2",  2016.0,  2023.0,  2019.0, 0,
+  "P3",  2016.5,  2020.5,  2019.0, 1,
+  "P4",  2017.0,  2024.0,  NA,     0,
+  "P5",  2017.0,  2019.0,  2017.0, 1,
+  "P6",  2018.0,  2024.0,  2021.0, 0,
+  "P7",  2018.5,  2022.0,  NA,     1,
+  "P8",  2019.0,  2024.0,  2023.0, 0,
+  "P9",  2019.5,  2023.0,  NA,     0,
+  "P10", 2020.0,  2024.0,  NA,     0
+) |>
+  mutate(id = factor(id, levels = rev(paste0("P", 1:10))))
+
+seguimiento
+```
+
+```{r}
+#| label: fig-seguimiento
+#| fig-cap: "Seguimiento de 10 pacientes con ERC avanzada. Punto rojo: inicio de anemia. Triángulo: fallecimiento."
+#| fig-width: 8
+#| fig-height: 4.5
+
+grafico_seguimiento <- function(datos, ...) {
+  ggplot(datos, aes(y = id)) +
+    geom_segment(aes(x = entrada, xend = salida, yend = id),
+                 color = "grey60", linewidth = 1.6) +
+    geom_point(aes(x = anemia_inicio), color = "firebrick", size = 4, na.rm = TRUE) +
+    geom_point(data = filter(datos, muerte == 1), aes(x = salida),
+               shape = 17, size = 3.5) +
+    scale_x_continuous(breaks = 2015:2024) +
+    labs(x = "Año calendario", y = NULL) +
+    theme_minimal(base_size = 13) +
+    theme(panel.grid.minor = element_blank())
+}
+
+grafico_seguimiento(seguimiento) +
+  geom_vline(xintercept = 2021.5, linetype = "dashed", color = "steelblue") +
+  annotate("text", x = 2021.5, y = 10.6, label = "Corte para prevalencia",
+           color = "steelblue", hjust = -0.05, size = 3.5)
+```
 
 ## Prevalencia
 
-*Definición:* Proporción de individuos en una población que tienen una enfermedad en un momento dado.
+**Definición.** Proporción de personas de una población que tienen la condición **en un momento dado**.
 
-::: callout-note
-## ¡Importante!
+$$
+\text{Prevalencia} = \frac{\text{Casos existentes en el momento de corte}}{\text{Personas observadas en ese momento}} \times 100
+$$
 
-Debes tener en cuenta que cuando decimos en un tiempo dado, siempre nos referiremos a un periodo de tiempo ya que es imposible obtener datos de muchas personas en el mismo microsegundo.
+*Pregunta:* ¿Cuál fue la prevalencia de anemia el 30 de junio de 2021 (`2021.5`)?
 
-Aunque en los libros se distinguen dos tipos de prevalencia (prevalencia puntual vs prevalencia de periodo) en la práctica solo nos refermos como prevalencia, ya que, decir la prevalencia anual (prevalencia puntual) podría ser equivalente a la prevalencia en 12 meses, o en 365 días (prevelencia de periodo).
+```{r}
+#| label: prevalencia-juguete
+fecha_corte <- 2021.5
+
+prevalencia <- seguimiento |>
+  filter(entrada <= fecha_corte, salida > fecha_corte) |>     # bajo observación ese día
+  summarise(
+    n_observados = n(),
+    n_casos      = sum(!is.na(anemia_inicio) & anemia_inicio <= fecha_corte),
+    prevalencia  = n_casos / n_observados
+  )
+prevalencia
+```
+
+Ese día había `r prevalencia$n_observados` pacientes bajo observación y `r prevalencia$n_casos` tenían anemia: **prevalencia = `r scales::percent(prevalencia$prevalencia, accuracy = 0.1)`**. Fíjate que los pacientes fallecidos o que ya salieron del estudio (P1, P3, P5) **no** entran al denominador.
+
+::: {.callout-warning}
+## ⚠️ Cuidado
+
+- La prevalencia mezcla **cuántos se enferman** con **cuánto dura** la enfermedad. Una condición crónica que no mata (hipertensión arterial) tiene prevalencia alta aunque su incidencia sea baja.
+- En estudios transversales la prevalencia es lo que se puede medir. **No** permite hablar de "riesgo" porque no sabemos qué ocurrió primero.
 :::
 
-*Fórmula:*
+### Prevalencia con datos reales (código para tus análisis)
 
-$Prevalencia = \frac{\begin{array}{c} \text{Casos de una enfermedad presentes en la } \\ \text{población enun momento dado}\end{array}}{\begin{array}{c} \text{Número de personas en la población } \\ \text{en ese momento dado}\end{array}} \times 100$
+Con una base de datos propia, la prevalencia y su intervalo de confianza se obtienen en pocas líneas. Usaremos la base simulada de pacientes con ERC y diabetes (`ckd_isglt2.csv`, descrita en el Capítulo 3.2):
 
-*Ejemplo:*
+```{r}
+#| label: prevalencia-real
+ckd <- read_csv("Bases/ckd_isglt2.csv", show_col_types = FALSE)
 
-¿Cuál fue la prevalencia de infarto agudo de miocardio en la población adulta mayor de Marte (astronautas) en 2020?
-
-```{r, echo=FALSE, message=F, warning=F, fig.width=8, fig.height=6}
-# Cargar librerías
-library(ggplot2)
-
-# Crear datos
-datos <- data.frame(
-  ID = factor(paste0("P", 1:10), levels = paste0("P", 10:1)),  # Orden invertido
-  inicio = c(2, 3, 4, 4, 1, 3, 5, 3, 2, 6),  # Mes de inicio
-  duracion = c(4, 7, 4, 5, 4, 6, 5, 4, 6, 3),  # Duración en meses
-  evento = c(6, NA, 8, NA, 3, NA, 8, NA, NA, NA),  # Mes del evento
-  evento2 = c(NA, NA, 7, NA, NA, NA, NA, NA, NA, NA)  # Mes del evento
-)
-
-# Crear gráfico
-ggplot(datos, aes(y = ID)) +
-  geom_segment(aes(x = 6, yend = "P1"), color = "gray70", size = 1) +
-  geom_segment(aes(x = inicio, xend = inicio + duracion, yend = ID), color = "coral", size=1.5) +  # Líneas
-  geom_point(aes(x = evento), color = "coral", size = 5) +  # Puntos del evento
-  geom_point(aes(x = evento2), color = "coral", size = 5) +  # Puntos del evento
-  annotate("point", x = 9, y = "P4", color = "black", size = 4, shape = 17) +
-  annotate("point", x = 5, y = "P5", color = "black", size = 4, shape = 17) +
-  annotate("point", x = 10, y = "P7", color = "black", size = 4, shape = 17) +
-
-  geom_text(aes(x = inicio + duracion / 2, label = duracion), color = "red", vjust = -1, na.rm = TRUE) +
-
-  scale_x_continuous(
-    breaks = 1:10, 
-    labels = c("2015", "2016", "2017", "2018", "2019", "2020", "2021", "2022", "2023", "2024")
-  ) +
-
-  labs(x = "", y = "", title = " ", caption = "🔴 Evento de interés") +
-  theme_minimal() +
-  theme(
-    axis.text.y = element_text(size = 14),
-    axis.text.x = element_text(size = 14),
-    panel.grid.major.x = element_line(color = "gray85"),
-    panel.grid.minor = element_blank()
-  )
-
-
+# Prevalencia de albuminuria severa (UACR >= 300 mg/g) con IC 95 %
+n_total <- nrow(ckd)
+n_alb   <- sum(ckd$uacr >= 300)
+binom.test(n_alb, n_total) |>        # IC exacto (Clopper-Pearson)
+  broom::tidy() |>
+  select(prevalencia = estimate, ic_inferior = conf.low, ic_superior = conf.high)
 ```
 
-OJO: Las lineas rojas solo muestran el tiempo de seguimiento desde que empezaron a fumar más de 10 cajetillas al día hasta que dejaron de hacerlo o fallecieron. El circulo rojo significa que presento el infarto en ese año, y el triangulo que falleció.
-
-Para la prevalencia, solo nos interesa el número de personas que presentaron el evento (n=1) del total de la población en ese momento (n=9).
-
-Por lo que, la prevalencia de infarto agudo de miocardio en la población adulta mayor de marte durante 2020 sería igual a 0.111 o 11.1%.
-
-## Incidencia Acumulada
-
-Definición: Proporción de individuos *inicialmente sanos* que desarrollan una enfermedad durante un periodo.
-
-Fórmula:
-
-$Incidencia acumulada = \frac{\begin{array}{c} \text{Númeor de casos de una población en riesgo que} \\ \text{desarrollaron el evento en un período de seguimiento}\end{array}}{\begin{array}{c} \text{Número de personas en la población de riesgo } \\ \text{de desarrollar el evento de interes al inicio}\end{array}} \times 100$
-
-*Ejemplo:*
-
-¿Cuál sería la incidencia de un primer evento de infarto agudo de miocardio en la población adulta mayor de Marte (astronautas) si el estudio iniciaría en 2017 y acabara en 2020?
-
-```{r, echo=FALSE, message=F, warning=F, fig.width=8, fig.height=6}
-# Cargar librerías
-library(ggplot2)
-
-# Crear datos
-datos <- data.frame(
-  ID = factor(paste0("P", 1:10), levels = paste0("P", 10:1)),  # Orden invertido
-  inicio = c(2, 3, 4, 4, 1, 3, 5, 3, 2, 6),  # Mes de inicio
-  duracion = c(4, 7, 4, 5, 4, 6, 5, 4, 6, 3),  # Duración en meses
-  evento = c(6, NA, 8, NA, 3, NA, 8, NA, NA, NA),  # Mes del evento
-  evento2 = c(NA, NA, 7, NA, NA, NA, NA, NA, NA, NA)  # Mes del evento
-)
-
-# Crear gráfico
-ggplot(datos, aes(y = ID)) +
-  geom_segment(aes(x = 6, yend = "P1"), color = "gray70", size = 1) +
-  geom_segment(aes(x = 3, yend = "P1"), color = "gray70", size = 1) +
-  geom_segment(aes(x = inicio, xend = inicio + duracion, yend = ID), color = "coral", size=1.5) +  # Líneas
-  geom_point(aes(x = evento), color = "coral", size = 5) +  # Puntos del evento
-  geom_point(aes(x = evento2), color = "coral", size = 5) +  # Puntos del evento
-  annotate("point", x = 9, y = "P4", color = "black", size = 4, shape = 17) +
-  annotate("point", x = 5, y = "P5", color = "black", size = 4, shape = 17) +
-  annotate("point", x = 10, y = "P7", color = "black", size = 4, shape = 17) +
-
-  geom_text(aes(x = inicio + duracion / 2, label = duracion), color = "red", vjust = -1, na.rm = TRUE) +
-
-  scale_x_continuous(
-    breaks = 1:10, 
-    labels = c("2015", "2016", "2017", "2018", "2019", "2020", "2021", "2022", "2023", "2024")
-  ) +
-
-  labs(x = "", y = "", title = " ", caption = "🔴 Evento de interés") +
-  theme_minimal() +
-  theme(
-    axis.text.y = element_text(size = 14),
-    axis.text.x = element_text(size = 14),
-    panel.grid.major.x = element_line(color = "gray85"),
-    panel.grid.minor = element_blank()
-  )
-
-
+```{r}
+#| label: prevalencia-por-estadio
+# Prevalencia por categoría de TFGe (G3a, G3b, G4)
+ckd |>
+  mutate(estadio = cut(tfg_basal, breaks = c(0, 30, 45, 60, Inf),
+                       labels = c("G4 (15-29)", "G3b (30-44)", "G3a (45-59)", "G2 (>=60)"),
+                       right = FALSE)) |>
+  count(estadio) |>
+  mutate(prevalencia = scales::percent(n / sum(n), accuracy = 0.1))
 ```
 
-OJO: Las lineas rojas solo muestran el tiempo de seguimiento desde que empezaron a fumar más de 10 cajetillas al día hasta que dejaron de hacerlo o fallecieron. El circulo rojo significa que presento el infarto en ese año, y el triangulo que falleció.
+::: {.callout-tip}
+## 💡 Tip práctico
 
-Para la incidencia, nos interesa el número de personas que desarrollaron el evento (n=1) del total de la población que se encontraba en riesgo al inicio del seguimiento de desarrollar un infarto de miocardio (los 10 sujetos estan en riesgo de presentar un infarto, independientemente de si empezaron a fumar o no, excepto P5 que ya presento su primer evento de miocardio al inicio del seguimiento - 2017, n=9).
+`count()` + `mutate(n / sum(n))` es la receta mínima para cualquier tabla de frecuencias. Para IC de una proporción usa `binom.test()` (exacto) o `prop.test()` (aproximado).
+:::
 
-Por lo que, la incidencia de un primer evento de infarto agudo de miocardio en la población adulta mayor de marte entre 2017 y 2020 fue 11.1%.
+## Incidencia acumulada (riesgo)
 
-## Tasa de Incidencia o tasa
+**Definición.** Proporción de personas **inicialmente libres** de la condición que la desarrollan durante un periodo de seguimiento. Es una **probabilidad** (riesgo medio del grupo).
 
-Definición: Es una medida que describe la velocidad de ocurrencia de un evento en una población a lo largo del tiempo. Incluye un componente de tiempo en el denominador. Ejemplo: La tasa de incidencia de cáncer de pulmón es de 50 casos por 100,000 personas-año de seguimiento.
+$$
+\text{Incidencia acumulada} = \frac{\text{Casos nuevos en el periodo}}{\text{Personas en riesgo al inicio}} \times 100
+$$
 
-Fórmula:
+*Pregunta:* tomando como inicio el 30 de junio de 2018 (`2018.5`), ¿cuál es el riesgo de desarrollar anemia en los siguientes 3 años?
 
-$\text{Tasa de incidencia} = \frac{\text{Casos nuevos}}{\text{Persona-tiempo en riesgo}}$
+```{r}
+#| label: incidencia-acumulada-juguete
+indice <- 2018.5
+fin    <- indice + 3
 
-![](fig/personas-año.png){width="600" height="550"} ::: callout-note \## ¡Atención!
+cohorte <- seguimiento |>
+  filter(entrada <= indice, salida > indice,                # bajo observación al inicio
+         is.na(anemia_inicio) | anemia_inicio > indice)     # libres de anemia al inicio
 
--   La unidad de la tasa o densidad de incidencia es el de sujetos-tiempo, así puede ser personas-año, pacientes-meses, niños-días, etc
-
--   Como se puede observar en la imagen, 1 persona-año de seguimiento se refiere a que se siguió durante 1 año a un persona, 2 persona-año puede equivaler a que se siguió durante 2 años a 1 persona o que se siguió durante 1 año a 2 personas.
-
--   Recuerda que el denominador en incidencia son las personas en riesgo, por lo que no pueden ser parte del denominador personas que ya tienen la enfermedad. :::
-
-*Ejemplo:*
-
-¿Cuál sería la velocidad de aparición (tasa de incidencia) de un primer evento de infarto agudo de miocardio en la población adulta mayor de Marte (astronautas) tras la exposición con su atmosfera?
-
-Nota: Las lineas rojas solo muestran el tiempo de seguimiento desde que entraron en contacto con el aire de Marte hasta que dejaron de estar expuestos o fallecieron. El circulo rojo significa que presento el infarto en ese año, y el triangulo que falleció.
-
-```{r, echo=FALSE, message=F, warning=F, fig.width=8, fig.height=6}
-# Cargar librerías
-library(ggplot2)
-
-# Crear datos
-datos <- data.frame(
-  ID = factor(paste0("P", 1:10), levels = paste0("P", 10:1)),  # Orden invertido
-  inicio = c(2, 3, 4, 4, 1, 3, 5, 3, 2, 6),  # Mes de inicio
-  duracion = c(4, 7, 4, 5, 4, 6, 5, 4, 6, 3),  # Duración en meses
-  evento = c(6, NA, 8, NA, 3, NA, 8, NA, NA, NA),  # Mes del evento
-  evento2 = c(NA, NA, 7, NA, NA, NA, NA, NA, NA, NA)  # Mes del evento
-)
-
-# Crear gráfico
-ggplot(datos, aes(y = ID)) +
-  geom_segment(aes(x = 1, yend = "P1"), color = "gray70", size = 1) +
-  geom_segment(aes(x = 10.2, yend = "P1"), color = "gray70", size = 1) +
-  geom_segment(aes(x = inicio, xend = inicio + duracion, yend = ID), color = "coral", size=1.5) +  # Líneas
-  geom_point(aes(x = evento), color = "coral", size = 5) +  # Puntos del evento
-  geom_point(aes(x = evento2), color = "coral", size = 5) +  # Puntos del evento
-  annotate("point", x = 9, y = "P4", color = "black", size = 4, shape = 17) +
-  annotate("point", x = 5, y = "P5", color = "black", size = 4, shape = 17) +
-  annotate("point", x = 10, y = "P7", color = "black", size = 4, shape = 17) +
-
-  geom_text(aes(x = inicio + duracion / 2, label = duracion), color = "red", vjust = -1, na.rm = TRUE) +
-
-  scale_x_continuous(
-    breaks = 1:10, 
-    labels = c("2015", "2016", "2017", "2018", "2019", "2020", "2021", "2022", "2023", "2024")
-  ) +
-
-  labs(x = "", y = "", title = " ", caption = "🔴 Evento de interés") +
-  theme_minimal() +
-  theme(
-    axis.text.y = element_text(size = 14),
-    axis.text.x = element_text(size = 14),
-    panel.grid.major.x = element_line(color = "gray85"),
-    panel.grid.minor = element_blank()
+inc_acum <- cohorte |>
+  summarise(
+    en_riesgo = n(),
+    casos     = sum(!is.na(anemia_inicio) & anemia_inicio <= fin),
+    riesgo    = casos / en_riesgo
   )
-
-
+inc_acum
 ```
 
--   El sujeto 1 aporta 4 años de seguimiento = 4 persona-año de seguimiento
+Hay `r inc_acum$en_riesgo` pacientes en riesgo; `r inc_acum$casos` desarrollan anemia en 3 años: **incidencia acumulada a 3 años = `r scales::percent(inc_acum$riesgo)`**.
 
--   El sujeto 2 aporta 7 persona-año de seguimiento
+::: {.callout-warning}
+## ⚠️ Cuidado
 
--   El sujeto 3 aporta 3 persona-año de seguimiento (el ultimo año no cuenta porque ya presento el evento y ya no esta en riesgo de un primer episodio)
+Para que esta fórmula sea válida **todos** deben completar el seguimiento o presentar el evento. Si hay pérdidas o fallecimientos antes del final, el denominador es engañoso: usa **tasas de incidencia** o **curvas de Kaplan-Meier** (capítulos de supervivencia).
+:::
 
--   El sujeto 4 aporta 5 persona-año de seguimiento
+## Tasa de incidencia
 
--   El sujeto 5 aporta 2 pesona-año de seguimiento
+**Definición.** Número de casos nuevos por unidad de **persona-tiempo en riesgo**. Describe la *velocidad* de aparición y permite que cada paciente aporte un seguimiento distinto.
 
-Así si continuamos evaluando el número de persona año de seguimiento, tendremos que entre los 10 sujetos aportan 43 persona-año de seguimiento. Además observamos que durante todo el seguimiento 4 personas presentaron un primer episodio de infarto de miocardio.
+$$
+\text{Tasa de incidencia} = \frac{\text{Casos nuevos}}{\text{Persona-tiempo en riesgo}}
+$$
 
-Por tanto:
+::: {.callout-note}
+## Cómo se cuenta la persona-tiempo
 
-$\frac{\text{4 eventos}}{\text{43 persona-año}} = \text{0.0930 eventos/ persona-año}$
+- Cada paciente aporta tiempo **desde que entra en riesgo hasta que ocurre el evento, fallece o sale del seguimiento**; lo que ocurra primero.
+- Quien ya tiene la condición al inicio (P5) **no aporta** persona-tiempo, porque ya no está en riesgo de un *primer* episodio.
+- Después del evento ya no se cuenta tiempo en riesgo (P1 deja de aportar en 2018).
+- 1 persona-año = 1 persona seguida 1 año = 2 personas seguidas 6 meses cada una.
+:::
 
-Así, podemos decir que por cada 100 persona-año de seguimiento apareceran 9.3 casos nuevos de infarto de miocardio entre los astronautas que se expongan al aire de marte.
+![Dos formas de acumular 10 persona-años: 2 personas seguidas 5 años, o 5 personas seguidas 2 años.](fig/personas-año.png){width=60% fig-align="center"}
+
+```{r}
+#| label: tasa-juguete
+persona_tiempo <- seguimiento |>
+  filter(is.na(anemia_inicio) | anemia_inicio > entrada) |>        # excluye prevalentes (P5)
+  mutate(
+    fin_riesgo = if_else(!is.na(anemia_inicio), anemia_inicio, salida),
+    pt   = fin_riesgo - entrada,
+    caso = as.integer(!is.na(anemia_inicio))
+  )
+
+tasa <- persona_tiempo |>
+  summarise(casos = sum(caso), persona_anios = sum(pt),
+            tasa_100 = 100 * casos / persona_anios)
+tasa
+```
+
+Hubo `r tasa$casos` casos en `r tasa$persona_anios` persona-años: **`r round(tasa$tasa_100, 1)` casos nuevos por 100 persona-años**.
+
+### Tasa de incidencia con datos reales
+
+```{r}
+#| label: tasa-real
+# Evento renal compuesto: TFGe -40 %, diálisis o trasplante (seguimiento máximo 36 meses)
+eventos        <- sum(ckd$evento)
+persona_anios  <- sum(ckd$tiempo_meses) / 12
+
+poisson.test(eventos, T = persona_anios) |>   # tasa e IC 95 % exacto
+  broom::tidy() |>
+  transmute(eventos = eventos, persona_anios = round(persona_anios),
+            tasa_100pa = 100 * estimate,
+            ic_inferior_100pa = 100 * conf.low,
+            ic_superior_100pa = 100 * conf.high)
+```
+
+::: {.callout-important}
+## 🎯 Para llevarte
+
+1. **Prevalencia** → "¿cuántos tienen?" (foto de un momento).
+2. **Incidencia acumulada** → "¿qué proporción desarrolla el evento?" (necesita seguimiento completo).
+3. **Tasa de incidencia** → "¿con qué velocidad aparece?" (admite seguimientos desiguales).
+4. Antes de calcular, define **quién está en riesgo** y **desde cuándo**: la mayoría de errores vienen de un denominador mal definido.
+:::
 
 ## Referencias
 
-1.  Zafra-Tanaka JH, Taype-Rondan A, Fernandez-Guzman D. Cómo entender las medidas de efecto en la investigación clínica: Interpretación práctica y aplicación. Revista del Cuerpo Medico Hospital Nacional Almanzor Aguinaga Asenjo. 2023;16. Disponible en: <https://cmhnaaa.org.pe/ojs/index.php/rcmhnaaa/article/view/1935>
+1.  Zafra-Tanaka JH, Taype-Rondan A, Fernandez-Guzman D. Cómo entender las medidas de efecto en la investigación clínica: Interpretación práctica y aplicación. Revista del Cuerpo Médico Hospital Nacional Almanzor Aguinaga Asenjo. 2023;16. <https://cmhnaaa.org.pe/ojs/index.php/rcmhnaaa/article/view/1935>
 
-## Disclaimer
+2.  Hernán MA, Robins JM. *Causal Inference: What If*. Chapman & Hall/CRC; 2020.
 
--   Esta sección fue editada usando ChatGPT.
+## Nota editorial
+
+-   Esta sección fue editada con asistencia de IA (ChatGPT; revisión editorial con Claude). Los datos son simulados.

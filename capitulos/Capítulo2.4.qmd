@@ -1,65 +1,99 @@
 # Entonces: ¿qué es la asociación?
 
-### Introducción
+La palabra **asociación** aparece en casi todos los artículos clínicos, pero su significado cambia según la **pregunta** que se quiere responder. Lo que haces con una asociación (interpretarla, ajustarla, usarla para predecir) depende de si tu estudio es **descriptivo**, **explicativo (causal)** o **predictivo**.
 
-En investigación científica, el término *asociación* se refiere a la relación que puede existir entre dos o más variables. Esta relación permite entender cómo cambia una variable en función de otra. Comprender el concepto de asociación es esencial para interpretar adecuadamente los resultados de los estudios, pero su significado varía dependiendo del tipo de pregunta que se busca responder.
+::: {.callout-important}
+## 🎯 En resumen
 
-Las investigaciones pueden ser **descriptivas**, **explicativas** o **predictivas**, y cada una de ellas aborda distintos tipos de asociación. En este capítulo, abordaremos estas diferencias, con base en literatura científica reciente, para clarificar cómo se conciben y analizan las asociaciones en distintos enfoques de estudio.
+| | **Descriptiva** | **Explicativa (causal)** | **Predictiva** |
+|---|---|---|---|
+| Pregunta | ¿Qué está ocurriendo? | ¿Qué pasaría si interviniéramos? | ¿Qué ocurrirá a este paciente? |
+| Ejemplo en nefrología | Prevalencia de anemia por estadio de ERC | ¿Iniciar un iSGLT2 enlentece la pérdida de TFGe? | Riesgo a 5 años de insuficiencia renal (p. ej., KFRE) |
+| ¿Implica causalidad? | No | Sí (bajo supuestos) | No |
+| ¿Ajusto por confusores? | Solo si lo justifico (estandarización) | **Sí**, guiado por un DAG | No: selecciono predictores por su utilidad |
+| Métricas de éxito | Estimaciones con IC | Estimación no sesgada del efecto | Discriminación (AUC), calibración |
+| Cómo se interpretan los coeficientes | Como patrones | Solo el de la exposición | **No** se interpretan causalmente |
+:::
 
-### Asociación descriptiva
+## Asociación descriptiva
 
-La **asociación descriptiva** busca identificar relaciones entre variables sin intentar explicar mecanismos subyacentes ni hacer predicciones. Su objetivo principal es presentar datos que reflejen las características observadas en una población o fenómeno. Este tipo de asociación es común en estudios transversales o encuestas poblacionales, donde el interés se centra en describir patrones, no en inferir causas.
+Busca **caracterizar** una población: patrones, frecuencias, diferencias. No pretende explicar ni predecir.
 
-Por ejemplo, un estudio puede mostrar que existe una asociación entre ruralidad y niveles más bajos de presión arterial, sin intentar explicar el porqué de esta relación. Se puede presentar RP, OR o RR.
+*Ejemplo:* en nuestra clínica de ERC, los pacientes con albuminuria severa (UACR ≥ 300 mg/g) tienen con mayor frecuencia una presión sistólica ≥ 140 mmHg y una HbA1c más alta. Es un hallazgo útil para planificar recursos y generar hipótesis, aunque no sabemos *por qué* ocurre (¿el mal control causa la albuminuria?, ¿la albuminuria empeora el control?, ¿ambos comparten una causa?).
 
-**Importancia**:
+```{r}
+#| label: desc-assoc
+library(tidyverse)
+ckd <- read_csv("Bases/ckd_isglt2.csv", show_col_types = FALSE)
 
--   Permite generar hipótesis para investigaciones futuras.
+ckd |>
+  mutate(albuminuria_severa = if_else(uacr >= 300, "UACR >= 300", "UACR < 300")) |>
+  group_by(albuminuria_severa) |>
+  summarise(n = n(),
+            pas_140_o_mas = scales::percent(mean(pas >= 140), 0.1),
+            hba1c_media   = round(mean(hba1c), 2))
+```
 
--   Sirve como punto de partida para estudios explicativos o predictivos
+::: {.callout-tip}
+## 💡 Tip práctico
 
--   No implica causalidad, sino coexistencia o coocurrencia.
+En un estudio descriptivo, presenta **resultados sin ajustar** como análisis principal. Ajustar o estandarizar (por ejemplo, por edad) puede ser útil para **comparar** poblaciones, pero cambia la pregunta: *"¿qué diferencia habría si ambas tuvieran la misma edad?"*.
+:::
 
-### Asociación explicativa
+## Asociación explicativa (causal)
 
-La **asociación explicativa** busca entender por qué ocurre una relación entre variables, es decir, su objetivo es identificar mecanismos causales. Se utiliza en estudios observacionales (cohortes, casos y controles) o experimentales (ensayos clínicos), que intentan responder preguntas del tipo: *¿Qué causa este fenómeno?*
+Busca **entender qué ocurriría si se interviniera** sobre la exposición. Requiere diseños sólidos (ECA) o análisis observacionales con supuestos explícitos (intercambiabilidad, positividad, consistencia). Aquí el **ajuste por confusores** no es un trámite estadístico: debe ser decidido con un modelo causal (DAG).
 
-En este contexto, la asociación implica una posible relación causa-efecto. Para ello, se aplican modelos estadísticos ajustados como regresiones múltiples o análisis estructurales, y se controlan variables de confusión. Por ejemplo, un ensayo clínico puede demostrar que un fármaco reduce la mortalidad cardiovascular y explicar que este efecto se debe a su acción sobre la presión arterial y la inflamación.
+*Ejemplo:* ¿el inicio de un iSGLT2 enlentece la pérdida de TFGe? Los pacientes que reciben el fármaco difieren de los que no, de modo que la comparación cruda está sesgada. Esa es la pregunta de la Parte 3.
 
-**Importancia**:
+## Asociación predictiva
 
--   Busca establecer inferencias causales.
+Busca **anticipar** un desenlace con la mayor exactitud posible. No importa *por qué* una variable predice, sino *cuánto mejora* la predicción.
 
--   Requiere diseños robustos y control de sesgos.
+*Ejemplo:* la **Kidney Failure Risk Equation (KFRE)** estima el riesgo de insuficiencia renal a 2 y 5 años con pocas variables (edad, sexo, TFGe, albuminuria); sirve para decidir derivación, acceso vascular o educación pre-diálisis, sin pretender explicar la causa.
 
--   Informa políticas de salud y recomendaciones clínicas.
+```{r}
+#| label: pred-assoc
+# AUC calculado con la estadística de Wilcoxon (sin paquetes adicionales)
+auc <- function(y, p) {
+  r <- rank(p); n1 <- sum(y == 1); n0 <- sum(y == 0)
+  (sum(r[y == 1]) - n1 * (n1 + 1) / 2) / (n1 * n0)
+}
 
-### Asociación predictiva
+modelo_pred <- glm(evento ~ edad + sexo + tfg_basal + log(uacr),
+                   data = ckd, family = binomial)
 
-La **asociación predictiva** se enfoca en anticipar resultados futuros a partir de datos observados. No se preocupa por explicar causas, sino por maximizar la precisión de las predicciones. Este enfoque es frecuente en estudios de pronóstico, modelos de riesgo y aprendizaje automático (*machine learning*).
+tibble(AUC = auc(ckd$evento, fitted(modelo_pred)))
+```
 
-Por ejemplo, un modelo predictivo puede estimar la probabilidad de desarrollar diabetes en 10 años en función de edad, índice de masa corporal y antecedentes familiares, sin necesariamente explicar cómo estas variables causan la enfermedad.
+::: {.callout-warning}
+## ⚠️ El error más común: leer causalmente un modelo predictivo
 
-Se utilizan herramientas como la regresión logística, árboles de decisión o modelos de supervivencia, y se evalúan con métricas como el AUC (área bajo la curva), sensibilidad, especificidad o error cuadrático medio.
+Un buen modelo predictivo **no** dice que cada coeficiente sea un efecto causal. Por ejemplo, en el modelo anterior el coeficiente de `edad` o de `tfg_basal` incluye efectos directos, indirectos y confusión. Si quieres el efecto de **un** tratamiento, debes construir un modelo **para ese efecto** (con su DAG), no reutilizar el modelo de predicción.
+:::
 
-**Importancia**:
+## ¿Qué cambia en la práctica?
 
--   Apoya la toma de decisiones clínicas y de salud pública.
+-   **Elige la pregunta antes que el método.** Escribe en una frase si tu estudio es descriptivo, causal o predictivo.
+-   **Selecciona las variables según la pregunta:** confusores del DAG (causal), predictores útiles (predicción), variables que definan el estrato (descriptivo).
+-   **Reporta según la guía correspondiente:** STROBE (observacionales), CONSORT (ECA), TRIPOD+AI (modelos de predicción).
 
--   Permite estratificación de riesgo.
+::: {.callout-important}
+## 🎯 Para llevarte
 
--   No implica causalidad ni explicación mecanística.
+1. "Asociación" **no** es sinónimo de "causa".
+2. La misma regresión puede usarse para describir, explicar o predecir: **la pregunta determina cómo se construye e interpreta**.
+3. Los coeficientes de un modelo predictivo no se interpretan causalmente.
+:::
 
-### Comparación de tipos de asociación
+## Referencias
 
-| Tipo de asociación | Pregunta principal          | Enfoque principal              | Causalidad | Ejemplo típico                 |
-|--------------------|-----------------------------|--------------------------------|------------|--------------------------------|
-| Descriptiva        | ¿Qué está ocurriendo?       | Identificar patrones           | No         | Encuestas de salud poblacional |
-| Explicativa        | ¿Por qué ocurre esto?       | Determinar mecanismos causales | Sí         | Ensayos clínicos               |
-| Predictiva         | ¿Qué ocurrirá en el futuro? | Predecir desenlaces            | No         | Modelos de riesgo clínico      |
+1.  Hernán MA, Hsu J, Healy B. A second chance to get causal inference right: a classification of data science tasks. *CHANCE*. 2019;32(1):42-49.
 
-La asociación es un concepto central en investigación, pero su interpretación depende del tipo de pregunta que se pretende responder. Los estudios **descriptivos** identifican patrones, los **explicativos** buscan causas, y los **predictivos** estiman probabilidades futuras. Entender estas diferencias permite elegir el diseño de estudio más adecuado, aplicar correctamente las herramientas estadísticas y evitar errores de interpretación.
+2.  Tangri N, Stevens LA, Griffith J, et al. A predictive model for progression of chronic kidney disease to kidney failure. *JAMA*. 2011;305(15):1553-1559.
 
-## Disclaimer
+3.  Westreich D, Greenland S. The Table 2 fallacy: presenting and interpreting confounder and modifier coefficients. *Am J Epidemiol*. 2013;177(4):292-298.
 
--   Esta sección fue editada usando ChatGPT.
+## Nota editorial
+
+-   Esta sección fue editada con asistencia de IA (ChatGPT; revisión editorial con Claude).
