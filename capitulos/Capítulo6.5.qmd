@@ -144,17 +144,19 @@ Como la encuesta es simulada, podemos comparar con el **OR verdadero** de la reg
 ```{r}
 #| label: or-verdadero
 source("R/simular_encuesta_erc.R")
-pob <- simular_poblacion_erc()
+pob <- simular_poblacion_erc() |>
+  mutate(sexo = factor(sexo, c("F", "M"), c("Mujer", "Hombre")))
 m_pob <- glm(erc ~ diabetes + hta + I(edad / 10) + sexo + area, data = pob, family = binomial)
 
-tabla3 |>
+comparacion_or <- tabla3 |>
   mutate(or_verdadero = exp(coef(m_pob))[termino],
          dentro_del_IC = or_verdadero >= inf_ajustado & or_verdadero <= sup_ajustado) |>
-  select(termino, or_ajustado, inf_ajustado, sup_ajustado, or_verdadero, dentro_del_IC) |>
-  mutate(across(where(is.numeric), \(x) round(x, 2)))
+  select(termino, or_ajustado, inf_ajustado, sup_ajustado, or_verdadero, dentro_del_IC)
+
+comparacion_or |> mutate(across(where(is.numeric), \(x) round(x, 2)))
 ```
 
-En los cinco términos el IC contiene el OR verdadero. Fíjate en el OR **crudo** de diabetes (`r sprintf("%.1f", tabla3$or_crudo[1])`) frente al **ajustado** (`r sprintf("%.1f", tabla3$or_ajustado[1])`): parte de la asociación cruda se debe a que la diabetes es más frecuente en los mayores, y la edad también aumenta la ERC (**confusión**).
+El IC contiene el OR verdadero en `r sum(comparacion_or$dentro_del_IC)` de los `r nrow(comparacion_or)` términos. Fíjate en el OR **crudo** de diabetes (`r sprintf("%.1f", tabla3$or_crudo[1])`) frente al **ajustado** (`r sprintf("%.1f", tabla3$or_ajustado[1])`): parte de la asociación cruda se debe a que la diabetes es más frecuente en los mayores, y la edad también aumenta la ERC (**confusión**). El verdadero es `r sprintf("%.1f", comparacion_or$or_verdadero[1])`: con 1 500 adultos las estimaciones son honestas pero imprecisas.
 
 Interpretación **descriptiva**: en esta región, la diabetes y la hipertensión se asocian con mayor *odds* de ERC, y por cada 10 años de edad el *odds* crece. **No** diremos que "la diabetes causa ERC con un OR de `r sprintf("%.0f", tabla3$or_ajustado[1])`": es una asociación ajustada, y la causalidad exige los marcos de los Caps. 3 y 12. Tampoco se interpretan todos los coeficientes del modelo como efectos (la *falacia de la Tabla 2*, Cap. 8).
 
