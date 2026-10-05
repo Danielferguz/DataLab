@@ -10,7 +10,7 @@ El servicio tiene los datos en tres lugares: el **registro** de pacientes (ya li
 
 -   Elegir el tipo de unión (*join*) correcto y **auditar antes de unir**.
 -   Detectar el error clásico: unir y que las filas se multipliquen.
--   Unir con **llaves compuestas** (dos columnas).
+-   Unir con **llaves compuestas** (dos columnas) y volver a formato **largo** para modelar.
 -   Cerrar el capítulo con la base final y su **verificación contra la verdad**.
 
 ```{r}
@@ -164,7 +164,23 @@ pacientes_hd |> left_join(sesiones, by = join_by(id_unidad, nro_paciente))
 
 Unir solo por `nro_paciente` produce **`r nrow(left_join(pacientes_hd, sesiones, by = "nro_paciente", relationship = "many-to-many"))`** filas en lugar de 4 (cada "paciente 1" se cruza con el de la otra unidad). La unión correcta usa **las dos columnas**. Antes de unir, cuenta siempre las filas por llave: si alguna aparece más de una vez, esa no es la llave.
 
-## Paso 6: verificación contra la verdad
+## Paso 6: de ancho a largo, para modelar
+
+Los modelos de mediciones repetidas (Cap. 14) esperan **una fila por medición** (5.1). Con la base ya unida, `pivot_longer()` apila las tres visitas de creatinina:
+
+```{r}
+#| label: evolucion-largo
+evolucion <- base |>
+  select(id, creat_basal, creat_6m, creat_12m) |>
+  pivot_longer(-id, names_to = "visita", names_prefix = "creat_", values_to = "creat") |>
+  mutate(visita = factor(visita, levels = c("basal", "6m", "12m")))
+
+evolucion |> group_by(visita) |> summarise(n = sum(!is.na(creat)), mediana = median(creat, na.rm = TRUE))
+```
+
+La base pasó de `r nrow(base)` filas (una por paciente) a `r nrow(evolucion)` (tres por paciente); `r sum(is.na(evolucion$creat)) / 3` pacientes no tienen laboratorio (las filas con `NA`).
+
+## Paso 7: verificación contra la verdad
 
 Como la base sucia se generó a partir de una limpia, **podemos comprobar** qué recuperó nuestra limpieza. Para cada variable contamos dos cosas: cuántos valores **difieren** de la verdad y cuántos pasaron a `NA` aunque la verdad **sí los tenía**.
 
@@ -215,7 +231,7 @@ comparacion |>
 
 Esas diferencias son **actualizaciones legítimas**: el registro más reciente del mismo paciente (5.5) trae otra PAS que la base "verdad" no incluye. Una limpieza puede ser **correcta** y diferir de la fuente original cuando los datos se actualizan; lo importante es que la **regla esté escrita y sea revisable**.
 
-## Paso 7: guardar la base final
+## Paso 8: guardar la base final
 
 ```{r}
 #| label: guardar
