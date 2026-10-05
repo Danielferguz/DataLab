@@ -1,18 +1,25 @@
-# Estandarización por edad
-
-## El problema: dos poblaciones con distinta estructura de edad
-
-Comparar la mortalidad o la incidencia de dos unidades, regiones o años **sin tener en cuenta la edad** puede ser engañoso: si una población es más vieja, tendrá más eventos aunque su atención sea mejor. La **estandarización** compara las tasas **como si ambas poblaciones tuvieran la misma estructura de edad**.
+# Estandarización por edad: comparar tasas con justicia
 
 ::: {.callout-note}
-## 🩺 Ejemplo (datos hipotéticos)
+## 🩺 Escenario (datos hipotéticos)
 
-Dos unidades de hemodiálisis, A y B, reportan su mortalidad anual. La unidad B parece peor. Pero B atiende a pacientes de más edad.
+La jefa de dos unidades de hemodiálisis, A y B, recibe el informe anual de mortalidad: la unidad B parece **peor**. Pero la dra. de la unidad B protesta: "mis pacientes son bastante mayores". ¿Quién tiene razón? Para saberlo hay que comparar las unidades **como si atendieran pacientes de la misma edad**. Eso es estandarizar.
 :::
+
+**Lo que vamos a hacer**
+
+-   Ver cómo una tasa cruda puede **invertir** la conclusión cuando las edades son distintas (paradoja de Simpson).
+-   Calcular una tasa **estandarizada directa** (con su IC) y una **razón de mortalidad estandarizada** (RME, estandarización indirecta).
+-   Aplicar la misma lógica a la base `ckd_isglt2` (simulada) y comparar con la verdad.
+
+## Paso 1. Los datos: dos unidades, cuatro grupos de edad
+
+Cada fila es un grupo de edad de una unidad, con las personas-año de seguimiento y las muertes. La **tasa** es muertes por 100 personas-año. Los números son **hipotéticos**.
 
 ```{r}
 #| label: setup-75
 library(tidyverse)
+source("R/funciones_extra_cap78.R")
 
 unidades <- tribble(
   ~edad,    ~unidad, ~personas_anio, ~muertes,
@@ -31,7 +38,9 @@ unidades <- tribble(
 unidades |> select(unidad, edad, personas_anio, muertes, tasa) |> arrange(unidad, edad)
 ```
 
-### Tasa cruda: la unidad B parece peor
+## Paso 2. La tasa cruda dice una cosa...
+
+La tasa cruda es el total de muertes dividido por el total de personas-año:
 
 ```{r}
 #| label: tasa-cruda
@@ -42,7 +51,11 @@ cruda <- unidades |>
 cruda
 ```
 
-Cruda: la unidad B tiene una mortalidad **mayor** (`r sprintf("%.2f", cruda$tasa_cruda[2])` vs. `r sprintf("%.2f", cruda$tasa_cruda[1])` por 100 personas-año). Pero mira **por grupo de edad**: B tiene tasas **menores** en *todos* los grupos. Es un caso de la **paradoja de Simpson**: la edad es un confusor de la comparación entre unidades.
+La unidad B tiene una mortalidad cruda **mayor**: `r sprintf("%.2f", cruda$tasa_cruda[2])` frente a `r sprintf("%.2f", cruda$tasa_cruda[1])` por 100 personas-año, es decir, `r round(100 * (cruda$tasa_cruda[2] / cruda$tasa_cruda[1] - 1))` % más.
+
+## Paso 3. ...y los grupos de edad dicen lo contrario
+
+Mira ahora la tasa **dentro de cada grupo de edad**:
 
 ```{r}
 #| label: graf-edad
@@ -56,20 +69,23 @@ ggplot(unidades, aes(edad, tasa, fill = unidad)) +
   theme_minimal(base_size = 11)
 ```
 
-## Estandarización directa
+**Qué vemos.** En **todos** los grupos de edad, la unidad B tiene una mortalidad **menor** que la A. Y sin embargo, en conjunto, parece peor. La causa: `r round(100 * sum(unidades$personas_anio[unidades$unidad == "B" & unidades$edad == "≥75"]) / sum(unidades$personas_anio[unidades$unidad == "B"]))` % de las personas-año de B son de pacientes de 75 años o más (en A, solo `r round(100 * sum(unidades$personas_anio[unidades$unidad == "A" & unidades$edad == "≥75"]) / sum(unidades$personas_anio[unidades$unidad == "A"]))` %), y ese grupo muere mucho más. Es la **paradoja de Simpson**: la edad es un **confusor** de la comparación entre unidades.
 
-Se aplica **cada tasa específica por edad** a una **población estándar** y se promedia:
+## Paso 4. Estandarización directa
+
+La idea: aplicar **la tasa específica por edad de cada unidad** a **una misma población estándar** y promediar. Cada grupo de edad pesa según su proporción en el estándar:
 
 $$
 \text{Tasa estandarizada} = \sum_i w_i \, \hat{\lambda}_i \qquad w_i = \frac{N^{\text{estándar}}_i}{\sum N^{\text{estándar}}}
 $$
 
-La población estándar puede ser una de referencia (OMS, el censo del país) o la **suma de las poblaciones comparadas**. El IC se obtiene con la varianza $\sum w_i^2 \, d_i / PA_i^2$ (aproximación de Poisson):
+El estándar puede ser una población de referencia (la estándar mundial de la OMS, el censo del país) o, como aquí, la **suma de las dos unidades**. Calculamos pesos, tasa estandarizada y un IC aproximado con la varianza de Poisson $\sum w_i^2 \, d_i / PA_i^2$:
 
 ```{r}
 #| label: directa
 estandar <- unidades |> group_by(edad) |> summarise(pa_estandar = sum(personas_anio)) |>
   mutate(peso = pa_estandar / sum(pa_estandar))
+estandar
 
 directa <- unidades |>
   left_join(estandar, by = "edad") |>
@@ -83,25 +99,29 @@ directa <- unidades |>
 directa
 ```
 
-La relación entre las tasas estandarizadas es la **razón de tasas estandarizada**:
+La función `estandarizar_directa()` (en `R/funciones_extra_cap78.R`) hace exactamente lo mismo para **cualquier** tipo de estratos, y `razon_estandarizada()` calcula la razón de las dos tasas con su IC:
 
 ```{r}
 #| label: razon-directa
-rt <- directa$tasa_estandarizada[2] / directa$tasa_estandarizada[1]
-rt
+res <- estandarizar_directa(unidades, grupo = "unidad", estrato = "edad",
+                            eventos = "muertes", denominador = "personas_anio", tipo = "tasa")
+res |> mutate(across(where(is.numeric), \(x) round(x, 2)))
+
+rr_ab <- razon_estandarizada(res, numerador = "B", referencia = "A")
+rr_ab |> mutate(across(everything(), \(x) round(x, 2)))
 ```
 
-Después de estandarizar, la unidad B tiene una mortalidad ~`r round(100 * (1 - rt))` % **menor**: la **dirección se invierte** respecto de la tasa cruda (B era 67 % peor). Los IC de A y B se solapan, así que la diferencia real es modesta e imprecisa: lo que desaparece al estandarizar es la "ventaja" aparente de A, que solo se debía a atender pacientes más jóvenes.
+**Qué vemos.** Cruda, B era `r round(100 * (cruda$tasa_cruda[2] / cruda$tasa_cruda[1] - 1))` % **peor**. Estandarizada, la tasa de B es `r sprintf("%.2f", directa$tasa_estandarizada[2])` frente a `r sprintf("%.2f", directa$tasa_estandarizada[1])` de A: la **dirección se invierte** (razón estandarizada `r sprintf("%.2f", rr_ab$razon)`). Pero el IC de la razón (`r sprintf("%.2f", rr_ab$inf)`-`r sprintf("%.2f", rr_ab$sup)`) incluye 1: con tan pocas muertes la diferencia real es **modesta e imprecisa**. Lo que desaparece al estandarizar es la "desventaja" aparente de B, que solo se debía a atender pacientes mayores.
 
-## Estandarización indirecta: la RME
+## Paso 5. Estandarización indirecta: la RME
 
-La directa exige tasas por edad **estables** en cada población. Con pocos eventos (centros pequeños), las tasas por edad son inestables; entonces se usa la **indirecta**: se toman las **tasas de una población de referencia** y se calculan las muertes **esperadas** en nuestra población si tuviera esas tasas. La razón observadas/esperadas es la **razón de mortalidad estandarizada (RME)**:
+La directa exige tasas por edad **estables** en cada población. Con pocos eventos (centros pequeños) esas tasas bailan mucho. Entonces se usa la **indirecta**: se toman las **tasas de una población de referencia**, se calculan las muertes **esperadas** en nuestra población si tuviera esas tasas y se divide lo observado entre lo esperado. Es la **razón de mortalidad estandarizada (RME)**:
 
 $$
 \text{RME} = \frac{\text{Observadas}}{\text{Esperadas}} = \frac{\sum d_i}{\sum PA_i \cdot \lambda^{\text{ref}}_i}
 $$
 
-Aquí tomamos como referencia las tasas por edad de la unidad A (en la práctica serían las de un registro nacional):
+Aquí la referencia son las tasas por edad de la unidad A (en la práctica serían las de un registro nacional):
 
 ```{r}
 #| label: indirecta
@@ -119,60 +139,96 @@ pt <- poisson.test(indirecta$observadas, indirecta$esperadas)
 c(RME = unname(pt$estimate), pt$conf.int)
 ```
 
-Una RME < 1 indica **menos eventos que los esperados** con las tasas de referencia. Es muy usada en nefrología para comparar **centros de diálisis** (RME de mortalidad, hospitalizaciones o trasplante).
+**Cómo se lee.** Con las tasas por edad de la unidad A, a B le "tocaban" `r round(indirecta$esperadas)` muertes y tuvo `r indirecta$observadas`: RME = `r sprintf("%.2f", indirecta$observadas / indirecta$esperadas)` (IC `r sprintf("%.2f", pt$conf.int[1])`-`r sprintf("%.2f", pt$conf.int[2])`). Una RME < 1 significa **menos muertes que las esperadas**; si el IC contiene 1, no hay evidencia de diferencia. Es la medida clásica para comparar **centros de diálisis** (mortalidad, hospitalizaciones, trasplante).
 
-| | Directa | Indirecta |
-|---|---|---|
-| Necesita | Tasas por edad de **cada** población | Tasas por edad de **referencia** y edades de la población estudiada |
-| Resultado | Tasa estandarizada | RME (observadas/esperadas) |
-| Comparar entre varias poblaciones | Sí (con mismo estándar) | Con cuidado (cada RME usa su propia estructura) |
-| Cuándo | Muchas muertes por estrato | Pocos eventos; centros pequeños |
+¿Cuál usar? La **directa** compara tasas entre varias poblaciones con un mismo estándar, pero necesita tasas por edad estables en cada una (muchas muertes por estrato). La **indirecta** solo necesita la estructura de edad del centro y las tasas de referencia; es la elegida con pocos eventos, aunque cada RME usa su propia estructura de edad y por eso no conviene comparar RME entre sí con ligereza.
 
-## Otra mirada: el caso del iSGLT2 en la base `ckd_isglt2`
+## Paso 6. Con paquetes especializados (no se ejecutan aquí)
 
-La misma lógica sirve para comparar el riesgo de evento renal a 36 meses entre tratados y no tratados, **estandarizando por edad** (aquí con proporciones, porque todos los pacientes tienen seguimiento completo a 36 meses o evento):
+Los paquetes `dsr` y `PHEindicatormethods` hacen estas estandarizaciones (con IC por el método gamma) y trabajan con estratos de edad **y sexo** a la vez. Sus llamadas, adaptadas a nuestros datos:
+
+```{r}
+#| label: paquetes-estandarizacion
+#| eval: false
+# Con el paquete dsr (no se ejecuta aquí): estandarización directa
+dsr::dsr(data = unidades, event = muertes, fu = personas_anio, subgroup = unidad,
+         edad,                                          # estrato(s) por los que se estandariza
+         refdata = estandar |> rename(pop = pa_estandar) |> select(edad, pop),
+         method = "gamma", sig = 0.95, mp = 100, decimals = 2)
+
+# Con el paquete PHEindicatormethods (no se ejecuta aquí)
+library(PHEindicatormethods)
+unidades |>
+  left_join(estandar |> select(edad, pa_estandar), by = "edad") |>
+  group_by(unidad) |>
+  phe_dsr(x = muertes, n = personas_anio, stdpop = pa_estandar, stdpoptype = "field")   # directa
+
+# Indirecta: tasas de referencia (x_ref, n_ref) de otra población, p. ej., la unidad A
+ref_A <- unidades |> filter(unidad == "A")
+unidades |> filter(unidad == "B") |>
+  calculate_ISRate(x = muertes, n = personas_anio, x_ref = ref_A$muertes, n_ref = ref_A$personas_anio)
+```
+
+## Paso 7. Otra mirada: el caso del iSGLT2 en `ckd_isglt2`
+
+La misma lógica compara el riesgo de evento renal a 36 meses entre tratados y no tratados, **estandarizando por edad** (aquí con proporciones, porque todos los pacientes se siguen 36 meses o hasta el evento). Usamos la versión con "oráculo" para conocer la **verdad**: el RR causal a 36 meses si todos recibieran el fármaco frente a nadie.
 
 ```{r}
 #| label: ckd-estandarizada
-ckd <- read_csv("Bases/ckd_isglt2.csv") |>
+ckd <- read_csv("Bases/ckd_isglt2_oraculo.csv", show_col_types = FALSE) |>
   mutate(gedad = cut(edad, c(0, 59, 69, 79, 100), labels = c("<60", "60-69", "70-79", "≥80")))
 
+verdad_rr <- mean(ckd$evento_36m_1) / mean(ckd$evento_36m_0)     # verdad (solo existe porque simulamos)
+
+## Una fila por tratamiento x grupo de edad
 por_edad <- ckd |>
   group_by(isglt2, gedad) |>
-  summarise(n = n(), eventos = sum(evento), riesgo = eventos / n, .groups = "drop")
+  summarise(eventos = sum(evento), n = n(), .groups = "drop") |>
+  mutate(isglt2 = if_else(isglt2 == 1, "Con iSGLT2", "Sin iSGLT2"))
 
-peso_std <- ckd |> count(gedad) |> mutate(peso = n / sum(n)) |> select(gedad, peso)
-
-est <- por_edad |>
-  left_join(peso_std, by = "gedad") |>
-  group_by(isglt2) |>
-  summarise(riesgo_estandarizado = sum(peso * riesgo),
-            ee = sqrt(sum(peso^2 * riesgo * (1 - riesgo) / n)))
-
-crudo <- ckd |> group_by(isglt2) |> summarise(riesgo_crudo = mean(evento))
-
-left_join(crudo, est, by = "isglt2") |> mutate(across(-isglt2, \(x) round(100 * x, 1)))
-
-## Razones de riesgo
-rr_crudo <- crudo$riesgo_crudo[2] / crudo$riesgo_crudo[1]
-rr_std   <- est$riesgo_estandarizado[2] / est$riesgo_estandarizado[1]
-c(RR_crudo = rr_crudo, RR_estandarizado_por_edad = rr_std)
+est_edad <- estandarizar_directa(por_edad, grupo = "isglt2", estrato = "gedad",
+                                 eventos = "eventos", denominador = "n", tipo = "riesgo")
+est_edad |> mutate(across(where(is.numeric), \(x) round(x, 1)))   # riesgos en %
 ```
 
-La estandarización por edad **acerca** la razón de riesgos hacia 1, porque parte de la ventaja aparente de los tratados venía de ser más jóvenes. **Pero queda confusión residual**: la albuminuria, la TFGe y otras variables también están desbalanceadas (y la fragilidad ni siquiera se mide). Además, el efecto verdadero que simulamos es un HR de 0.70, una escala algo distinta del RR a 36 meses; úsalo como orientación, no como meta exacta. Estandarizar por **un solo** factor corrige solo ese factor; para varias variables se necesitan **modelos** (Cap. 8) o **ponderación** (Cap. 12).
+Ahora el RR crudo, el estandarizado por edad y, para ver el efecto de **añadir un factor**, el estandarizado por edad y sexo juntos (8 estratos):
 
-::: {.callout-important}
-## 🎯 Lo que conecta con el resto del libro
+```{r}
+#| label: ckd-edad-sexo
+por_edad_sexo <- ckd |>
+  mutate(estrato = paste(gedad, sexo)) |>
+  group_by(isglt2, estrato) |>
+  summarise(eventos = sum(evento), n = n(), .groups = "drop") |>
+  mutate(isglt2 = if_else(isglt2 == 1, "Con iSGLT2", "Sin iSGLT2"))
 
-La **estandarización directa** es el mismo mecanismo que la **g-fórmula**: calcular el riesgo en cada estrato de confusores y promediar con los pesos de una población estándar. Si el estándar es la **población total del estudio**, el resultado estima el efecto causal de "todos tratados vs. nadie tratado" **siempre que los confusores incluidos basten** (Cap. 3 y Cap. 12).
+est_edad_sexo <- estandarizar_directa(por_edad_sexo, grupo = "isglt2", estrato = "estrato",
+                                      eventos = "eventos", denominador = "n", tipo = "riesgo")
+
+tibble(
+  analisis = c("RR crudo", "RR estandarizado por edad", "RR estandarizado por edad y sexo", "Verdad (oráculo)"),
+  RR = c(est_edad$crudo[est_edad$grupo == "Con iSGLT2"] / est_edad$crudo[est_edad$grupo == "Sin iSGLT2"],
+         razon_estandarizada(est_edad, "Con iSGLT2", "Sin iSGLT2")$razon,
+         razon_estandarizada(est_edad_sexo, "Con iSGLT2", "Sin iSGLT2")$razon,
+         verdad_rr)
+) |> mutate(RR = round(RR, 3))
+```
+
+**Qué vemos.** El RR crudo (`r sprintf("%.2f", est_edad$crudo[est_edad$grupo == "Con iSGLT2"] / est_edad$crudo[est_edad$grupo == "Sin iSGLT2"])`) **exagera** el beneficio: los tratados son más jóvenes. Estandarizar por edad lo acerca a la verdad (`r sprintf("%.2f", verdad_rr)`): sube a `r sprintf("%.2f", razon_estandarizada(est_edad, "Con iSGLT2", "Sin iSGLT2")$razon)`, aunque no la alcanza. Añadir el sexo casi no cambia nada, porque el sexo estaba balanceado en la Tabla 1 (Cap. 7.2). **Pero queda confusión residual**: la albuminuria y la TFGe también están desbalanceadas, y la fragilidad ni siquiera se mide. Estandarizar por pocos factores corrige solo esos factores; para muchos se necesitan **modelos** (Cap. 8) o **ponderación** (Cap. 12).
+
+::: {.callout-warning}
+## ⚠️ Trampas frecuentes
+
+-   **Comparar dos RME entre sí**: cada una usa su propia estructura de edad; para comparar muchos centros entre sí conviene la directa (u otros métodos).
+-   **Estandarizar y creer que ya está ajustado por todo**: la estandarización corrige únicamente por los estratos que usaste. Si quedan confusores sin medir, el resultado sigue sesgado.
+-   **Estratos con muy pocos eventos**: producen tasas inestables. Junta categorías de edad (de 10 o 15 años en vez de 5) o pasa a la indirecta.
 :::
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
 -   Comparar tasas crudas entre poblaciones con distinta edad puede **invertir** la conclusión (paradoja de Simpson).
--   **Directa**: aplica las tasas por edad a un estándar; **indirecta**: compara observados con esperados (**RME**).
--   El IC de una tasa estandarizada usa $\sum w_i^2 d_i/PA_i^2$; el de una RME, la distribución exacta de Poisson.
+-   **Directa**: aplica las tasas por edad de cada población a un estándar común; **indirecta**: compara observadas con esperadas (**RME**).
+-   La directa es el **mismo mecanismo que la g-fórmula** (Cap. 12): calcular el riesgo en cada estrato de confusores y promediar con los pesos de una población estándar. Si el estándar es toda la población del estudio, estima el efecto de "todos tratados frente a nadie tratado" **siempre que los confusores incluidos basten**.
 -   Estandarizar por una sola variable no basta si hay **otros confusores**.
 :::
 
@@ -180,8 +236,8 @@ La **estandarización directa** es el mismo mecanismo que la **g-fórmula**: cal
 
 1.  Recalcula la tasa estandarizada usando como estándar la **distribución de la unidad A** (en lugar de la suma). ¿Cambia la conclusión?
 2.  Calcula la RME de la unidad A usando como referencia las tasas de la unidad B.
-3.  En `ckd_isglt2`, estandariza el riesgo por **edad y sexo** conjuntamente (8 estratos). ¿Cambia el RR respecto de la estandarización solo por edad? (Recuerda: el HR verdadero es 0.70, que no es idéntico a un RR a 36 meses.)
+3.  En `ckd_isglt2`, estandariza el riesgo por **edad, sexo y ECV** a la vez (16 estratos). ¿Se acerca más el RR a la verdad?
 
 ## Nota editorial
 
--   Capítulo redactado con asistencia de IA y revisado por el autor. Los datos de las unidades A y B son **hipotéticos**; la base `ckd_isglt2` es **simulada**.
+-   Los datos de las unidades A y B son **hipotéticos**; la base `ckd_isglt2` es **simulada**. Capítulo redactado con asistencia de IA y revisado por el autor.

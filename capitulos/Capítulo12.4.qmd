@@ -1,12 +1,18 @@
-# Emparejamiento (*matching*)
+# Emparejamiento: formar parejas de pacientes comparables
 
-## La idea
+::: {.callout-note}
+## 🩺 Escenario
 
-El **emparejamiento** forma un grupo de comparación **pareando** a cada paciente tratado con uno (o más) **no tratados con PS parecido**. Resultado: dos grupos **balanceados** en los confusores medidos, que se comparan **como si fueran de un ensayo**.
+Para cada paciente que inició el iSGLT2 quieres encontrar **uno parecido que no lo inició**, y comparar solo a esas parejas. Suena fácil, hasta que llega una mujer de 45 años con UACR de 1 500 mg/g: ¿existe, entre los no tratados, alguien realmente parecido? Si no, ¿la emparejas con la persona "menos mala" o la dejas fuera?
+:::
 
-Estima por defecto el **ATT** (efecto en los tratados), porque se busca para **cada tratado** un control comparable.
+El **emparejamiento** (*matching*) es como **armar parejas de baile**: cada tratado busca una pareja no tratada con **PS parecido**. Resultado: dos grupos del mismo tamaño y con el mismo perfil medido, que se comparan **como si vinieran de un ensayo**. Como el esfuerzo se centra en encontrar pareja **para cada tratado**, el emparejamiento estima por defecto el **ATT** (el efecto en los tratados). El paquete estándar es **`MatchIt`** (Ho, Imai, King y Stuart).
 
-El paquete **`MatchIt`** (Ho, Imai, King, Stuart) es el estándar.
+**Lo que vamos a hacer**
+
+-   Emparejar **sin** y **con** calibrador (*caliper*), y ver por qué importa.
+-   Comprobar el **balance** antes de mirar el desenlace.
+-   Estimar el efecto en la muestra emparejada y compararlo con la **verdad**.
 
 ```{r}
 #| label: setup-124
@@ -15,158 +21,214 @@ library(MatchIt)
 library(sandwich)
 library(lmtest)
 source("R/funciones_epi.R")
+source("R/funciones_extra_cap1213.R")
 
-oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv") |>
-  mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")), luacr = log(uacr))
-ckd <- oraculo |> select(-fragilidad, -pendiente_0, -pendiente_1, -ite, -starts_with("evento_36m"))
+oraculo <- cargar_oraculo()
+ckd <- observado(oraculo)
+vars <- c("edad", "hba1c", "pas", "tfg_basal", "luacr", "ecv")
+formula_ps <- as.formula(paste("isglt2 ~", confusores_medidos))
 
-att_verdadero <- mean(oraculo$ite[oraculo$isglt2 == 1])
-att_verdadero
+att_verdadero <- verdad_pendiente(oraculo)["ATT"]
 ```
 
-## Emparejamiento 1:1 con calibrador
+## Paso 1: emparejar sin calibrador (el resultado "feo")
 
-El método más usado: **vecino más cercano** en el PS, **sin reposición**, con un **calibrador** (*caliper*) que impide emparejar pacientes **demasiado distintos** (0.2 desviaciones estándar del PS):
+La receta más usada es el **vecino más cercano** en el PS, **sin reposición** (cada control se usa una sola vez) y razón **1:1**. `matchit()` estima el PS por nosotros (`distance = "glm"`) y lo usa en la escala **logit** (`link = "linear.logit"`), que es donde la literatura recomienda medir las distancias:
+
+```{r}
+#| label: matchit-sin
+m0 <- matchit(formula_ps, data = ckd, method = "nearest", distance = "glm",
+              link = "linear.logit", ratio = 1)            # sin calibrador
+summary(m0)$nn
+```
+
+**Qué vemos:** se emparejaron **todos** los tratados (`r miles(sum(m0$treat == 1))`), pero para lograrlo algunos tratados "aceptaron" una pareja de PS muy distinto. Compruébalo con el balance:
+
+```{r}
+#| label: balance-sin
+tabla_dem(ckd, vars, pesos = list(`Sin calibrador` = pesos_matchit(m0, ckd))) |>
+  mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+La edad sigue con una DEM de **`r round(tabla_dem(ckd, vars, pesos = list(a = pesos_matchit(m0, ckd)))$a[1], 2)`**, muy por encima de 0.10: las parejas son **malas**. El balance es mejor que el crudo, pero insuficiente.
+
+## Paso 2: añadir el calibrador (el resultado "bueno")
+
+El **calibrador** (*caliper*) es la **diferencia máxima permitida** de PS entre los miembros de una pareja. La regla habitual es **0.2 desviaciones estándar del PS en escala logit**. Si un tratado no tiene pareja dentro de ese margen, **se queda sin pareja** (se descarta):
 
 ```{r}
 #| label: matchit
-formula_ps <- isglt2 ~ I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv
-
-m1 <- matchit(formula_ps, data = ckd, method = "nearest", distance = "glm", caliper = 0.2, ratio = 1)
+m1 <- matchit(formula_ps, data = ckd, method = "nearest", distance = "glm",
+              link = "linear.logit", caliper = 0.2, ratio = 1)
 m1
+n_pares <- sum(m1$weights[m1$treat == 1] > 0)
 ```
 
-```{r}
-#| label: resumen-match
-summary(m1)$nn          # cuántos pacientes se emparejaron
-```
-
--   Se emparejaron **1 816 pares** (3 632 pacientes). Quedaron **sin pareja 534 tratados** (con PS alto sin control comparable) y 834 controles.
--   **El estimando cambió**: ahora es el efecto en los **tratados emparejados** (los que tienen controles comparables), no en todos los tratados.
+**Qué vemos:** se formaron **`r miles(n_pares)` pares**; quedaron **sin pareja `r miles(sum(ckd$isglt2) - n_pares)` tratados** (`r round(100 * (1 - n_pares / sum(ckd$isglt2)))` % de los tratados) y `r miles(sum(ckd$isglt2 == 0) - n_pares)` controles que nadie necesitó.
 
 ::: {.callout-warning}
 ## ⚠️ Descartar tratados cambia la pregunta
 
-Si el 23 % de los tratados no tiene pareja, la estimación **no es el ATT de todos los tratados**; es el de los **comparables**. Reporta cuántos se descartaron y **cómo difieren** de los emparejados.
+Si una quinta parte de los tratados no tiene pareja, el resultado **ya no es el ATT de todos los tratados**: es el ATT de los **tratados comparables**. Reporta cuántos descartaste y **cómo difieren** de los emparejados.
 :::
 
-## Paso crítico: comprobar el balance
+¿Cómo difieren? Los descartados son justo quienes tienen PS alto y pocos controles parecidos:
 
-**Antes de mirar el desenlace**, se verifica que el emparejamiento equilibró los confusores:
+```{r}
+#| label: descartados
+ckd |> filter(isglt2 == 1) |>
+  mutate(grupo = if_else(id %in% match.data(m1)$id, "Emparejados", "Sin pareja")) |>
+  group_by(grupo) |>
+  summarise(n = n(), edad = mean(edad), tfg_basal = mean(tfg_basal), uacr_mediana = median(uacr)) |>
+  mutate(across(where(is.numeric), \(x) round(x, 1)))
+```
+
+Los tratados sin pareja son **más jóvenes, con mejor TFGe y más albuminuria**: perfiles en los que casi nadie queda sin tratar.
+
+## Paso 3: comprobar el balance (siempre antes del desenlace)
 
 ```{r}
 #| label: balance-match
-bal <- summary(m1, standardize = TRUE)$sum.matched[, "Std. Mean Diff."]
-round(bal, 3)
+bal <- tabla_dem(ckd, vars, pesos = list(`Sin calibrador` = pesos_matchit(m0, ckd), `Con calibrador` = pesos_matchit(m1, ckd)))
+bal |> mutate(across(where(is.numeric), \(x) round(x, 3)))
 ```
 
 ```{r}
 #| label: love-match
 #| fig-width: 7
 #| fig-height: 3.6
-mm <- match.data(m1)          # base emparejada con la columna `weights` y `subclass` (par)
-vars <- c("edad", "hba1c", "pas", "tfg_basal", "luacr", "ecv")
-
-love_plot(ckd, vars, pesos = list(`Emparejado 1:1` = {
-  w <- rep(0, nrow(ckd)); w[match(mm$id, ckd$id)] <- mm$weights; w }))
+love_plot(ckd, vars, pesos = list(`1:1 sin calibrador` = pesos_matchit(m0, ckd),
+                                  `1:1 con calibrador` = pesos_matchit(m1, ckd)))
 ```
 
-Tras emparejar, **todas las covariables tienen |DEM| < 0.08** (la distancia del PS, 0.13, es un resumen del modelo y queda algo por encima): el balance en lo medido es excelente. La edad (de −0.58 a −0.08) y la TFGe (0.44 a 0.07) quedan equilibradas.
+**Qué vemos:** con calibrador, **todas las covariables quedan por debajo de |DEM| 0.10** (la mayor es `r round(max(abs(bal[["Con calibrador"]])), 3)`): edad pasa de `r sprintf('%.2f', bal$sin_ajustar[1])` a `r sprintf('%.2f', bal[["Con calibrador"]][1])` y TFGe de `r sprintf('%.2f', bal$sin_ajustar[4])` a `r sprintf('%.2f', bal[["Con calibrador"]][4])`. Sin calibrador el balance es mucho peor. **Estas parejas sí son gemelos clínicos.**
 
-## Paso 2: estimar el efecto en la muestra emparejada
+Con el paquete `cobalt` (no instalado aquí) los mismos diagnósticos son una línea cada uno:
 
-El modelo es simple (desenlace ~ tratamiento) porque los grupos ya son comparables. Los errores estándar deben tener en cuenta los **pares** (agrupar por `subclass`):
+```{r}
+#| label: cobalt-match
+#| eval: false
+## Con el paquete cobalt (no se ejecuta aquí)
+library(cobalt)
+bal.tab(m1, un = TRUE, thresholds = c(m = 0.1))           # tabla de DEM antes y después
+love.plot(m1, binary = "std", thresholds = c(m = 0.1))     # gráfico de balance
+bal.plot(m1, var.name = "distance", which = "both", type = "histogram", mirror = TRUE)  # solapamiento
+```
+
+## Paso 4: estimar el efecto en la muestra emparejada
+
+Como los grupos ya son comparables, el modelo es simple: **desenlace ~ tratamiento**. Los errores estándar deben tener en cuenta los **pares** (se agrupan por `subclass`, el identificador de cada pareja):
 
 ```{r}
 #| label: efecto-match
+mm <- match.data(m1)          # base emparejada: columnas `weights` y `subclass` (par)
 fit <- lm(pendiente_tfg ~ isglt2, data = mm, weights = weights)
 res <- coeftest(fit, vcov = vcovCL, cluster = ~subclass)["isglt2", ]
-c(estimado = res[1], ee = res[2], ic_inf = res[1] - 1.96 * res[2], ic_sup = res[1] + 1.96 * res[2]) |> round(2)
+c(estimado = unname(res[1]), ee = unname(res[2]), ic_inf = unname(res[1] - 1.96 * res[2]), ic_sup = unname(res[1] + 1.96 * res[2])) |> round(2)
 ```
 
-**Estimación: 1.37** (IC 1.27-1.46), frente al **ATT verdadero** de **`r sprintf("%.2f", att_verdadero)`**. El emparejamiento **equilibró lo medido**, pero el ATT queda **sobreestimado** por la fragilidad **no medida** (los tratados son más "robustos" de base).
+Como el estimando cambió (ahora son los tratados con pareja), la comparación justa es con el **ATT verdadero de los emparejados**, que podemos calcular porque la base es simulada:
 
-### Con desenlace binario
+```{r}
+#| label: verdad-emparejados
+att_emparejados <- mean(oraculo$ite[oraculo$id %in% mm$id[mm$isglt2 == 1]])
+c(ATT_todos_los_tratados = unname(att_verdadero), ATT_de_los_emparejados = att_emparejados) |> round(2)
+```
+
+**Qué vemos:** el efecto estimado es **`r round(res[1], 2)`** (IC `r round(res[1] - 1.96 * res[2], 2)` a `r round(res[1] + 1.96 * res[2], 2)`). El ATT verdadero es **`r round(att_verdadero, 2)`** en todos los tratados y **`r round(att_emparejados, 2)`** en los emparejados. Aun comparando con el valor correcto, el emparejamiento **sobreestima**: equilibró lo medido, pero no la **fragilidad** (los tratados son más "robustos" de base).
+
+### Con desenlace binario y con ajuste adicional
 
 ```{r}
 #| label: match-riesgo
 fit_r <- lm(evento ~ isglt2, data = mm, weights = weights)
-coeftest(fit_r, vcov = vcovCL, cluster = ~subclass)["isglt2", 1:2] |> round(3)
+dr <- coeftest(fit_r, vcov = vcovCL, cluster = ~subclass)["isglt2", 1:2]
+dr |> round(3)
 ```
 
-La diferencia de riesgo a 36 meses (−7.5 puntos) también es mayor que la verdadera en tratados (−4.0 puntos).
-
-### Ajuste adicional tras emparejar (doblemente robusto)
-
-Si queda un pequeño desbalance, se puede **añadir las covariables** al modelo de resultado (recomendado por Ho et al.):
+La diferencia de riesgo a 36 meses es de **`r sprintf('%.1f', 100 * dr[1])` puntos**; la verdad en los tratados es de **`r sprintf('%.1f', 100 * mean((oraculo$evento_36m_1 - oraculo$evento_36m_0)[oraculo$isglt2 == 1]))`**. Si después de emparejar queda un pequeño desbalance, se pueden **añadir las covariables** al modelo del desenlace (recomendado por Ho et al.; es una forma de "doble robustez"):
 
 ```{r}
 #| label: match-ajustado
 fit2 <- lm(pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv,
            data = mm, weights = weights)
-coeftest(fit2, vcov = vcovCL, cluster = ~subclass)["isglt2", 1:2] |> round(2)
+aj <- coeftest(fit2, vcov = vcovCL, cluster = ~subclass)["isglt2", 1:2]
+aj |> round(2)
 ```
 
-## Variantes del emparejamiento
+Con ajuste adicional el efecto es **`r round(aj[1], 2)`**. Para los **errores estándar** hay varias opciones aceptadas: errores robustos agrupados por pareja (lo que hicimos), *bootstrap* de pares completos (Austin y Small, 2014), GEE o regresión logística condicional. Lo que **no** conviene es ignorar los pares.
 
-| Opción | Argumento en `matchit()` | Ventajas | Desventajas |
-|---|---|---|---|
-| **1:1 sin reposición** | `ratio = 1` | Simple, interpretable | Descarta datos; depende del orden |
-| **Con reposición** | `replace = TRUE` | Mejor balance; menos descartados | Controles repetidos; varianza mayor |
-| **1:k** | `ratio = 2` | Más precisión | Más sesgo si los vecinos 2.º-k son peores |
-| **Calibrador** | `caliper = 0.2` | Evita malas parejas | Descarta tratados |
-| **Estratificación** | `method = "subclass"` | Usa todos los datos | Balance dentro de estratos |
-| **Emparejamiento completo** | `method = "full"` (requiere `optmatch`) | Usa a todos; óptimo | Pesos variables |
-| **Mahalanobis** | `distance = "mahalanobis"` | No usa PS | Peor con muchas covariables |
+## Otras formas de emparejar
 
-Comparamos algunas variantes con el **ATT verdadero**:
+Probamos algunas variantes y las juzgamos por **dos** cosas: el **balance** (peor |DEM|) y la **estimación**. Una función breve nos evita repetir código:
 
 ```{r}
 #| label: variantes
-estimar_att <- function(m, y = "pendiente_tfg") {
+ckd <- ckd |> mutate(cat_a = categoria_a(uacr), gedad = cut(edad, c(0, 59, 69, 100), labels = c("<60", "60-69", "≥70")))
+
+resumir <- function(m) {
   d <- match.data(m)
-  cl <- if ("subclass" %in% names(d)) ~subclass else ~id
-  ct <- coeftest(lm(as.formula(paste(y, "~ isglt2")), data = d, weights = weights), vcov = vcovCL, cluster = cl)["isglt2", ]
-  c(estimado = unname(ct[1]), ee = unname(ct[2]), n_analisis = nrow(d))
+  cl <- if ("subclass" %in% names(d)) ~subclass else ~id           # con reposición no hay pares únicos
+  ct <- coeftest(lm(pendiente_tfg ~ isglt2, data = d, weights = weights), vcov = vcovCL, cluster = cl)["isglt2", ]
+  tibble(estimado = ct[1], ee = ct[2], analizados = nrow(d),
+         peor_DEM = max(abs(tabla_dem(ckd, vars, pesos = list(w = pesos_matchit(m, ckd)))$w)))
 }
 variantes <- list(
-  `1:1, calibrador 0.2` = m1,
-  `1:1 con reposición` = matchit(formula_ps, data = ckd, method = "nearest", distance = "glm", caliper = 0.2, replace = TRUE),
-  `1:2, calibrador 0.2` = matchit(formula_ps, data = ckd, method = "nearest", distance = "glm", caliper = 0.2, ratio = 2),
-  `Estratificación en 5` = matchit(formula_ps, data = ckd, method = "subclass", distance = "glm", subclass = 5)
+  `Exacto (albuminuria × edad × sexo)` = matchit(isglt2 ~ cat_a + gedad + sexo, data = ckd, method = "exact"),
+  `Mahalanobis 1:1` = matchit(isglt2 ~ I(edad / 10) + hba1c + pas + tfg_basal + luacr + ecv, data = ckd, distance = "mahalanobis"),
+  `PS 1:1 sin calibrador` = m0,
+  `PS 1:1 con calibrador` = m1,
+  `PS 1:1 con reposición` = matchit(formula_ps, data = ckd, method = "nearest", distance = "glm", link = "linear.logit", caliper = 0.2, replace = TRUE),
+  `PS 1:2 con calibrador` = matchit(formula_ps, data = ckd, method = "nearest", distance = "glm", link = "linear.logit", caliper = 0.2, ratio = 2),
+  `PS estratificado en 5` = matchit(formula_ps, data = ckd, method = "subclass", distance = "glm", subclass = 5)
 )
-map_dfr(variantes, estimar_att, .id = "variante") |>
-  mutate(across(c(estimado, ee), \(x) round(x, 2)), verdad_ATT = round(att_verdadero, 2))
+tab_variantes <- map_dfr(variantes, resumir, .id = "variante") |>
+  mutate(across(c(estimado, ee, peor_DEM), \(x) round(x, 2)))
+tab_variantes
 ```
 
-Todas las variantes dan estimaciones parecidas (1.36-1.52): **el método de emparejamiento importa mucho menos que el conjunto de confusores medidos**.
+**Qué vemos:** todas las estimaciones están entre **`r sprintf('%.2f', min(tab_variantes$estimado))` y `r sprintf('%.2f', max(tab_variantes$estimado))`**, lejos del ATT verdadero (`r round(att_verdadero, 2)`). Pero no todas son igual de **creíbles**: el emparejamiento exacto en pocas variables, Mahalanobis y el PS sin calibrador **no logran balance** (peor |DEM| de `r tab_variantes$peor_DEM[1]`, `r tab_variantes$peor_DEM[2]` y `r tab_variantes$peor_DEM[3]`). Lo que más importa no es el tipo de emparejamiento sino **(1)** que logre balance y **(2)** qué confusores mediste. La reposición mejora el balance a costa de repetir controles; el 1:2 aprovecha más controles (con parejas algo peores); la estratificación usa a todos.
 
-## Reporte del emparejamiento
+El *bootstrap* de pares completos, que repite todo el emparejamiento, sería así (lo dejamos sin ejecutar porque tarda más):
+
+```{r}
+#| label: boot-match
+#| eval: false
+## Bootstrap de bloques (pares completos); Austin y Small, 2014
+library(boot)
+pares <- levels(mm$subclass)
+est_boot <- function(pares_boot, i) {
+  veces <- table(pares_boot[i])                                   # cuántas veces entra cada par
+  filas <- unlist(lapply(pares[pares %in% names(veces)], \(p) rep(which(mm$subclass == p), veces[p])))
+  coef(lm(pendiente_tfg ~ isglt2, data = mm[filas, ], weights = weights))["isglt2"]
+}
+set.seed(1)
+b <- boot(pares, est_boot, R = 500)
+boot.ci(b, type = "perc")
+```
 
 ::: {.callout-tip}
 ## 💡 Qué debe reportar un artículo con emparejamiento
 
--   [ ] **Variables** del modelo de PS y **método** (vecino más cercano, calibrador, razón, reposición).
--   [ ] **Número** de tratados y controles **antes y después** (y cuántos se descartaron).
--   [ ] **Tabla 1 / DEM antes y después** (el *love plot*).
--   [ ] **Estimando**: ATT en los emparejados.
--   [ ] **Errores estándar** que tengan en cuenta los pares (cluster o *bootstrap*).
--   [ ] **Software** y paquetes.
--   [ ] **Análisis de sensibilidad** para confusión no medida (12.8).
+-   **Variables** del modelo de PS y **método** (vecino más cercano, calibrador, razón, reposición).
+-   **Número** de tratados y controles **antes y después**, y cuántos se descartaron y cómo difieren.
+-   **Balance** antes y después (tabla de DEM o *love plot*).
+-   El **estimando** (ATT en los emparejados) y los **errores estándar** que consideran los pares.
+-   **Software** y paquetes, y un **análisis de sensibilidad** a la confusión no medida (12.8).
 :::
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
 -   El **emparejamiento por PS** forma pares comparables y estima el **ATT**; `MatchIt` es el estándar.
--   **Comprueba el balance antes de estimar** (DEM < 0.10 en todas las covariables).
+-   Usa un **calibrador** (0.2 DE del logit del PS): sin él obtienes pareja para todos, pero **parejas malas**.
+-   **Comprueba el balance antes de estimar** (|DEM| < 0.10 en todas las covariables); si falla, mejora el modelo del PS.
 -   Los tratados **sin pareja** se descartan y **cambia el estimando**: repórtalos.
--   Estima con un modelo simple en la muestra emparejada con **EE que consideren los pares**; añadir covariables da **robustez**.
--   Equilibra **solo lo medido**: aquí el ATT sigue sobreestimado por la fragilidad.
+-   Emparejar equilibra **solo lo medido**: el ATT sigue sobreestimado por la fragilidad.
 :::
 
 ## Ejercicio
 
-1.  Empareja con un **calibrador de 0.1** en vez de 0.2. ¿Cuántos tratados se descartan? ¿Cambia el balance y la estimación?
-2.  Empareja **por Mahalanobis** (`distance = "mahalanobis"`). ¿Qué DEM obtienes?
-3.  Repite el emparejamiento incluyendo `fragilidad` en el modelo de PS (solo es posible porque es simulada). ¿Qué estimación obtienes del ATT?
+1.  Empareja con un **calibrador de 0.1**. ¿Cuántos tratados se descartan? ¿Cambian el balance y la estimación?
+2.  ¿Qué **DEM** obtienes si emparejas por Mahalanobis? ¿Por qué empareja peor que el PS?
+3.  Empareja incluyendo `fragilidad` en el modelo del PS (solo posible porque es simulada). ¿Qué estimación del ATT obtienes?

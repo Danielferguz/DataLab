@@ -1,8 +1,20 @@
-# Regresión logística y de Poisson
+# Regresión logística y de Poisson: del OR al RR
 
-## Desenlaces binarios y de conteo
+::: {.callout-note}
+## 🩺 Escenario
 
-Muchos desenlaces nefrológicos son **sí/no** (evento renal a 36 meses, diálisis, hospitalización, muerte, hiperkalemia) o **conteos** (episodios de peritonitis, hospitalizaciones por año). Para ellos se usan **modelos lineales generalizados**:
+Esta vez el desenlace no es una pendiente sino un **sí/no**: ¿tuvo el paciente un evento renal (caída del 40 % de la TFGe, diálisis o trasplante) en 36 meses? Tu modelo logístico dice "OR = 0.51 para el iSGLT2". Un colega lo presenta en sesión como "el iSGLT2 reduce el riesgo a la mitad". ¿Es correcto? (Spoiler: no.) Para llegar a decir algo correcto sobre **riesgo** necesitamos entender qué miden el OR, el RR y la diferencia de riesgos, y con qué modelo se estima cada uno.
+:::
+
+**Lo que vamos a hacer**
+
+-   Ajustar e interpretar una **regresión logística** y entender por qué el **OR no es el riesgo**.
+-   Estimar el **RR directamente** con **Poisson con varianza robusta** (y ver por qué el log-binomial a veces falla).
+-   Obtener la **diferencia de riesgos** estandarizada, modelar **conteos y tasas** y analizar **casos y controles pareados**.
+
+## Paso 1. ¿Qué modelo para qué desenlace?
+
+Para desenlaces que no son continuos se usan los **modelos lineales generalizados** (GLM): la misma lógica de la regresión lineal, pero con otra "traducción" entre el predictor lineal y el desenlace (la **función de enlace**). En R, todos se ajustan con `glm()` cambiando la `family`:
 
 | Desenlace | Modelo | Medida que se estima |
 |---|---|---|
@@ -12,6 +24,8 @@ Muchos desenlaces nefrológicos son **sí/no** (evento renal a 36 meses, diális
 | Conteo o tasa | **Poisson** (con `offset` de tiempo) | **Razón de tasas (IRR)** |
 | Tiempo hasta evento | **Cox** (Cap. 9) | **Razón de riesgos instantáneos (HR)** |
 
+Preparamos los datos. El **desenlace** es el evento renal compuesto a 36 meses (`evento`). En esta base todos los pacientes se siguen hasta el evento o hasta 36 meses, así que el riesgo a 36 meses está bien definido sin censura (con censura se usa **análisis de supervivencia**, Cap. 9). Gracias al oráculo conocemos la **verdad**: el riesgo si **todos** recibieran el iSGLT2 frente al riesgo si **nadie** lo recibiera.
+
 ```{r}
 #| label: setup-83
 library(tidyverse)
@@ -20,11 +34,11 @@ library(marginaleffects)
 library(sandwich)
 library(survival)
 source("R/funciones_epi.R")
+source("R/funciones_extra_cap78.R")
 
-oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv") |>
+ckd <- read_csv("Bases/ckd_isglt2.csv", show_col_types = FALSE) |>
   mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")), luacr = log(uacr))
-
-ckd <- oraculo |> select(-starts_with("pendiente_0"), -pendiente_1, -ite, -starts_with("evento_36m"), -fragilidad)
+oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv", show_col_types = FALSE)
 
 ## Verdad (oráculo): riesgo a 36 meses si TODOS vs. NADIE reciben iSGLT2
 r1 <- mean(oraculo$evento_36m_1); r0 <- mean(oraculo$evento_36m_0)
@@ -33,17 +47,19 @@ verdad <- c(riesgo_si_todos = r1, riesgo_si_nadie = r0, DR = r1 - r0, RR = r1 / 
 round(verdad, 3)
 ```
 
-El **desenlace** es el evento renal compuesto a los 36 meses (`evento`). En esta base todos los pacientes se siguen hasta el evento o hasta 36 meses, así que el riesgo a 36 meses está bien definido sin censura. (Con censura, se usa **análisis de supervivencia**, Cap. 9.)
+El efecto causal verdadero que simulamos es **RR = `r sprintf("%.2f", verdad["RR"])`**, **DR = `r sprintf("%.3f", verdad["DR"])`** (4.5 puntos porcentuales menos) y **OR = `r sprintf("%.2f", verdad["OR"])`**: los tres miden **el mismo efecto** en escalas distintas. Fíjate en que el RR (0.74) y el OR (0.70) **no coinciden**: el riesgo basal es del `r round(100 * verdad["riesgo_si_nadie"])` %, demasiado alto para que el OR se parezca al RR.
 
-El efecto causal verdadero que simulamos es **RR = `r sprintf("%.2f", verdad["RR"])`**, **DR = `r sprintf("%.3f", verdad["DR"])`** y **OR = `r sprintf("%.2f", verdad["OR"])`**: los tres miden el mismo efecto en escalas distintas.
+## Paso 2. Regresión logística
 
-## Regresión logística
+### La idea: odds y logit
 
-El modelo logístico trabaja con el **logaritmo de las odds**:
+Las **odds** son la probabilidad del evento dividida entre la probabilidad de que no ocurra: con un riesgo del 15 %, las odds son 0.15 / 0.85 = 0.18. El modelo logístico es una regresión lineal sobre el **logaritmo de las odds** (el *logit*), lo que impide predecir probabilidades fuera de 0-1:
 
 $$
 \ln\left(\frac{P(Y=1)}{1-P(Y=1)}\right) = \beta_0 + \beta_1 X_1 + \dots + \beta_p X_p \qquad \Rightarrow \qquad \text{OR} = e^{\beta_1}
 $$
+
+Ajustamos un modelo crudo y uno ajustado por las covariables medidas:
 
 ```{r}
 #| label: logistica
@@ -53,45 +69,106 @@ l0 <- glm(evento ~ isglt2, data = ckd, family = binomial)
 l1 <- glm(evento ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv,
           data = ckd, family = binomial)
 
+coef(l1)["isglt2"]            # el coeficiente "crudo" de R está en escala de log-odds
+exp(coef(l1)["isglt2"])       # exponenciado: el OR
+```
+
+`summary(l1)` muestra los coeficientes en escala de **log-odds**, difíciles de interpretar. Lo habitual es **exponenciarlos** para obtener OR; `broom::tidy(exponentiate = TRUE)` lo hace y calcula los IC:
+
+```{r}
+#| label: logistica-tabla
 tidy(l1, conf.int = TRUE, exponentiate = TRUE) |>
   select(term, OR = estimate, conf.low, conf.high, p.value) |>
   mutate(across(where(is.numeric), \(x) round(x, 3)))
 ```
 
-`exponentiate = TRUE` convierte los coeficientes en OR. Interpretación: *"con iSGLT2 las **odds** de evento renal a 36 meses son ~0.51 veces las de no tratados, ajustando por las covariables"*.
+### Cómo leer un OR
 
-::: {.callout-warning}
-## ⚠️ Odds ≠ riesgo (cuando el evento no es raro)
+-   **`isglt2`, OR = `r sprintf("%.2f", exp(coef(l1)["isglt2"]))`** (IC `r sprintf("%.2f", exp(confint.default(l1)["isglt2", 1]))`-`r sprintf("%.2f", exp(confint.default(l1)["isglt2", 2]))`): con iSGLT2, las **odds** de evento renal a 36 meses son `r sprintf("%.2f", exp(coef(l1)["isglt2"]))` veces las de no tratados, a igualdad de las demás covariables. Un OR < 1 protege; un OR > 1 aumenta las odds.
+-   **`I(edad/10)`, OR = `r sprintf("%.2f", exp(coef(l1)["I(edad/10)"]))`**: por cada 10 años más, las odds de evento se multiplican por `r sprintf("%.2f", exp(coef(l1)["I(edad/10)"]))` (un 25 % más).
+-   Si un OR cruza el 1 en su IC (p. ej., `sexoHombre`: 0.95, IC 0.81-1.11), no hay evidencia de efecto.
+-   El **intercepto** (OR ≈ 0.001) son las odds de un paciente con todas las covariables en cero (de 0 años...): no tiene interpretación clínica.
 
-El **OR** se parece al RR solo si el evento es **raro** (< 10 %). Aquí el riesgo es **15 %** y el OR exagera el efecto: un OR de 0.51 corresponde a un RR de ~0.58. Presentar un OR como "la mitad del riesgo" es un error muy común. Si tu pregunta es sobre **riesgo**, estima RR o DR.
-:::
+### De log-odds a riesgos: por qué el OR engaña
 
-## Obtener el RR directamente: Poisson con errores robustos
+Con el modelo podemos **predecir el riesgo** de pacientes concretos, con y sin iSGLT2. Un paciente de bajo riesgo (64 años, HbA1c 7.8 %, TFGe 46, UACR 120, sin ECV) y uno de alto riesgo (75 años, HbA1c 9 %, PAS 160, TFGe 30, UACR 600, con ECV):
 
-Un modelo de **Poisson** aplicado a un desenlace binario estima el **RR**; el problema es que sus errores estándar usuales son demasiado grandes. Se corrige con la **varianza robusta** (Zou, 2004):
+```{r}
+#| label: perfiles
+perfiles <- tibble(perfil = c("Bajo riesgo", "Alto riesgo"),
+                   edad = c(64, 75), sexo = factor("Hombre", levels = levels(ckd$sexo)),
+                   hba1c = c(7.8, 9), pas = c(135, 160), tfg_basal = c(46, 30),
+                   luacr = log(c(120, 600)), ecv = c(0, 1))
+
+bind_rows(`Sin iSGLT2` = mutate(perfiles, isglt2 = 0), `Con iSGLT2` = mutate(perfiles, isglt2 = 1), .id = "trat") |>
+  mutate(riesgo = predict(l1, newdata = pick(everything()), type = "response")) |>
+  select(perfil, trat, riesgo) |>
+  pivot_wider(names_from = trat, values_from = riesgo) |>
+  mutate(DR = `Con iSGLT2` - `Sin iSGLT2`, RR = `Con iSGLT2` / `Sin iSGLT2`,
+         OR = (`Con iSGLT2` / (1 - `Con iSGLT2`)) / (`Sin iSGLT2` / (1 - `Sin iSGLT2`)),
+         across(where(is.numeric), \(x) round(x, 3)))
+```
+
+**Qué vemos.** Los dos perfiles tienen **el mismo OR** (por construcción del modelo, 0.51), pero **distinto RR y distinta DR**: en el paciente de alto riesgo el beneficio absoluto es mucho mayor, y a mayor riesgo basal el OR se aleja más del RR. Por eso un OR de 0.51 **no** significa "riesgo a la mitad".
+
+### ¿Cómo evalúo el modelo? (por ahora, lo básico)
+
+Para saber si el modelo en conjunto aporta algo, se compara con el **modelo nulo** (solo intercepto) con una **prueba de razón de verosimilitud**, y se resume el ajuste con un pseudo-R² (el de McFadden compara la verosimilitud del modelo con la del nulo; **no** es "varianza explicada" y rara vez es alto):
+
+```{r}
+#| label: logistica-ajuste
+l_nulo <- glm(evento ~ 1, data = ckd, family = binomial)
+anova(l_nulo, l1, test = "LRT")
+
+1 - as.numeric(logLik(l1) / logLik(l_nulo))      # pseudo-R² de McFadden
+```
+
+El modelo mejora de forma clara respecto del nulo (*p* < 0.001) y el pseudo-R² de McFadden es `r sprintf("%.2f", 1 - as.numeric(logLik(l1) / logLik(l_nulo)))`. La **discriminación** y la **calibración** del modelo (¿predice bien?) son el tema de los Caps. 16-17; la **linealidad en el logit** y otros supuestos, el de 8.5.
+
+## Paso 3. Obtener el RR directamente: Poisson con varianza robusta
+
+Si lo que quieres es **riesgo relativo**, el modelo natural sería uno con enlace **log**: $\ln P(Y=1) = \beta_0 + \beta_1 X_1 + \dots$, donde $e^{\beta_1}$ es el RR. Hay dos formas de ajustarlo.
+
+**Intento 1: log-binomial.** Es el modelo "correcto" para un desenlace binario con enlace log, pero tiene un problema práctico: **puede no converger**, porque el modelo puede predecir probabilidades por encima de 1. Aquí:
+
+```{r}
+#| label: log-binomial
+tryCatch(
+  glm(evento ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv,
+      data = ckd, family = binomial(link = "log")),
+  error = function(e) conditionMessage(e)
+)
+```
+
+R no encuentra valores iniciales válidos y se rinde. (Con valores iniciales a mano se puede, a veces, forzar la convergencia, pero eso es un parche.)
+
+**Intento 2: Poisson con varianza robusta** (propuesto por Zou, 2004; y, con el mismo fundamento, por Barros y Hirakata, 2003). La idea es simple: el modelo de Poisson con enlace log estima $\ln E[Y]$, y para un $Y$ binario $E[Y]$ es la probabilidad: ¡el coeficiente es un log-RR! El problema es que Poisson supone que la varianza es igual a la media, mientras que para un binario la varianza es $p(1-p)$, **menor** que $p$. Resultado: los **coeficientes están bien**, pero los **errores estándar** salen **demasiado grandes**. Se corrige reemplazándolos por la **varianza robusta** ("sándwich"):
 
 ```{r}
 #| label: poisson-robusto
 p1 <- glm(evento ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv,
           data = ckd, family = poisson)
 
-ee_rob <- sqrt(diag(vcovHC(p1, type = "HC0")))
+ee_clasico <- summary(p1)$coefficients["isglt2", "Std. Error"]   # EE "de Poisson": demasiado grande
+ee_rob     <- sqrt(diag(vcovHC(p1, type = "HC0")))["isglt2"]       # EE robusto (sándwich)
+
+tibble(error_estandar = c("Clásico de Poisson", "Robusto"), ee = c(ee_clasico, ee_rob)) |>
+  mutate(ee = round(ee, 3))
+
+ee_rob_todos <- sqrt(diag(vcovHC(p1, type = "HC0")))
 tibble(termino = names(coef(p1)), RR = exp(coef(p1)),
-       inf = exp(coef(p1) - 1.96 * ee_rob), sup = exp(coef(p1) + 1.96 * ee_rob)) |>
+       inf = exp(coef(p1) - 1.96 * ee_rob_todos), sup = exp(coef(p1) + 1.96 * ee_rob_todos)) |>
   filter(termino == "isglt2") |>
   mutate(across(where(is.numeric), \(x) round(x, 3)))
 ```
 
-::: {.callout-tip}
-## 💡 ¿Poisson robusto o log-binomial?
+**Qué vemos.** El error estándar clásico (`r sprintf("%.3f", ee_clasico)`) es **mayor** que el robusto (`r sprintf("%.3f", ee_rob)`): Poisson, sin corregir, da intervalos demasiado anchos (conservadores). El RR del iSGLT2 es `r sprintf("%.2f", exp(coef(p1)["isglt2"]))`: **con iSGLT2 el riesgo de evento a 36 meses es ~41 % menor** (frente al 49 % menos de *odds* que sugería el OR). Es una estimación todavía inflada por la confusión residual (la verdad es 0.74), pero está en la escala correcta: **riesgo**.
 
--   `glm(..., family = binomial(link = "log"))` (log-binomial) estima el RR directamente, pero **a veces no converge** y puede predecir riesgos > 1.
--   **Poisson robusto** casi siempre converge: es la opción práctica por defecto.
-:::
+Esta es la razón por la que el Poisson robusto es la opción práctica por defecto: **casi siempre converge** y su rendimiento es bueno incluso cuando el modelo está algo mal especificado (una simulación publicada por Chen y colaboradores, 2018, mostró que el Poisson robusto fue preferible al log-binomial cuando el modelo estaba mal especificado). Si **tus datos provienen de un estudio transversal**, el RR se llama **razón de prevalencias** (RP).
 
-## La diferencia de riesgos y el riesgo "estandarizado"
+## Paso 4. La diferencia de riesgos y el riesgo "estandarizado"
 
-La logística no entrega directamente DR ni RR. Una vía general: **predecir el riesgo de cada paciente con y sin tratamiento y promediar** (estandarización o g-fórmula, Cap. 12). Con `marginaleffects`:
+La logística no entrega directamente la DR ni el RR. Una vía general: **predecir el riesgo de cada paciente con y sin tratamiento y promediar** (estandarización o g-fórmula, Cap. 12). Con `marginaleffects`:
 
 ```{r}
 #| label: estandarizacion
@@ -99,7 +176,11 @@ avg_comparisons(l1, variables = "isglt2", comparison = "difference")   # diferen
 avg_comparisons(l1, variables = "isglt2", comparison = "ratio")        # razón de riesgos
 ```
 
-## Resumen: seis estimaciones del mismo efecto
+La **DR estandarizada** es de `r sprintf("%.1f", 100 * avg_comparisons(l1, variables = "isglt2", comparison = "difference")$estimate)` puntos porcentuales: si **todos** los pacientes recibieran iSGLT2, el riesgo a 36 meses bajaría unos 8 puntos. El **NNT** sería 1 / `r sprintf("%.3f", abs(avg_comparisons(l1, variables = "isglt2", comparison = "difference")$estimate))` ≈ `r round(1 / abs(avg_comparisons(l1, variables = "isglt2", comparison = "difference")$estimate))`: habría que tratar a unos 13 pacientes durante 36 meses para evitar un evento (con el sesgo que ya conocemos).
+
+## Paso 5. Siete estimaciones del mismo efecto
+
+Juntamos todo y comparamos cada estimación con **su propia verdad**:
 
 ```{r}
 #| label: resumen-medidas
@@ -107,20 +188,29 @@ crudo_rr <- mean(ckd$evento[ckd$isglt2 == 1]) / mean(ckd$evento[ckd$isglt2 == 0]
 dr <- avg_comparisons(l1, variables = "isglt2", comparison = "difference")
 rr <- avg_comparisons(l1, variables = "isglt2", comparison = "ratio")
 
+## OR "marginal": riesgos promedio predichos si todos / nadie reciben iSGLT2, con el modelo logístico ajustado
+riesgo_cf <- \(a) mean(predict(l1, mutate(ckd, isglt2 = a), type = "response"))
+or_marginal <- (riesgo_cf(1) / (1 - riesgo_cf(1))) / (riesgo_cf(0) / (1 - riesgo_cf(0)))
+
 tibble(
-  medida = c("OR crudo", "OR ajustado", "RR crudo", "RR (Poisson robusto)", "RR estandarizado", "DR estandarizada"),
-  estimacion = c(exp(coef(l0)["isglt2"]), exp(coef(l1)["isglt2"]), crudo_rr, exp(coef(p1)["isglt2"]),
-                 rr$estimate, dr$estimate),
-  verdad = unname(verdad[c("OR", "OR", "RR", "RR", "RR", "DR")])
+  medida = c("OR crudo", "OR ajustado (condicional)", "OR estandarizado (marginal)", "RR crudo",
+             "RR (Poisson robusto)", "RR estandarizado", "DR estandarizada"),
+  estimacion = c(exp(coef(l0)["isglt2"]), exp(coef(l1)["isglt2"]), or_marginal, crudo_rr,
+                 exp(coef(p1)["isglt2"]), rr$estimate, dr$estimate),
+  verdad = unname(verdad[c("OR", "OR", "OR", "RR", "RR", "RR", "DR")])
 ) |>
   mutate(across(where(is.numeric), \(x) round(x, 3)))
 ```
 
-Los valores "ajustados" mejoran frente a los crudos, pero **siguen más lejos de la verdad** (RR verdadero `r sprintf("%.2f", verdad["RR"])`, DR `r sprintf("%.3f", verdad["DR"])`) por la **confusión residual** (fragilidad), igual que en el 8.2. Cada medida debe compararse con **su propia** verdad (OR 0.70, RR 0.74, DR −0.045): el OR ajustado (0.51) y el RR (0.56-0.59) se alejan de ellas por la misma razón, y recuerda que OR y RR son escalas distintas.
+**Qué vemos.**
 
-## No colapsabilidad del OR
+-   Todas las estimaciones **exageran el beneficio** (están más lejos de 1, o de 0 en la DR, que la verdad): es la **confusión residual** por la fragilidad, igual que en el 8.2. Ajustar por lo medido ayuda poco, porque el confusor importante no está en el modelo.
+-   El **OR ajustado** (`r sprintf("%.2f", exp(coef(l1)["isglt2"]))`) es **condicional** (a igualdad de covariables); el OR verdadero del oráculo es **marginal** (promedio de toda la población). Si estandarizamos el mismo modelo, el OR marginal es `r sprintf("%.2f", or_marginal)`. La diferencia entre `r sprintf("%.2f", exp(coef(l1)["isglt2"]))` y `r sprintf("%.2f", or_marginal)` es **no colapsabilidad** pura (siguiente paso); lo que falta hasta `r sprintf("%.2f", verdad["OR"])` es confusión residual.
+-   Cada medida se compara con **su** verdad: OR con `r sprintf("%.2f", verdad["OR"])`, RR con `r sprintf("%.2f", verdad["RR"])`, DR con `r sprintf("%.3f", verdad["DR"])`. No mezcles escalas.
 
-El RR y la DR **se "colapsan"**: si el efecto es el mismo en todos los estratos y no hay confusión, el valor global coincide con el de los estratos. El **OR no**: puede diferir entre el estrato y el total **aunque no haya confusión**. Ejemplo de juguete, con la misma RR = 0.5 en dos estratos del mismo tamaño y sin confusión:
+## Paso 6. No colapsabilidad del OR
+
+El RR y la DR **se "colapsan"**: si el efecto es el mismo en todos los estratos y no hay confusión, el valor global coincide con el de los estratos. El **OR no**. Ejemplo de juguete, con RR = 0.5 en dos estratos del mismo tamaño y **sin confusión**:
 
 ```{r}
 #| label: no-colapsable
@@ -136,9 +226,9 @@ global
 
 El **RR** es 0.5 en cada estrato y en el total; el **OR global (0.33)** no coincide con ninguno de los OR de los estratos (0.44 y 0.17). Consecuencia: un OR **ajustado** y uno **crudo** pueden diferir aunque no haya confusión, y los OR de estudios con distintas covariables **no son comparables entre sí**. Otra razón para preferir RR o DR cuando se pueda.
 
-## Conteos y tasas: regresión de Poisson con `offset`
+## Paso 7. Conteos y tasas: regresión de Poisson con `offset`
 
-Cuando los pacientes tienen **distinto tiempo de seguimiento**, el desenlace es una **tasa** (eventos por persona-tiempo). El modelo de Poisson incluye el logaritmo del tiempo como `offset`:
+Cuando los pacientes tienen **distinto tiempo de seguimiento**, el desenlace es una **tasa** (eventos por persona-tiempo). El modelo de Poisson incluye el logaritmo del tiempo como `offset`, una variable que entra al modelo con coeficiente fijo igual a 1:
 
 ```{r}
 #| label: poisson-tasa
@@ -150,9 +240,40 @@ irr <- function(m) round(exp(c(IRR = coef(m)["isglt2"], confint.default(m)["isgl
 rbind(crudo = irr(i0), ajustado = irr(i1))
 ```
 
-La **razón de tasas** (IRR) es aquí casi igual al **HR** del modelo de Cox cuando el riesgo instantáneo es constante en el tiempo. Los datos simulados lo cumplen; la IRR ajustada (0.55) **tampoco** llega al HR verdadero de 0.70 por la misma confusión residual. Con riesgos que cambian en el tiempo se usa Cox (Cap. 9).
+La **razón de tasas** (IRR) es casi igual al **HR** del modelo de Cox cuando el riesgo instantáneo es constante en el tiempo, como en estos datos simulados. La IRR ajustada (`r sprintf("%.2f", exp(coef(i1)["isglt2"]))`) **tampoco** llega al HR verdadero de 0.70, por la misma confusión residual. Con riesgos que cambian en el tiempo se usa Cox (Cap. 9).
 
-## Casos y controles pareados: regresión logística condicional
+### Cuando los conteos varían más de lo que Poisson permite: sobredispersión
+
+Poisson supone **varianza = media**. Con datos reales, la varianza suele ser mayor (**sobredispersión**): hay pacientes más "propensos" que otros por razones que no mediste. Lo vemos con un ejemplo **simulado** (verdad conocida: IRR del programa = 0.60): episodios de peritonitis en 500 pacientes en diálisis peritoneal, con y sin un programa de entrenamiento en técnica aséptica.
+
+```{r}
+#| label: peritonitis-datos
+perit <- simular_peritonitis()          # R/funciones_extra_cap78.R (datos simulados)
+c(media = mean(perit$episodios), varianza = var(perit$episodios))
+```
+
+La varianza es casi el **doble** de la media. Ajustamos Poisson y comparamos el error estándar del programa con tres remedios: el **sándwich**, la **quasi-Poisson** (estima un parámetro de dispersión) y la **binomial negativa**:
+
+```{r}
+#| label: peritonitis-modelos
+f <- episodios ~ programa + diabetes + offset(log(seguimiento_anios))
+m_pois <- glm(f, data = perit, family = poisson)
+m_quasi <- glm(f, data = perit, family = quasipoisson)
+m_nb <- MASS::glm.nb(episodios ~ programa + diabetes + offset(log(seguimiento_anios)), data = perit)
+
+tibble(
+  modelo = c("Poisson (sin corregir)", "Poisson + sándwich", "Quasi-Poisson", "Binomial negativa"),
+  IRR = exp(c(coef(m_pois)["programa"], coef(m_pois)["programa"], coef(m_quasi)["programa"], coef(m_nb)["programa"])),
+  ee = c(summary(m_pois)$coef["programa", 2], sqrt(diag(vcovHC(m_pois, type = "HC0")))["programa"],
+         summary(m_quasi)$coef["programa", 2], summary(m_nb)$coef["programa", 2])
+) |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+
+deviance(m_pois) / df.residual(m_pois)       # desviación residual / grados de libertad: ≈ 1 si hay equidispersión
+```
+
+**Qué vemos.** El cociente desviación/gl es `r sprintf("%.1f", deviance(m_pois) / df.residual(m_pois))` (> 1: sobredispersión). Las **estimaciones puntuales apenas cambian** (IRR ≈ `r sprintf("%.2f", exp(coef(m_pois)["programa"]))`; la verdad es 0.60), pero el **error estándar del Poisson sin corregir es demasiado pequeño** (`r sprintf("%.2f", summary(m_pois)$coef["programa", 2])` frente a ~`r sprintf("%.2f", summary(m_quasi)$coef["programa", 2])`): daría intervalos engañosamente estrechos y *p* demasiado optimistas. Cualquiera de los tres remedios soluciona el problema; el **sándwich** es el más sencillo y no exige elegir una distribución.
+
+## Paso 8. Casos y controles pareados: regresión logística condicional
 
 En un estudio **de casos y controles** se compara la exposición entre quienes tuvieron el evento (casos) y sujetos sin evento (controles). Para controlar por factores de **emparejamiento** (sexo, grupo de edad) se forman **conjuntos**: cada caso con 2 controles del mismo sexo y edad. El análisis debe **respetar los conjuntos** con **regresión logística condicional** (`survival::clogit()`):
 
@@ -176,24 +297,23 @@ cl <- clogit(evento ~ isglt2 + strata(conjunto), data = conjuntos)
 round(exp(c(OR = coef(cl), confint(cl))), 3)
 ```
 
-El OR de casos y controles (0.62, IC 0.51-0.75) estima el **OR del diseño**, no el RR; con un evento tan frecuente, lo vuelve a exagerar. Las variables usadas para emparejar **no pueden estimarse** en el modelo (se anulan dentro de cada conjunto) pero sí se pueden ajustar las demás.
+El OR de casos y controles (`r sprintf("%.2f", exp(coef(cl)))`, IC `r sprintf("%.2f", exp(confint(cl)[1]))`-`r sprintf("%.2f", exp(confint(cl)[2]))`) estima el **OR del diseño**, no el RR; con un evento tan frecuente, lo vuelve a exagerar. Las variables usadas para emparejar **no pueden estimarse** en el modelo (se anulan dentro de cada conjunto), pero sí se pueden ajustar las demás.
 
 ::: {.callout-warning}
-## ⚠️ Emparejar y analizar sin conjuntos
+## ⚠️ Trampas frecuentes
 
-Si emparejas por diseño pero analizas con `glm()` común, **pierdes precisión** y puedes sesgar hacia el nulo. Los casos y controles pareados se analizan con `clogit()`.
+-   **Presentar el OR como si fuera RR** cuando el evento no es raro (> 10 %): un OR de 0.51 con un riesgo basal del 17 % corresponde a un RR de ~0.58. Si tu pregunta es sobre **riesgo**, estima RR o DR.
+-   **Emparejar por diseño y analizar sin los conjuntos** (`glm()` común): pierdes precisión y puedes sesgar hacia el nulo. Los casos y controles pareados se analizan con `clogit()`.
 :::
-
-## Consejos prácticos con modelos binarios
 
 ::: {.callout-tip}
 ## 💡 Checklist para un modelo logístico o de Poisson
 
--   [ ] ¿Cuál es la medida que quiero (OR, RR, DR)? Si el evento es común, **no uses OR como riesgo**.
--   [ ] **Eventos por variable**: al menos 10-20 eventos por cada parámetro del modelo (más si el modelo es predictivo, Cap. 17).
+-   [ ] ¿Qué medida quiero (OR, RR, DR)? Si el evento es común, **no uses OR como riesgo**.
+-   [ ] **Eventos por variable**: al menos 10-20 eventos por cada parámetro del modelo (más si es predictivo, Cap. 17). Aquí: 765 eventos y 9 parámetros.
 -   [ ] Variables continuas con **escala interpretable** (por 10 años, `log2`).
 -   [ ] **Separación perfecta** (coeficientes enormes con error estándar gigante): un nivel predice el desenlace sin excepción. Soluciones: agrupar categorías, regresión de Firth.
--   [ ] Si hay datos **agrupados** (pacientes en centros): errores estándar robustos por conglomerado o modelos mixtos (Cap. 14).
+-   [ ] **Datos agrupados** (pacientes en centros): errores estándar robustos por conglomerado o modelos mixtos (Cap. 14).
 -   [ ] Con tiempos de seguimiento distintos o censura: **no uses un modelo binario**; usa Poisson con `offset` o Cox.
 :::
 
@@ -202,13 +322,13 @@ Si emparejas por diseño pero analizas con `glm()` común, **pierdes precisión*
 
 -   **Logística → OR**; **Poisson robusto → RR**; **estandarización (`avg_comparisons`) → DR y RR marginales**; **Poisson con offset → IRR**.
 -   El **OR exagera el RR** si el evento no es raro y **no es colapsable**: evítalo como medida de riesgo.
+-   El **log-binomial** puede no converger; el **Poisson con varianza robusta** casi siempre sí: los coeficientes son log-RR y los EE robustos corrigen la varianza.
+-   Con conteos, mira la **sobredispersión** (varianza > media): sándwich, quasi-Poisson o binomial negativa.
 -   Un modelo ajustado **no repara la confusión no medida**: todos los estimadores quedaron lejos de la verdad por la fragilidad.
--   Casos y controles pareados → **`clogit()`**.
--   Con censura o seguimiento desigual, pasa a supervivencia (Cap. 9).
 :::
 
 ## Ejercicio
 
-1.  Calcula el **RR del iSGLT2** con `family = binomial(link = "log")` y compáralo con el Poisson robusto. ¿Convergió?
+1.  Calcula el **NNT crudo** (con la diferencia de riesgos sin ajustar) y compáralo con el estandarizado (≈ 13). ¿Y con el NNT "verdadero" que sale del oráculo?
 2.  Estima el OR del iSGLT2 **solo en pacientes con A3** (UACR ≥ 300). ¿Es mayor o menor que en el total?
-3.  Calcula el **NNT** a 36 meses a partir de la DR estandarizada. ¿Cómo cambia el NNT crudo (sin ajustar)?
+3.  En el ejemplo de peritonitis, ajusta un Poisson sin `offset(log(seguimiento_anios))`. ¿Qué pasa con el IRR y por qué?

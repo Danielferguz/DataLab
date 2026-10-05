@@ -1,14 +1,26 @@
 # Gráficos que comunican
 
-## Principios
+::: {.callout-note}
+## 🩺 Escenario
 
-Un buen gráfico responde **una pregunta** de forma que el lector la entienda en pocos segundos.
+Te aceptaron un póster para el congreso de nefrología y te piden "una figura que se entienda en cinco segundos". Tienes la base de 5 000 pacientes (**simulada**) y mil maneras de dibujarla. ¿Cuál eliges? La respuesta empieza por una pregunta: **¿qué quieres que vea el lector?**
+:::
 
-1.  **Muestra los datos, no solo el resumen.** Las barras con "media ± EE" ocultan la distribución; prefiere histogramas, cajas con puntos o curvas de densidad.
+**Lo que vamos a hacer**
+
+-   Elegir el gráfico según la **pregunta** y el **tipo de variable**.
+-   Aprender la "receta" de `ggplot2` (datos + ejes + formas) y usarla para seis gráficos clave.
+-   Combinar varios gráficos, guardarlos para un artículo y recordar que **un gráfico crudo describe, no demuestra**.
+
+## Paso 1. Primero la pregunta, después el gráfico
+
+Un buen gráfico responde **una pregunta** de forma que el lector la entienda en pocos segundos. Cinco reglas:
+
+1.  **Muestra los datos, no solo el resumen.** Las barras con "media ± EE" ocultan la distribución; prefiere histogramas, cajas con puntos o densidades.
 2.  **Elige el gráfico según el tipo de variable** (tabla abajo).
-3.  **Ejes honestos y con unidades.** Las barras parten de cero; las líneas y puntos no necesariamente.
+3.  **Ejes honestos y con unidades.** Las barras parten de cero; los puntos y las líneas no necesariamente.
 4.  **Color con propósito y accesible** (paletas aptas para daltonismo, como `viridis` o la de Okabe-Ito).
-5.  **Sin adornos**: nada de 3D, pasteles o doble eje Y.
+5.  **Sin adornos**: nada de 3D, pasteles ni doble eje Y.
 
 | Pregunta | Tipo de variables | Gráfico |
 |---|---|---|
@@ -17,7 +29,11 @@ Un buen gráfico responde **una pregunta** de forma que el lector la entienda en
 | ¿Cómo se comparan grupos? | Continua por categoría | Cajas + puntos, violín |
 | ¿Cómo se relacionan dos continuas? | Continua × continua | Dispersión + curva suavizada |
 | ¿Cómo evoluciona en el tiempo? | Continua × tiempo | Líneas (por paciente o promedio) |
-| ¿Cuál es la combinación de dos categorías? | Categórica × categórica | Mapa de calor |
+| ¿Qué combinación de dos categorías hay? | Categórica × categórica | Mapa de calor |
+
+## Paso 2. La receta de `ggplot2`
+
+Un gráfico de `ggplot2` se construye **por capas**, con `+`: (1) los **datos**, (2) qué variable va en cada **eje o color** (`aes()`), (3) la **forma** (`geom_*`), (4) los **rótulos** (`labs()`) y (5) el **tema**. Preparamos la base y una paleta común para todo el subcapítulo:
 
 ```{r}
 #| label: setup-73
@@ -25,7 +41,7 @@ library(tidyverse)
 library(patchwork)
 source("R/funciones_epi.R")
 
-ckd <- read_csv("Bases/ckd_isglt2.csv") |>
+ckd <- read_csv("Bases/ckd_isglt2.csv", show_col_types = FALSE) |>
   mutate(
     trat = factor(isglt2, levels = 0:1, labels = c("Sin iSGLT2", "Con iSGLT2")),
     sexo = factor(sexo, levels = c("Mujer", "Hombre")),
@@ -33,14 +49,14 @@ ckd <- read_csv("Bases/ckd_isglt2.csv") |>
     riesgo = riesgo_kdigo(cat_g, cat_a)
   )
 
-# Paleta de Okabe-Ito (apta para daltonismo) y tema del capítulo
+# Paleta de Okabe-Ito (apta para daltonismo) y tema común
 col_trat <- c("Sin iSGLT2" = "#999999", "Con iSGLT2" = "#0072B2")
 tema <- theme_minimal(base_size = 11) + theme(legend.position = "bottom")
 ```
 
-## Distribución de una variable continua entre grupos
+## Paso 3. Distribución de una variable continua entre grupos
 
-Un **histograma superpuesto** o **densidades** comparan la forma entre grupos:
+Para comparar la **forma** de la edad entre tratados y no tratados, un par de **densidades** superpuestas (un histograma suavizado). Capa a capa: datos (`ckd`), eje x y color (`edad`, `trat`), forma (`geom_density`), colores manuales y rótulos:
 
 ```{r}
 #| label: densidad
@@ -56,7 +72,9 @@ ggplot(ckd, aes(edad, fill = trat, color = trat)) +
   tema
 ```
 
-El **gráfico de cajas con los puntos** muestra la mediana, el RIC y los valores individuales (con `geom_jitter`, que los separa horizontalmente para que no se tapen):
+**Qué vemos.** La curva de los tratados está desplazada hacia edades menores: es el mismo hallazgo de la Tabla 1 (DEM ≈ −0.58), ahora visible de un golpe.
+
+El **gráfico de cajas con puntos** muestra la mediana, el RIC y los valores individuales (`geom_jitter` los separa horizontalmente para que no se tapen). Con una variable tan asimétrica como la UACR usamos escala logarítmica:
 
 ```{r}
 #| label: cajas
@@ -71,17 +89,9 @@ ggplot(ckd, aes(trat, uacr, fill = trat)) +
   tema
 ```
 
-::: {.callout-tip}
-## 💡 Tip práctico: guardar para el artículo
+**Cómo leer una caja.** La línea central es la mediana (`r median(ckd$uacr[ckd$isglt2 == 0])` mg/g en los no tratados y `r median(ckd$uacr[ckd$isglt2 == 1])` en los tratados); los bordes de la caja son Q1 y Q3; los "bigotes" llegan hasta ~1.5 veces el RIC, y los puntos más allá se consideran valores atípicos (aquí los ocultamos porque el `jitter` ya dibuja todos). **Atípico no significa error**: significa "lejos del resto"; compruébalo antes de borrarlo.
 
-```r
-ggsave("figuras/uacr_por_tratamiento.png", width = 7, height = 4, dpi = 300)
-```
-
-Los diarios piden normalmente **300 dpi** y un ancho de 7 pulgadas (una página) o 3.5 (una columna). `ggsave()` guarda el **último gráfico**; o pasa el objeto con `plot = g`.
-:::
-
-## Frecuencias: barras con porcentaje
+## Paso 4. Frecuencias: barras con porcentaje
 
 ```{r}
 #| label: barras
@@ -102,9 +112,11 @@ ckd |>
   tema
 ```
 
-## Dos variables continuas: dispersión y curva suavizada
+**Qué vemos.** Fíjate en el eje: es "% **dentro de cada grupo**" (cada color suma 100 %). Los tratados tienen más A3 (`r round(100 * mean(ckd$cat_a[ckd$isglt2 == 1] == "A3"))` % frente a `r round(100 * mean(ckd$cat_a[ckd$isglt2 == 0] == "A3"))` %), reflejo de que se prescribe el fármaco a quien tiene más albuminuria.
 
-Con 5 000 puntos, la nube se vuelve una mancha. Se reduce la opacidad y se agrega una curva suavizada (`geom_smooth`) que muestra la tendencia:
+## Paso 5. Dos continuas: dispersión y curva suavizada
+
+Con 5 000 puntos, la nube se vuelve una mancha. Se reduce la opacidad (`alpha`) y se añade una curva suavizada (`geom_smooth`) que resume la tendencia. Al mirar una dispersión fíjate en **cuatro cosas**: la **forma** (¿recta o curva?), la **dirección** (¿sube o baja?), la **dispersión** (¿qué tan apretada es la nube?) y los **valores atípicos**.
 
 ```{r}
 #| label: dispersion
@@ -120,15 +132,34 @@ ggplot(ckd, aes(tfg_basal, pendiente_tfg)) +
   tema
 ```
 
+La forma es aproximadamente recta (con algo de curvatura en los extremos) y la dirección ascendente (a mayor TFGe basal, la pendiente es algo menos negativa); la nube es muy ancha, o sea, la TFGe basal explica poco de la pendiente. La curva de los tratados queda **por encima** de la de los no tratados: promedian `r round(mean(ckd$pendiente_tfg[ckd$isglt2 == 1]), 2)` y `r round(mean(ckd$pendiente_tfg[ckd$isglt2 == 0]), 2)` mL/min/1.73 m²/año.
+
+Una **elipse** que contiene aproximadamente el 95 % de los puntos hace visible la dirección y la fuerza de la relación (cuanto más alargada e inclinada, mayor la correlación). Con la edad y la TFGe basal:
+
+```{r}
+#| label: elipse
+#| fig-width: 6.5
+#| fig-height: 4
+ggplot(ckd, aes(edad, tfg_basal)) +
+  geom_point(alpha = 0.15, size = 0.7, color = "grey30") +
+  stat_ellipse(level = 0.95, color = "#D55E00", linewidth = 1) +
+  labs(x = "Edad (años)", y = "TFGe basal (mL/min/1.73 m²)",
+       title = paste0("Correlación de Pearson: r = ", round(cor(ckd$edad, ckd$tfg_basal), 2)),
+       caption = "Datos simulados. La elipse contiene ~95 % de los puntos.") +
+  theme_minimal(base_size = 11)
+```
+
+La elipse está inclinada hacia abajo: a mayor edad, menor TFGe (*r* = `r round(cor(ckd$edad, ckd$tfg_basal), 2)`), con mucha dispersión. De este coeficiente se habla en el Cap. 8.1.
+
 ::: {.callout-warning}
 ## ⚠️ Gráfico crudo ≠ efecto causal
 
-La curva de los tratados queda por encima de la de los no tratados, pero ya vimos en la Tabla 1 que ambos grupos **difieren en edad, albuminuria y más**. El gráfico describe; para estimar el efecto hay que ajustar (Caps. 8 y 12).
+La curva de los tratados queda por encima de la de los no tratados, pero ya vimos en la Tabla 1 que ambos grupos **difieren en edad, albuminuria y más**. Un gráfico describe; para estimar el efecto hay que ajustar (Caps. 8 y 12). Y cuidado con los **ejes truncados**: unas barras que no parten de cero exageran cualquier diferencia.
 :::
 
-## Mapa de calor KDIGO
+## Paso 6. Mapa de calor KDIGO
 
-La clasificación **G × A** se presenta en un mapa de calor con el número de pacientes en cada celda:
+La clasificación **G × A** se presenta como mapa de calor con el número de pacientes en cada celda. Usamos `.drop = FALSE` para que aparezcan también las celdas vacías:
 
 ```{r}
 #| label: kdigo-calor
@@ -148,9 +179,11 @@ ckd |>
   theme_minimal(base_size = 11) + theme(panel.grid = element_blank())
 ```
 
-## Varios gráficos juntos: `patchwork` y facetas
+**Qué vemos.** El grueso de los pacientes se concentra en G3a-G3b con A2-A3 (riesgo alto o muy alto: `r round(100 * mean(ckd$riesgo %in% c("Alto", "Muy alto")))` % de la cohorte). Las filas G1 y G5 aparecen vacías porque simulamos pacientes G2 a G4.
 
-`facet_wrap()` repite el mismo gráfico por subgrupo; `patchwork` ordena gráficos distintos con `+` (lado a lado), `/` (apilados) y `plot_annotation()`:
+## Paso 7. Varios gráficos juntos
+
+`facet_wrap()` repite **el mismo gráfico** por subgrupo; `patchwork` ordena gráficos **distintos** con `+` (lado a lado), `/` (apilados) y `plot_layout()`:
 
 ```{r}
 #| label: patchwork
@@ -167,12 +200,20 @@ g3 <- ggplot(ckd, aes(tfg_basal, fill = trat)) + geom_histogram(bins = 30, posit
   theme(legend.position = "bottom")
 ```
 
+Cuando el gráfico esté listo, guárdalo con la calidad que piden las revistas (300 dpi; unas 7 pulgadas de ancho para toda la página y 3.5 para una columna). `ggsave()` guarda el último gráfico, o el objeto que le pases con `plot =`:
+
+```{r}
+#| label: ggsave
+#| eval: false
+ggsave("figuras/uacr_por_tratamiento.png", width = 7, height = 4, dpi = 300)
+```
+
 ::: {.callout-important}
 ## 🎯 En resumen
 
 -   Un gráfico = **una pregunta**; elígelo según el **tipo de variable**.
--   Para continuas: histograma/densidad/caja con puntos; para categóricas: barras con porcentaje; para dos continuas: dispersión con curva suavizada; para dos categóricas: mapa de calor.
--   **Escala logarítmica** para variables asimétricas como la UACR; **paletas accesibles**; **unidades** en los ejes.
+-   Continuas: histograma, densidad o caja con puntos. Categóricas: barras con porcentaje. Dos continuas: dispersión con curva suavizada (y elipse). Dos categóricas: mapa de calor.
+-   **Escala logarítmica** para variables asimétricas como la UACR; **paletas accesibles** y **unidades** en los ejes.
 -   Los gráficos crudos **describen**: no se interpretan como efectos causales.
 -   Guarda con `ggsave(dpi = 300)` y deja el **código** junto a la figura.
 :::

@@ -1,78 +1,102 @@
-# Variables y su distribución
+# ¿Cómo son mis pacientes? Variables y su distribución
 
-## Tipos de variable
+::: {.callout-note}
+## 🩺 Escenario
 
-El tipo de variable decide cómo se resume, cómo se grafica y qué modelo se usa después.
+Es lunes y te entregan una base con 5 000 adultos con ERC y diabetes tipo 2 de tu clínica de nefrología (datos **simulados**). Aún no has ajustado ningún modelo ni comparado ningún fármaco. Antes de eso necesitas saber, simplemente, **cómo son estos pacientes**: ¿qué edad tienen?, ¿cuánta albuminuria?, ¿hay datos que faltan? La respuesta decide cómo los resumirás en la Tabla 1 y qué análisis tendrá sentido después.
+:::
 
-| Tipo | Ejemplos en nefrología | Resumen habitual |
+**Lo que vamos a hacer**
+
+-   Clasificar cada columna de la base según su **tipo de variable**.
+-   Decidir, **mirando un histograma**, si una variable continua se resume con media (DE) o con mediana [RIC].
+-   Usar el **logaritmo** para domar la albuminuria y contar los **datos faltantes** antes de resumir nada.
+
+## Paso 1. Dile a R qué tipo de variable es cada columna
+
+El tipo de variable decide **cómo se resume, cómo se grafica y qué modelo se usa después**. Piénsalo como el rótulo de un tubo de laboratorio: si el rótulo está mal, todo lo que viene después sale mal.
+
+| Tipo | Ejemplos en nefrología | Cómo se resume |
 |---|---|---|
 | **Cualitativa nominal** | Sexo, etiología de la ERC, tipo de acceso vascular | *n* (%) |
-| **Cualitativa ordinal** | Categoría G (G1–G5), A (A1–A3), riesgo KDIGO | *n* (%) por categoría |
+| **Cualitativa ordinal** | Categoría G (G1-G5), A (A1-A3), riesgo KDIGO | *n* (%) por categoría |
 | **Binaria** | Diabetes, ECV previa, evento renal | *n* (%) del "sí" |
-| **Cuantitativa discreta** | Número de hospitalizaciones, número de antihipertensivos | Mediana [RIC] o media (DE) |
+| **Cuantitativa discreta** | Número de hospitalizaciones, de antihipertensivos | Mediana [RIC] o media (DE) |
 | **Cuantitativa continua** | Edad, TFGe, creatinina, UACR, PAS | Media (DE) o mediana [RIC] |
 | **Tiempo hasta evento** | Meses hasta diálisis | Kaplan-Meier (Cap. 9) |
 
-::: {.callout-warning}
-## ⚠️ Un número no siempre es una variable numérica
-
-La categoría KDIGO codificada `1, 2, 3` es **ordinal**, no cuantitativa: el "promedio de las categorías G" no significa nada. Y `isglt2 = 0/1` es **binaria**: su media es una proporción. Declara en R qué es cada variable (`factor()`, `ordered()`).
-:::
-
-## Los datos
-
-Trabajamos con `ckd_isglt2.csv` (simulada): 5 000 adultos con ERC y diabetes tipo 2.
+Cargamos la base `ckd_isglt2.csv` y declaramos explícitamente qué es categórico con `factor()`. `glimpse()` te muestra el tipo de cada columna (`<dbl>` número, `<fct>` factor):
 
 ```{r}
 #| label: setup-71
 library(tidyverse)
 source("R/funciones_epi.R")
 
-ckd <- read_csv("Bases/ckd_isglt2.csv") |>
+ckd <- read_csv("Bases/ckd_isglt2.csv", show_col_types = FALSE) |>
   mutate(
-    sexo   = factor(sexo, levels = c("Mujer", "Hombre")),
-    ecv    = factor(ecv, levels = 0:1, labels = c("Sin ECV", "Con ECV")),
-    trat   = factor(isglt2, levels = 0:1, labels = c("Sin iSGLT2", "Con iSGLT2"))
+    sexo = factor(sexo, levels = c("Mujer", "Hombre")),
+    ecv  = factor(ecv, levels = 0:1, labels = c("Sin ECV", "Con ECV")),
+    trat = factor(isglt2, levels = 0:1, labels = c("Sin iSGLT2", "Con iSGLT2"))
   )
 glimpse(ckd)
 ```
 
-## Un primer vistazo
+**Qué vemos.** La base tiene `r format(nrow(ckd), big.mark = " ")` filas (un paciente por fila) y `r ncol(ckd)` columnas. `sexo`, `ecv` y `trat` quedaron como `<fct>`. Ojo: `isglt2` sigue siendo `0/1` numérico (es la misma información que `trat`, pero en versión "numérica"); su media sería una proporción.
 
-`summary()` y `skimr::skim()` dan una visión rápida; `count()` resume categorías.
+## Paso 2. Un primer vistazo
+
+`summary()` da, para cada variable numérica, el mínimo, los cuartiles, la media y el máximo. `count()` cuenta categorías:
 
 ```{r}
 #| label: resumen-rapido
 summary(ckd |> select(edad, hba1c, pas, tfg_basal, uacr))
-
-ckd |> count(sexo) |> mutate(porcentaje = round(100 * n / sum(n), 1))
-ckd |> count(trat, ecv) |> group_by(trat) |> mutate(porcentaje = round(100 * n / sum(n), 1))
 ```
 
-::: {.callout-tip}
-## 💡 Tip práctico: ¿porcentaje de qué?
+**Cómo se lee.** `Median` es el valor del medio (la mitad de los pacientes está por debajo); `1st Qu.` y `3rd Qu.` son los cuartiles 1 y 3, y entre ambos cae la mitad central de los pacientes. Una pista rápida de asimetría: **si la media y la mediana se separan, sospecha**. En la edad coinciden (`r round(mean(ckd$edad), 1)` frente a `r median(ckd$edad)`); en la UACR no (`r round(mean(ckd$uacr), 1)` frente a `r median(ckd$uacr)`).
 
-Con `group_by()` antes de `mutate()`, el denominador es **cada grupo** (porcentajes por fila). Sin `group_by()`, el denominador es el **total**. Decide siempre el denominador y **escríbelo** en el título de la tabla ("% dentro de cada grupo de tratamiento").
-:::
+Para las categorías, cuenta y calcula el porcentaje. **Piensa en el denominador**: con `group_by()` antes de `mutate()`, el porcentaje es "dentro de cada grupo"; sin él, es "del total".
 
-## Variables continuas: ¿media o mediana?
+```{r}
+#| label: conteo-denominador
+ckd |> count(sexo) |> mutate(porcentaje = round(100 * n / sum(n), 1))
 
-La **media** y la **DE** describen bien distribuciones **simétricas**. Cuando hay **asimetría** o valores extremos, la **mediana** y el **rango intercuartílico (RIC)** son más fieles. Comparemos la edad y la albuminuria:
+ckd |> count(trat, ecv) |> group_by(trat) |>
+  mutate(porcentaje_dentro_del_grupo = round(100 * n / sum(n), 1))
+```
+
+En la segunda tabla el porcentaje suma 100 **dentro de cada grupo de tratamiento**: `r round(100 * mean(ckd$ecv[ckd$isglt2 == 1] == "Con ECV"), 1)` % de los tratados y `r round(100 * mean(ckd$ecv[ckd$isglt2 == 0] == "Con ECV"), 1)` % de los no tratados tienen ECV previa. Escribe siempre el denominador en el título de la tabla.
+
+Con paquetes (no se ejecuta aquí), la misma idea en una línea:
+
+```{r}
+#| label: paquetes-vistazo
+#| eval: false
+# Con el paquete skimr (no se ejecuta aquí): un resumen "de un vistazo" de todas las columnas
+skimr::skim(ckd)
+
+# Con el paquete janitor (no se ejecuta aquí): tablas de frecuencias con totales y porcentajes
+ckd |> janitor::tabyl(trat, ecv) |> janitor::adorn_percentages("row") |> janitor::adorn_pct_formatting()
+```
+
+## Paso 3. Variables continuas: ¿media o mediana?
+
+La **media** y la **desviación estándar (DE)** describen bien una distribución **simétrica** (en forma de campana). Si hay **asimetría** (una cola larga hacia un lado) o valores extremos, la media se deja arrastrar y conviene la **mediana** con el **rango intercuartílico (RIC)**, que es el intervalo entre el cuartil 1 y el cuartil 3. Lo vemos dibujando la edad y la albuminuria:
 
 ```{r}
 #| label: dist-edad-uacr
 #| fig-width: 9
 #| fig-height: 3.6
+library(patchwork)
 p1 <- ggplot(ckd, aes(edad)) +
   geom_histogram(binwidth = 2, fill = "#0072B2", color = "white") +
   labs(x = "Edad (años)", y = "Pacientes", title = "Edad: simétrica")
 p2 <- ggplot(ckd, aes(uacr)) +
   geom_histogram(bins = 50, fill = "#D55E00", color = "white") +
-  labs(x = "UACR (mg/g)", y = "Pacientes", title = "UACR: muy asimétrica a la derecha")
-
-library(patchwork)
+  labs(x = "UACR (mg/g)", y = "Pacientes", title = "UACR: cola larga a la derecha")
 p1 + p2
 ```
+
+La edad es una campana; la UACR tiene un cuerpo pequeño y una cola larga: unos pocos pacientes con albuminuria muy alta. Pongamos números a esa impresión con una función que calcula las medidas de resumen y la **asimetría** (0 = simétrica; muy positiva = cola a la derecha):
 
 ```{r}
 #| label: medidas
@@ -82,24 +106,36 @@ resumir <- function(x) {
          q3 = quantile(x, .75, na.rm = TRUE), minimo = min(x, na.rm = TRUE),
          maximo = max(x, na.rm = TRUE))
 }
+asimetria <- function(x) mean((x - mean(x))^3) / sd(x)^3     # 0 = simétrica
+
 bind_rows(Edad = resumir(ckd$edad), UACR = resumir(ckd$uacr), .id = "variable") |>
+  mutate(asimetria = c(asimetria(ckd$edad), asimetria(ckd$uacr)),
+         across(where(is.numeric), \(x) round(x, 1)))
+```
+
+**Qué vemos.** En la edad, media y mediana casi coinciden y la asimetría es ≈ 0. En la UACR, la media (`r round(mean(ckd$uacr))`) **supera con holgura** a la mediana (`r median(ckd$uacr)`) y la asimetría es `r round(asimetria(ckd$uacr), 1)`: los valores extremos arrastran el promedio. Para la UACR se reporta **mediana [Q1, Q3]** = `r median(ckd$uacr)` [`r quantile(ckd$uacr, .25)`, `r quantile(ckd$uacr, .75)`] mg/g.
+
+Reglas prácticas para decidir:
+
+-   **Distribución simétrica** → media (DE).
+-   **Asimétrica** (UACR, triglicéridos, estancia hospitalaria, tiempo de espera) → mediana [Q1, Q3].
+-   **No decidas con una prueba de normalidad** (Shapiro-Wilk y similares): con 5 000 pacientes siempre "rechazan" la normalidad por diferencias mínimas, y con 20 casi nunca. **Decide mirando el histograma**.
+-   La **DE no es el error estándar**: la DE describe cuánto varían *los pacientes*; el error estándar describe cuánta incertidumbre tiene *la media* (Cap. 7.4).
+
+La misma tabla, separada por grupo de tratamiento, es el germen de la Tabla 1 (Cap. 7.2):
+
+```{r}
+#| label: resumen-por-grupo
+ckd |>
+  group_by(trat) |>
+  summarise(n = n(), edad_media = mean(edad), edad_de = sd(edad),
+            uacr_mediana = median(uacr), uacr_q1 = quantile(uacr, .25), uacr_q3 = quantile(uacr, .75)) |>
   mutate(across(where(is.numeric), \(x) round(x, 1)))
 ```
 
-En la edad, media y mediana casi coinciden. En la UACR, la **media supera claramente a la mediana**: unos pocos pacientes con albuminuria muy alta "arrastran" el promedio. **Para la UACR se reporta la mediana [RIC]**.
+## Paso 4. El logaritmo simetriza la albuminuria
 
-::: {.callout-important}
-## 🎯 Regla práctica
-
--   Distribución aproximadamente **simétrica** → media (DE).
--   **Asimétrica** (UACR, triglicéridos, estancia hospitalaria, tiempo de espera) → mediana [Q1, Q3].
--   No decidas con una prueba de normalidad: en muestras grandes siempre "rechaza". Decide **mirando el histograma**.
--   La **DE no es el error estándar**: la DE describe la variación entre pacientes; el EE describe la incertidumbre de la media.
-:::
-
-## Transformación logarítmica
-
-Muchas variables biológicas son aproximadamente **log-normales**: el logaritmo las simetriza. Con ella se resume la UACR con la **media geométrica** (anti-logaritmo de la media de los logaritmos):
+Muchas variables biológicas son aproximadamente **log-normales**: su logaritmo sí es una campana. Con la escala logarítmica la UACR se ve simétrica, y las líneas de KDIGO (30 y 300 mg/g) quedan a distancias razonables:
 
 ```{r}
 #| label: log-uacr
@@ -112,20 +148,22 @@ ggplot(ckd, aes(uacr)) +
   annotate("text", x = c(11, 90, 1100), y = Inf, vjust = 2, label = c("A1", "A2", "A3")) +
   labs(x = "UACR (mg/g), escala logarítmica", y = "Pacientes",
        title = "Con escala log la UACR es simétrica; las líneas marcan los cortes de KDIGO")
-
-c(media_aritmetica = mean(ckd$uacr), mediana = median(ckd$uacr),
-  media_geometrica = exp(mean(log(ckd$uacr))))
 ```
 
-::: {.callout-warning}
-## ⚠️ Cuidado con los ceros
+El resumen natural de una variable log-normal es la **media geométrica**: el antilogaritmo de la media de los logaritmos.
 
-`log(0)` es `-Inf`. Si hay valores 0 o por debajo del límite de detección, no sumes 1 "por costumbre": documenta qué hiciste (p. ej., sustituir por la mitad del límite de detección) y haz un análisis de sensibilidad.
-:::
+```{r}
+#| label: media-geometrica
+c(media_aritmetica = mean(ckd$uacr), mediana = median(ckd$uacr),
+  media_geometrica = exp(mean(log(ckd$uacr))),
+  asimetria_del_log = asimetria(log(ckd$uacr)))
+```
 
-## Variables categóricas
+La media geométrica (`r round(exp(mean(log(ckd$uacr))), 1)`) casi coincide con la mediana (`r median(ckd$uacr)`) y la asimetría del logaritmo es `r round(asimetria(log(ckd$uacr)), 2)`, es decir, ≈ 0. Esa es la firma de una variable log-normal.
 
-Para una categórica se reporta **frecuencia y porcentaje**; con muchas categorías ordénalas por frecuencia (`fct_infreq()`). Para KDIGO, usamos las funciones del libro:
+## Paso 5. Variables categóricas
+
+Para una categórica se reporta **frecuencia y porcentaje**. Con las funciones del libro (Cap. 5.4) creamos las categorías KDIGO:
 
 ```{r}
 #| label: kdigo-conteo
@@ -133,40 +171,52 @@ ckd <- ckd |>
   mutate(cat_g = categoria_g(tfg_basal), cat_a = categoria_a(uacr),
          riesgo = riesgo_kdigo(cat_g, cat_a))
 
-ckd |> count(cat_g) |> mutate(porcentaje = round(100 * n / sum(n), 1))
+ckd |> count(cat_g, .drop = FALSE) |> mutate(porcentaje = round(100 * n / sum(n), 1))
 ckd |> count(cat_a) |> mutate(porcentaje = round(100 * n / sum(n), 1))
 ```
 
-Solo aparecen G2 a G4 (casi todos G3a o G3b) porque simulamos pacientes con ERC moderada a avanzada (la TFGe se acotó entre 20 y 75). Una categoría con 0 pacientes **no aparece** en `count()`; si necesitas verla, usa `count(cat_g, .drop = FALSE)`.
+**Qué vemos.** Solo hay pacientes G2 a G4, casi todos G3a o G3b (`r round(100 * mean(ckd$cat_g %in% c("G3a", "G3b")))` %), porque simulamos ERC moderada a avanzada (TFGe entre 20 y 75). Con `.drop = FALSE`, `count()` muestra también las categorías vacías (G1 y G5 con 0 pacientes); sin él, desaparecen sin avisar. En albuminuria predomina A2 (`r round(100 * mean(ckd$cat_a == "A2"))` %).
 
-## Datos faltantes: míralos primero
+## Paso 6. Datos faltantes: míralos antes de resumir
 
-Antes de resumir, cuenta cuántos datos faltan **por variable**. Aquí la base está completa (la simulamos así), pero este bloque se reutiliza en cualquier base real:
+Antes de calcular nada, cuenta **cuántos datos faltan por variable**. La base que usamos está completa (la simulamos así), de modo que escribimos la función una vez y la probamos también con `ckd_faltantes.csv`, una versión simulada con huecos (se usa a fondo en el Cap. 13):
 
 ```{r}
 #| label: faltantes
-ckd |>
-  summarise(across(everything(), \(x) sum(is.na(x)))) |>
-  pivot_longer(everything(), names_to = "variable", values_to = "faltantes") |>
-  mutate(porcentaje = round(100 * faltantes / nrow(ckd), 1)) |>
-  arrange(desc(faltantes)) |>
-  head(5)
+resumen_faltantes <- function(datos) {
+  datos |>
+    summarise(across(everything(), \(x) sum(is.na(x)))) |>
+    pivot_longer(everything(), names_to = "variable", values_to = "faltantes") |>
+    mutate(porcentaje = round(100 * faltantes / nrow(datos), 1)) |>
+    arrange(desc(faltantes))
+}
+
+resumen_faltantes(ckd) |> head(3)                                 # base completa
+
+ckd_falt <- read_csv("Bases/ckd_faltantes.csv", show_col_types = FALSE)
+resumen_faltantes(ckd_falt) |> head(4)                            # base con huecos
 ```
 
-El manejo de datos faltantes (por qué faltan, qué hacer) es el Cap. 13.
+En la base completa todo es 0. En la versión con huecos, a `uacr` le falta un `r round(100 * mean(is.na(ckd_falt$uacr)), 1)` % de los valores, a `hba1c` un `r round(100 * mean(is.na(ckd_falt$hba1c)), 1)` % y a `pas` un `r round(100 * mean(is.na(ckd_falt$pas)), 1)` %. Que falten **no es lo mismo que "faltan al azar"**; de por qué faltan y qué hacer se ocupa el Cap. 13.
+
+::: {.callout-warning}
+## ⚠️ Trampas frecuentes
+
+-   **Un número no siempre es una variable numérica.** La categoría G codificada `1, 2, 3` es *ordinal*: el "promedio de las categorías" no significa nada. Declara el tipo con `factor()` o `ordered()`.
+-   **`log(0)` es `-Inf`.** Si hay ceros o valores bajo el límite de detección, no sumes 1 "por costumbre": documenta qué hiciste (p. ej., sustituir por la mitad del límite de detección) y haz un análisis de sensibilidad.
+:::
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
 -   El **tipo de variable** decide el resumen: *n* (%) para categóricas; media (DE) para continuas simétricas; mediana [RIC] para asimétricas.
--   **Mira el histograma** antes de elegir; la UACR casi siempre es asimétrica y se simetriza con **escala logarítmica**.
--   La **media geométrica** resume una variable log-normal.
+-   **Mira el histograma** antes de elegir. La UACR casi siempre es asimétrica y se simetriza con **escala logarítmica**; su media geométrica ≈ su mediana.
 -   Declara el **denominador** de cada porcentaje.
 -   Cuenta los **datos faltantes** antes de resumir cualquier cosa.
 :::
 
 ## Ejercicio
 
-1.  Calcula media, mediana y RIC de la **TFGe basal** y de la **PAS**. ¿Cuál de las dos es más simétrica?
-2.  Haz el histograma de la HbA1c por grupo de tratamiento con `facet_wrap(~ trat)`.
-3.  ¿Qué porcentaje de pacientes tiene riesgo KDIGO "Muy alto"? ¿Y dentro de cada grupo de tratamiento?
+1.  Calcula media, mediana, RIC y asimetría de la **TFGe basal** y de la **PAS**. ¿Cuál de las dos es más simétrica? ¿Con qué las resumirías en la Tabla 1?
+2.  Haz el histograma de la **HbA1c** por grupo de tratamiento con `facet_wrap(~ trat)`. ¿Se parecen las formas?
+3.  ¿Qué porcentaje de pacientes tiene riesgo KDIGO "Muy alto"? ¿Y dentro de cada grupo de tratamiento? (Pista: `count(trat, riesgo)` y el denominador.)

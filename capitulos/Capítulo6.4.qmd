@@ -1,8 +1,20 @@
 # Sesgo de selección y no respuesta
 
-## La clínica de nefrología como "muestra"
+::: {.callout-note}
+## 🩺 Escenario
 
-Volvamos a la pregunta inicial: ¿qué pasa si estimamos la prevalencia de ERC con **quienes consultan** en una clínica de nefrología? Simulamos que la probabilidad de consultar **aumenta** si la persona tiene ERC, diabetes, hipertensión o más edad (algo muy plausible: se deriva a quien tiene algo).
+Tu clínica de nefrología revisa sus historias y concluye: "más de la mitad de los adultos que atendemos tiene ERC". Es cierto... *entre quienes consultan*. Pero la Dirección de Salud quiere la prevalencia **en la región**. ¿Por qué la clínica sobrestima tanto? ¿Y qué pasa cuando, incluso con una encuesta bien diseñada, una parte de las personas **no responde**?
+:::
+
+**Lo que vamos a hacer**
+
+-   Medir el **sesgo de selección** de una muestra de conveniencia (la clínica) contra la verdad.
+-   Ver que el sesgo no solo cambia frecuencias: **deforma asociaciones**.
+-   Analizar la **no respuesta** en una encuesta probabilística: qué corrige un ajuste y qué no.
+
+## Paso 1: la clínica como "muestra"
+
+Simulamos que la probabilidad de consultar **aumenta** si la persona tiene ERC, diabetes, hipertensión o más edad (algo muy plausible: se deriva a quien tiene algo).
 
 ```{r}
 #| label: setup-64
@@ -25,24 +37,25 @@ tibble(
 ) |> mutate(prevalencia_ERC = round(100 * prevalencia_ERC, 1))
 ```
 
-La clínica "encuentra" una prevalencia de más de la mitad, cuando en la población es menor de 10 %. No es un error de cálculo: es **sesgo de selección**. Y notemos que la muestra es pequeña pero el problema **no se arregla con más pacientes**: 3 000 pacientes de la misma clínica darían el mismo resultado equivocado, solo que con un IC más estrecho.
+La clínica "encuentra" una prevalencia de **`r sprintf("%.0f", 100 * mean(clinica$erc))` %**, cuando en la población es de `r sprintf("%.1f", 100 * prev_verdadera)` %. No es un error de cálculo: es **sesgo de selección**. Y la MAS del mismo tamaño (`r nrow(mas)` personas) da `r sprintf("%.1f", 100 * mean(mas$erc))` %, cerca de la verdad dentro de lo que permite el azar: lo que la separa de la clínica no es el tamaño, es **cómo se eligió**. Tampoco se arregla con más pacientes: 3 000 de la misma clínica darían el mismo resultado equivocado, solo que con un IC más estrecho.
 
-## Un sesgo que también deforma las asociaciones
+## Paso 2: el sesgo también deforma las asociaciones
 
-El sesgo de selección no solo cambia las frecuencias: puede **distorsionar la relación** entre variables. Comparemos el OR de diabetes para ERC en la población y en la clínica:
+El sesgo de selección no solo cambia las frecuencias: puede **distorsionar la relación** entre variables. Comparemos el OR de diabetes para ERC (ajustado por hipertensión y edad) en la población y en la clínica:
 
 ```{r}
 #| label: or-sesgo
-or_dm <- function(d) {
+or_diabetes <- function(d) {
   m <- glm(erc ~ diabetes + hta + I(edad / 10), data = d, family = binomial)
-  c(OR = exp(coef(m)["diabetes"]), exp(confint.default(m)["diabetes", ]))
+  ic <- confint.default(m)["diabetes", ]
+  tibble(OR = exp(coef(m)["diabetes"]), IC_inf = exp(ic[1]), IC_sup = exp(ic[2]))
 }
-bind_rows(
-  `Población` = or_dm(pob), `Clínica` = or_dm(clinica), .id = "fuente"
-) |> mutate(across(where(is.numeric), \(x) round(x, 2)))
+
+bind_rows(Población = or_diabetes(pob), Clínica = or_diabetes(clinica), .id = "fuente") |>
+  mutate(across(where(is.numeric), \(x) round(x, 2)))
 ```
 
-En la clínica, el OR de diabetes **se atenúa** (de ~2.6 a ~1.3). ¿Por qué? Porque ingresar a la clínica es **efecto común** de la diabetes y de la ERC: entre quienes consultan, quien *no* tiene diabetes necesita tener otra razón (ERC) para estar ahí. Es el **sesgo del colisionador** (*Berkson*) del Cap. 3.
+En la clínica el OR de diabetes **se atenúa** (de `r sprintf("%.1f", or_diabetes(pob)$OR)` a `r sprintf("%.1f", or_diabetes(clinica)$OR)`). ¿Por qué? Porque consultar en la clínica es **efecto común** de la diabetes y de la ERC: entre quienes consultan, quien *no* tiene diabetes necesita tener otra razón (ERC) para estar ahí. Es el **sesgo del colisionador** (de Berkson) del Cap. 3.
 
 ```{r}
 #| label: dag-seleccion
@@ -63,36 +76,34 @@ Estudiar solo a quienes tienen $S = 1$ equivale a **condicionar en un colisionad
 ::: {.callout-important}
 ## 🎯 Selección = colisionador (de nuevo)
 
-Lo que en el Cap. 3 era un diagrama, aquí es un número que cambia. Siempre que **la inclusión en el estudio** dependa de la exposición y del desenlace (o de causas de ambos), el análisis está condicionado en un colisionador. La respuesta no es "ajustar más", sino **cambiar el diseño** o usar métodos de ponderación por la probabilidad de selección (Cap. 12 y 19).
+Lo que en el Cap. 3 era un diagrama, aquí es un número que cambia. Siempre que **la inclusión en el estudio** dependa de la exposición y del desenlace (o de causas de ambos), el análisis está condicionado en un colisionador. La respuesta no es "ajustar más", sino **cambiar el diseño** o ponderar por la probabilidad de selección (Caps. 10 y 12).
 :::
 
-## Formas de sesgo de selección en nefrología
+## Paso 3: formas de sesgo de selección en nefrología
 
-| Forma | Ejemplo | Dirección típica |
-|---|---|---|
-| **Muestra de conveniencia / de referencia** | Solo pacientes de un hospital terciario | Prevalencias exageradas; efectos atenuados o inflados |
-| **Sesgo del voluntario** | Solo quienes aceptan una pesquisa gratuita | Más sanos, más conscientes |
-| **Sesgo del sobreviviente** (*prevalent user*) | Pacientes ya en hemodiálisis hace años | Quedan los que sobrevivieron; efecto inicial desaparece |
-| **Pérdida durante el seguimiento** | No regresan quienes empeoran o se mudan | Desenlaces subestimados |
-| **Sesgo de detección** | Se mide creatinina a quien ya parece enfermo | ERC "más frecuente" donde se busca |
-| **No respuesta** | Rechazan la encuesta | Depende de quién y por qué |
+-   **Muestra de conveniencia o de referencia**: solo pacientes de un hospital terciario. Prevalencias exageradas; efectos atenuados o inflados.
+-   **Sesgo del voluntario**: solo quienes aceptan una pesquisa gratuita, que suelen ser más sanos y más conscientes.
+-   **Sesgo del sobreviviente** (*prevalent user*): pacientes ya en hemodiálisis hace años. Quedan los que sobrevivieron y el efecto inicial desaparece.
+-   **Pérdida durante el seguimiento**: no regresan quienes empeoran o se mudan; los desenlaces se subestiman.
+-   **Sesgo de detección**: se mide creatinina a quien ya parece enfermo, y la ERC parece "más frecuente" donde se busca.
+-   **No respuesta**: rechazan la encuesta; el sesgo depende de quién y por qué.
 
-## No respuesta en una encuesta probabilística
+## Paso 4: no respuesta en una encuesta probabilística
 
-Aun con un diseño probabilístico impecable, **no todos responden**. Si quienes no responden son diferentes, la muestra efectiva ya no es aleatoria. Simulamos que responder es menos probable con ERC, mayor edad y zona rural (el 27 % no respondió):
+Aun con un diseño probabilístico impecable, **no todos responden**. Si quienes no responden son diferentes, la muestra efectiva deja de ser aleatoria. Simulamos que responder es menos probable con ERC, mayor edad y zona rural:
 
 ```{r}
 #| label: no-respuesta
-enc <- read_csv("Bases/encuesta_erc.csv") |>
+enc <- read_csv("Bases/encuesta_erc.csv", show_col_types = FALSE) |>
   mutate(gedad = cut(edad, c(17, 39, 59, 100), labels = c("18-39", "40-59", "60+")))
 enc <- simular_no_respuesta(enc)               # agrega la columna `respondio`
 
 mean(enc$respondio)                            # tasa de respuesta
 
-enc |> group_by(gedad) |> summarise(tasa_respuesta = mean(respondio))
+enc |> group_by(gedad) |> summarise(tasa_respuesta = round(mean(respondio), 3))
 ```
 
-En la vida real **no conoces el estado de ERC de quienes no respondieron**; aquí sí (simulación), así que veremos cuánto se pierde.
+Respondió el `r sprintf("%.0f", 100 * mean(enc$respondio))` % (no respondió el `r sprintf("%.0f", 100 * (1 - mean(enc$respondio)))` %), y la respuesta cae con la edad: de `r sprintf("%.0f", 100 * mean(enc$respondio[enc$gedad == "18-39"]))` % en los de 18 a 39 años a `r sprintf("%.0f", 100 * mean(enc$respondio[enc$gedad == "60+"]))` % en los de 60 o más. En la vida real **no conoces el ERC de quienes no respondieron**; aquí sí (es una simulación), así que veremos cuánto se pierde.
 
 ### Tres análisis
 
@@ -111,25 +122,27 @@ enc <- enc |> group_by(area, gedad) |> mutate(tasa_celda = mean(respondio)) |> u
 resp <- enc |> filter(respondio == 1) |> mutate(peso_aj = peso / tasa_celda)
 dis_b <- svydesign(ids = ~cluster, strata = ~area, weights = ~peso_aj, data = resp, nest = TRUE)
 
-tibble(
-  analisis = c("Encuesta completa (inaccesible en la práctica)",
+comparacion_nr <- tibble(
+  analisis = c("Verdad (región completa)",
+               "Encuesta completa (inaccesible en la práctica)",
                "(a) Solo respondientes, pesos originales",
                "(b) Respondientes, pesos ajustados"),
-  prevalencia = c(coef(svymean(~erc, dis_ref)), coef(svymean(~erc, dis_a)), coef(svymean(~erc, dis_b))),
-  EE = c(SE(svymean(~erc, dis_ref)), SE(svymean(~erc, dis_a)), SE(svymean(~erc, dis_b)))
+  prevalencia = c(prev_verdadera, coef(svymean(~erc, dis_ref)), coef(svymean(~erc, dis_a)), coef(svymean(~erc, dis_b))),
+  EE = c(NA, SE(svymean(~erc, dis_ref)), SE(svymean(~erc, dis_a)), SE(svymean(~erc, dis_b)))
 ) |> mutate(across(where(is.numeric), \(x) round(100 * x, 2)))
+comparacion_nr
 ```
 
-La referencia no es la verdad de la región (7.6 %) sino la **encuesta completa** (9.2 %), que ya tiene su propio error de muestreo. El sesgo atribuible a la no respuesta es la diferencia entre (a) o (b) y esa referencia: **más de tres puntos** de prevalencia.
+Lee la tabla de arriba abajo. La **encuesta completa** (`r comparacion_nr$prevalencia[2]` %) es la mejor que podríamos haber hecho y ya tiene su propio error de muestreo respecto de la verdad (`r comparacion_nr$prevalencia[1]` %). Con solo los respondientes, el resultado cae a **`r comparacion_nr$prevalencia[3]` %**: el sesgo atribuible a la no respuesta es de unos **`r sprintf("%.1f", comparacion_nr$prevalencia[2] - comparacion_nr$prevalencia[3])` puntos**, porque los que tienen ERC (y los mayores, y los rurales) responden menos.
 
-El ajuste de pesos (b) **corrige parte del sesgo**, porque recupera a los grupos de edad y área que respondieron menos. Pero **no lo elimina**: dentro de cada celda, los que tienen ERC siguen respondiendo menos. El ajuste solo corrige lo que **observamos** (edad y área); si la no respuesta depende del **propio desenlace** (ERC), el sesgo persiste.
+El ajuste de pesos (b) **corrige solo una parte** (`r comparacion_nr$prevalencia[4]` %): recupera a los grupos de edad y área que respondieron menos. Pero **no lo elimina**: dentro de cada celda, los que tienen ERC siguen respondiendo menos. El ajuste solo corrige lo que **observamos** (edad y área); si la no respuesta depende del **propio desenlace**, el sesgo persiste.
 
 ::: {.callout-warning}
 ## ⚠️ Ajustar no es lo mismo que corregir
 
--   **Datos faltantes al azar *condicionado en variables observadas***: el ajuste (ponderar o imputar) funciona.
--   **No respuesta que depende del desenlace** (los enfermos rechazan o no pueden asistir): ninguna ponderación basada en variables observadas lo arregla. Hay que **reducir la no respuesta** (insistir, visitas domiciliarias), **medir una submuestra de no respondientes** y **declarar la limitación**.
--   Esto conecta con el Cap. 13 (datos faltantes) y con el análisis de sensibilidad.
+-   **No respuesta que depende de variables observadas** (edad, área): ponderar o imputar funciona.
+-   **No respuesta que depende del desenlace** (los enfermos rechazan o no pueden asistir): ninguna ponderación con variables observadas lo arregla. Hay que **reducir la no respuesta** (insistir, visitas domiciliarias), **medir una submuestra de no respondientes** y **declarar la limitación**.
+-   Esto conecta con el Cap. 13 (datos faltantes) y con los análisis de sensibilidad.
 :::
 
 ### Límites en el peor de los casos
@@ -139,43 +152,43 @@ Cuando no podemos modelar la no respuesta, un enfoque honesto es calcular **lím
 ```{r}
 #| label: limites
 tasa_resp <- weighted.mean(enc$respondio, enc$peso)
-p_resp <- coef(svymean(~erc, dis_a))
+p_resp <- as.numeric(coef(svymean(~erc, dis_a)))
 
-c(prevalencia_en_respondientes = p_resp,
-  limite_inferior = p_resp * tasa_resp,               # nadie de los no respondientes tiene ERC
-  limite_superior = p_resp * tasa_resp + (1 - tasa_resp))   # todos la tienen
+tibble(
+  escenario = c("Prevalencia entre los respondientes", "Límite inferior (ningún no respondiente tiene ERC)",
+                "Límite superior (todos los no respondientes tienen ERC)"),
+  prevalencia = c(p_resp, p_resp * tasa_resp, p_resp * tasa_resp + (1 - tasa_resp))
+) |> mutate(prevalencia = round(100 * prevalencia, 1))
 ```
 
-Los límites son muy anchos, y eso es **una lección**: con 27 % de no respuesta, los datos por sí solos no determinan la prevalencia. Hay que sumar supuestos explícitos (y probarlos con análisis de sensibilidad).
+Los límites son muy anchos (de `r sprintf("%.1f", 100 * p_resp * tasa_resp)` % a `r sprintf("%.1f", 100 * (p_resp * tasa_resp + 1 - tasa_resp))` %), y eso es **una lección**: con una no respuesta de `r sprintf("%.0f", 100 * (1 - tasa_resp))` % (poblacional: la muestra sobrerrepresenta a la zona rural, donde se responde menos, y por eso el porcentaje en la muestra es `r sprintf("%.0f", 100 * (1 - mean(enc$respondio)))` %), los datos por sí solos no determinan la prevalencia. Hay que sumar supuestos explícitos (y probarlos con análisis de sensibilidad).
 
-## ¿Y si la muestra no es representativa pero igual queremos un efecto causal?
+## Paso 5: ¿y si la muestra no es representativa pero quiero un efecto causal?
 
-Distinguir dos objetivos:
+Depende del objetivo:
 
 | Objetivo | ¿Exige muestra representativa? |
 |---|---|
-| **Prevalencia, incidencia, utilización de servicios** | **Sí** (muestreo probabilístico y pesos) |
+| **Prevalencia, incidencia, uso de servicios** | **Sí** (muestreo probabilístico y pesos) |
 | **Efecto causal dentro de los participantes** | No necesariamente: importa **cómo se formaron los grupos** (aleatorización o ajuste) y que **la selección no dependa conjuntamente de exposición y desenlace** |
 | **Efecto causal en otra población** (*transportabilidad*) | Se necesitan datos de ambas poblaciones y ponderar |
 
 Un ECA con criterios de inclusión estrictos sigue siendo válido internamente; **a quién** se aplica es una pregunta de validez externa.
 
-::: {.callout-tip}
-## 💡 Cómo reducir el sesgo de selección *antes* de recolectar
+## Cómo reducir el sesgo de selección *antes* de recolectar
 
 1.  Define con precisión la **población objetivo** y el **marco**.
 2.  Usa **muestreo probabilístico** siempre que el objetivo sea descriptivo.
-3.  Planifica **seguimiento de no respondientes** y registra los motivos.
-4.  Recoge **variables auxiliares** (edad, sexo, área) de **todos** los elegidos para poder ajustar.
+3.  Planifica el **seguimiento de no respondientes** y registra los motivos.
+4.  Recoge **variables auxiliares** (edad, sexo, área) de **todos** los elegidos, para poder ajustar.
 5.  Documenta el **diagrama de flujo** (elegibles → invitados → respondieron → analizados), como pide STROBE.
-:::
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
 -   Una **muestra de conveniencia** (quienes consultan) **no estima prevalencias**: más pacientes no arreglan el sesgo.
 -   La selección que depende de exposición y desenlace es un **colisionador** y puede **distorsionar asociaciones**, no solo frecuencias.
--   La **no respuesta** crea sesgo si los que no responden difieren; se **ajusta** con pesos por variables observadas, pero solo corrige esa parte.
+-   La **no respuesta** crea sesgo si quienes no responden difieren; los pesos ajustados corrigen **solo** lo que se observa.
 -   Los **límites en el peor caso** muestran cuánto determinan (o no) los datos.
 -   El mejor remedio es **el diseño**: marco, aleatoriedad, seguimiento y registro del flujo.
 :::
@@ -184,4 +197,4 @@ Un ECA con criterios de inclusión estrictos sigue siendo válido internamente; 
 
 1.  Repite la comparación población vs. clínica con **hipertensión** como exposición. ¿El OR se atenúa también?
 2.  Cambia la simulación de no respuesta para que **no dependa de la ERC** (en `simular_no_respuesta`, quita el término `- 1.0 * m$erc`). ¿Qué pasa con el análisis (a) y con el ajustado (b)?
-3.  Dibuja el DAG de un estudio en que se incluyen solo pacientes **hospitalizados** y se estudia la relación entre **tabaquismo** y **ERC**. ¿Qué tipo de sesgo aparece?
+3.  Dibuja el DAG de un estudio en el que se incluyen solo pacientes **hospitalizados** y se estudia la relación entre **tabaquismo** y **ERC**. ¿Qué tipo de sesgo aparece?

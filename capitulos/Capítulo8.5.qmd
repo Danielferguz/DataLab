@@ -1,17 +1,29 @@
-# Supuestos, diagnóstico y no linealidad
+# Supuestos, diagnóstico y no linealidad: ¿puedo creer mi modelo?
 
-## Supuestos de la regresión lineal
+::: {.callout-note}
+## 🩺 Escenario
+
+Ajustaste la regresión del 8.2 y obtuviste un coeficiente del iSGLT2 de 1.3 mL/min/1.73 m²/año. Antes de escribirlo en el manuscrito, el revisor 2 pregunta: "¿verificó los supuestos del modelo?". Esta vez no se trata de un trámite: un modelo mal especificado (por ejemplo, tratar como recta una relación que es curva) puede dejar **confusión residual** y sesgar justo el coeficiente que te interesa.
+:::
+
+**Lo que vamos a hacer**
+
+-   Repasar los **supuestos** de la regresión lineal y cuáles afectan al **sesgo** y cuáles a la **precisión**.
+-   **Leer los gráficos de diagnóstico**, primero con un ejemplo deliberadamente malo (simulado) y después con nuestro modelo.
+-   Corregir **no linealidad** (logaritmo, *splines*), medir **colinealidad**, usar **errores estándar robustos** y vigilar **puntos influyentes**.
+
+## Paso 1. Los supuestos, en una regla mnemotécnica: LINE
 
 | Supuesto | ¿Qué pasa si falla? | Cómo se revisa |
 |---|---|---|
-| **Linealidad** (la relación X–Y es recta en la escala usada) | Coeficientes y efecto **sesgados** | Residuos vs. cada variable |
-| **Independencia** de las observaciones | Errores estándar **demasiado pequeños** | Conocer el diseño (pacientes por centro, mediciones repetidas) |
-| **Homocedasticidad** (varianza constante de los residuos) | Errores estándar **incorrectos** | Residuos vs. predichos |
-| **Normalidad de los residuos** | Poco importante con *n* grande; afecta intervalos de predicción | Gráfico Q-Q |
-| **Sin colinealidad extrema** | Coeficientes inestables | Factor de inflación de varianza (VIF) |
-| **Sin puntos muy influyentes** | Un paciente cambia el resultado | Distancia de Cook, DFBETA |
+| **L**inealidad (la relación X-Y es recta en la escala usada) | Coeficientes y efecto **sesgados** | Residuos vs. predichos y vs. cada variable |
+| **I**ndependencia de las observaciones | Errores estándar **demasiado pequeños** | Conocer el diseño (pacientes por centro, mediciones repetidas) |
+| **N**ormalidad de los residuos | Poco importante con *n* grande; afecta intervalos de predicción | Gráfico Q-Q |
+| **E**quivalencia de varianzas (homocedasticidad) | Errores estándar **incorrectos** | Residuos vs. predichos; prueba de Breusch-Pagan |
+| Sin **colinealidad** extrema | Coeficientes inestables | Factor de inflación de varianza (VIF) |
+| Sin **puntos muy influyentes** | Un paciente cambia el resultado | Distancia de Cook |
 
-El que más importa para el **sesgo** es la **linealidad**; los demás afectan sobre todo la **precisión**.
+El que más importa para el **sesgo** es la **linealidad**; los demás afectan sobre todo la **precisión** (los errores estándar y, con ellos, los IC y los *p*).
 
 ```{r}
 #| label: setup-85
@@ -20,15 +32,57 @@ library(broom)
 library(splines)
 library(sandwich)
 library(lmtest)
-library(rms)            # vif(), rcs()
+source("R/funciones_extra_cap78.R")
 
-ckd <- read_csv("Bases/ckd_isglt2.csv") |>
+ckd <- read_csv("Bases/ckd_isglt2.csv", show_col_types = FALSE) |>
   mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")), luacr = log(uacr))
 ```
 
-## Diagnóstico con gráficos
+## Paso 2. Aprender a leer los gráficos de diagnóstico con un caso "feo"
 
-`broom::augment()` agrega a la base los valores predichos, residuos y la distancia de Cook:
+Los cuatro gráficos que produce `plot(modelo)` son la herramienta básica. Para aprender a leerlos, nada mejor que un ejemplo **deliberadamente defectuoso** (datos **simulados**): la calcificación vascular de 122 pacientes según los años en hemodiálisis. La relación verdadera es **curva** y hay **dos valores extremos** que aparecen cuando alguien se equivoca al transcribir:
+
+```{r}
+#| label: diag-feo-datos
+calc <- simular_calcificacion()           # R/funciones_extra_cap78.R (datos simulados)
+m_feo <- lm(score_calcificacion ~ anios_hd, data = calc)    # tratamos una curva como si fuera recta
+c(R2 = summary(m_feo)$r.squared)
+```
+
+El R² es **0.65**: "un buen modelo", ¿verdad? Veamos los diagnósticos:
+
+```{r}
+#| label: diag-feo-plots
+#| fig-width: 8
+#| fig-height: 7
+par(mfrow = c(2, 2))
+plot(m_feo)
+par(mfrow = c(1, 1))
+```
+
+**Cómo leer cada panel.**
+
+-   **Residuos vs. predichos** (arriba izquierda): debe ser una nube **sin forma** alrededor de 0. Aquí los residuos describen una **U** (positivos a los lados, negativos en el centro): señal de **no linealidad**. Dos puntos (1 y 2) se alejan por arriba.
+-   **Q-Q** (arriba derecha): los puntos deben seguir la diagonal si los residuos son normales. Los puntos 1 y 2 se despegan mucho: son **atípicos**.
+-   **Escala-localización** (abajo izquierda): la raíz del residuo estandarizado vs. predichos; debe verse **plana**. Una pendiente o un embudo indica **heterocedasticidad**.
+-   **Residuos vs. apalancamiento** (abajo derecha): busca puntos fuera de las curvas de **Cook**. El punto 2 es un atípico **influyente**: arrastra la recta.
+
+Un **atípico** (*outlier*) tiene un residuo grande; un punto de **apalancamiento** (*leverage*) tiene valores extremos de X; un punto **influyente** es el que, al quitarlo, cambia el modelo. El que más preocupa es el influyente. Esto es lo que ocurre con la distancia de Cook, y al añadir un término cuadrático:
+
+```{r}
+#| label: diag-feo-arreglo
+m_buen <- lm(score_calcificacion ~ anios_hd + I(anios_hd^2), data = calc)
+c(R2_lineal = summary(m_feo)$r.squared, R2_cuadratico = summary(m_buen)$r.squared)
+
+cook <- tibble(punto = 1:nrow(calc), lineal = cooks.distance(m_feo), cuadratico = cooks.distance(m_buen))
+cook |> arrange(desc(lineal)) |> head(3) |> mutate(across(-punto, \(x) round(x, 2)))
+```
+
+**Qué vemos.** El término cuadrático mejora el R² (`r sprintf("%.2f", summary(m_buen)$r.squared)`) y corrige la forma funcional (su coeficiente es claramente distinto de 0, *p* < 0.001). Pero los puntos 1 y 2 **siguen siendo influyentes** (distancia de Cook > 0.3, y > 1 para el punto 2). ¿Qué hacer? (1) **verifica** si son errores de transcripción; (2) si son reales, haz un **análisis de sensibilidad** con y sin ellos; (3) **no los borres** automáticamente, y **reporta** lo que hiciste.
+
+## Paso 3. Diagnóstico de nuestro modelo
+
+Volvamos al modelo del 8.2. `broom::augment()` agrega a la base los valores predichos, los residuos y la distancia de Cook:
 
 ```{r}
 #| label: diag-basico
@@ -51,16 +105,23 @@ library(patchwork)
 (g1 + g2) & theme_minimal(base_size = 11)
 ```
 
-**Cómo leer estos gráficos:**
+**Qué vemos.** Los residuos forman una nube **sin forma** alrededor de 0 (la curva azul es casi plana) y los puntos del Q-Q siguen la diagonal: residuos aproximadamente normales (los simulamos así). Esto es lo que se ve cuando el modelo está **razonablemente bien**.
 
--   *Residuos vs. predichos*: debe ser una nube **sin forma** alrededor de 0. Una curva indica **no linealidad**; un embudo, **heterocedasticidad**.
--   *Q-Q*: los puntos sobre la recta indican residuos aproximadamente normales. Aquí lo son (los simulamos así).
+Con el paquete `performance` (no se ejecuta aquí), un solo comando dibuja todos los diagnósticos con una guía de lectura:
 
-Con `plot(m)` de R base se obtienen los cuatro gráficos clásicos en una sola llamada.
+```{r}
+#| label: performance-check
+#| eval: false
+# Con el paquete performance (no se ejecuta aquí): panel completo de diagnósticos
+library(performance)
+check_model(m)            # linealidad, homocedasticidad, normalidad, colinealidad e influyentes
+check_collinearity(m)     # VIF
+check_outliers(m)         # puntos influyentes
+```
 
-## No linealidad: cuando la variable no entra "en línea recta"
+## Paso 4. No linealidad: cuando la variable no entra "en línea recta"
 
-El ejemplo clásico en nefrología es la **UACR**: es muy asimétrica y su efecto sobre la pérdida de TFGe se parece más a una función del **logaritmo**. Comparemos tres modelos y miremos el residuo frente a la UACR: con la UACR cruda, con su logaritmo y con el logaritmo **más** la interacción iSGLT2 × ln(UACR) que vimos en el 8.4.
+El ejemplo clásico en nefrología es la **UACR**: es muy asimétrica y su efecto sobre la pérdida de TFGe se parece más a una función del **logaritmo**. Comparemos tres modelos: con la UACR cruda, con su logaritmo y con el logaritmo **más** la interacción iSGLT2 × ln(UACR) que vimos en el 8.4:
 
 ```{r}
 #| label: no-lineal
@@ -73,6 +134,8 @@ bind_rows(
   `ln(UACR) + interacción` = glance(m_loginter), .id = "modelo"
 ) |> select(modelo, r.squared, AIC) |> mutate(across(where(is.numeric), \(x) round(x, 3)))
 ```
+
+Ahora el residuo frente a la UACR en cada modelo: si el modelo es adecuado, la curva roja debe ser plana en 0.
 
 ```{r}
 #| label: residuo-uacr
@@ -96,15 +159,15 @@ bind_rows(
 
 Tres etapas, tres lecciones:
 
-1.  **UACR cruda**: la curva de residuos se aparta de 0 de forma sistemática (el modelo se equivoca de manera predecible según la albuminuria) y el AIC es el peor.
-2.  **ln(UACR)**: mejora mucho (AIC más bajo), pero **queda un patrón en U**. Ya no es un problema de la *forma* de la UACR, sino de un **término que falta**: el efecto del iSGLT2 depende de la albuminuria (8.4).
-3.  **ln(UACR) + interacción**: la curva se aplana y el AIC baja otros ~275 puntos.
+1.  **UACR cruda**: la curva de residuos se aparta de 0 de forma sistemática (el modelo se equivoca de manera predecible según la albuminuria) y el AIC es el peor (`r sprintf("%.0f", AIC(m_cruda))`).
+2.  **ln(UACR)**: mejora mucho (AIC `r sprintf("%.0f", AIC(m_log))`), pero **queda un patrón en U**. Ya no es un problema de la *forma* de la UACR, sino de un **término que falta**: el efecto del iSGLT2 depende de la albuminuria (8.4).
+3.  **ln(UACR) + interacción**: la curva se aplana y el AIC baja otros ~`r sprintf("%.0f", AIC(m_log) - AIC(m_loginter))` puntos (`r sprintf("%.0f", AIC(m_loginter))`).
 
-El coeficiente "principal" del iSGLT2 cambia entre modelos (`r sprintf("%.2f", coef(m_cruda)["isglt2"])`, `r sprintf("%.2f", coef(m_log)["isglt2"])`), y en el modelo con interacción pasa a ser el efecto **cuando ln(UACR) = 0** (no el efecto promedio): hay que usar `avg_comparisons()` (8.4) para volver a un efecto promedio. **Una mala forma funcional deja confusión residual**, y **un patrón residual indica que "algo falta", no cuál es el término que falta**: siempre combina el gráfico con el conocimiento clínico.
+El coeficiente "principal" del iSGLT2 cambia entre modelos (`r sprintf("%.2f", coef(m_cruda)["isglt2"])` con la UACR cruda y `r sprintf("%.2f", coef(m_log)["isglt2"])` con el logaritmo), y en el modelo con interacción pasa a ser el efecto **cuando ln(UACR) = 0** (no el efecto promedio): hay que usar `avg_comparisons()` (8.4) para volver a un efecto promedio. **Una mala forma funcional deja confusión residual**, y **un patrón residual indica que "algo falta", no cuál es el término que falta**: combina siempre el gráfico con el conocimiento clínico.
 
 ### *Splines*: dejar que los datos dibujen la curva
 
-Cuando no sabes qué transformación usar, un ***spline*** ajusta una curva suave en tramos. Dos opciones:
+Cuando no sabes qué transformación usar, un ***spline*** ajusta una curva suave por tramos. Dos opciones:
 
 -   `splines::ns(x, df)`: ***spline* natural**, lineal en los extremos (más estable).
 -   `rms::rcs(x, nk)`: ***spline* cúbico restringido** (el preferido en epidemiología clínica, con 3 a 5 nodos).
@@ -135,7 +198,7 @@ La curva es **casi una recta en escala logarítmica**: el *spline* "descubrió" 
 
 ### ¿Hay realmente no linealidad? Prueba formal
 
-Si la TFGe basal entra con *spline* de 3 grados de libertad, ¿mejora el ajuste frente a la forma lineal?
+Si la TFGe basal entra con un *spline* de 3 grados de libertad, ¿mejora el ajuste frente a la forma lineal?
 
 ```{r}
 #| label: prueba-nl
@@ -144,7 +207,7 @@ m_ns  <- lm(pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + ns(tfg_
 anova(m_lin, m_ns)
 ```
 
-No (*p* alto): para la TFGe basal la forma lineal basta (así la simulamos). Ajustar el *spline* y **no encontrar** curvatura también es un resultado útil.
+No (*p* = `r sprintf("%.2f", anova(m_lin, m_ns)$"Pr(>F)"[2])`): para la TFGe basal la forma lineal basta (así la simulamos). Ajustar el *spline* y **no encontrar** curvatura también es un resultado útil.
 
 ::: {.callout-tip}
 ## 💡 Reglas para tratar variables continuas
@@ -152,48 +215,44 @@ No (*p* alto): para la TFGe basal la forma lineal basta (así la simulamos). Aju
 -   **No dicotomices** ("TFGe < 60") para ajustar: pierdes información y dejas confusión residual dentro de cada categoría.
 -   Prueba **transformaciones** (log) y **splines** (3-5 nodos) para los confusores principales.
 -   Para la **exposición**, la forma funcional importa más (es lo que quieres estimar): una curva dosis-respuesta con *spline* es más informativa que una categoría.
--   Con polinomios (`x + x²`) **centra** la variable para evitar colinealidad artificial.
+-   Con polinomios (`x + x²`), **centra** la variable para evitar colinealidad artificial.
 :::
 
-## Colinealidad
+## Paso 5. Colinealidad
 
-Dos variables muy correlacionadas inflan la varianza de sus coeficientes. Se mide con el **VIF**: > 5-10 es preocupante.
+Dos variables muy correlacionadas **inflan la varianza** de sus coeficientes. Se mide con el **VIF** (factor de inflación de la varianza): > 5-10 es preocupante.
 
 ```{r}
 #| label: vif
-vif(m_lin)
+rms::vif(m_lin)
 ```
 
 Aquí todos los VIF son cercanos a 1. Un caso típico de colinealidad **artificial** es el polinomio sin centrar:
 
 ```{r}
 #| label: vif-poli
-vif(lm(pendiente_tfg ~ isglt2 + tfg_basal + I(tfg_basal^2) + luacr, data = ckd))                          # sin centrar
-vif(lm(pendiente_tfg ~ isglt2 + I(tfg_basal - 46) + I((tfg_basal - 46)^2) + luacr, data = ckd))          # centrada
+rms::vif(lm(pendiente_tfg ~ isglt2 + tfg_basal + I(tfg_basal^2) + luacr, data = ckd))                       # sin centrar
+rms::vif(lm(pendiente_tfg ~ isglt2 + I(tfg_basal - 46) + I((tfg_basal - 46)^2) + luacr, data = ckd))        # centrada
 ```
 
-::: {.callout-warning}
-## ⚠️ La colinealidad no sesga, pero engaña
+Sin centrar, `tfg_basal` y su cuadrado tienen un VIF de ~50; centrando, baja a ~1. **La colinealidad no sesga, pero engaña**: no afecta la predicción global, pero **vuelve inestables** los coeficientes individuales. No elimines un confusor importante solo por la colinealidad (es preferible un intervalo ancho a uno sesgado), y no incluyas en el mismo modelo una variable **y su derivada** (creatinina y la TFGe calculada a partir de ella): son redundantes.
 
--   **No** afecta la predicción global, pero **hace inestables** los coeficientes individuales.
--   No elimines un confusor importante solo por la colinealidad: es preferible un modelo con intervalo ancho que uno sesgado.
--   No incluyas en el mismo modelo una variable **y su derivada** (creatinina y TFGe calculada a partir de ella): son redundantes.
-:::
+## Paso 6. Heterocedasticidad: errores estándar robustos
 
-## Heterocedasticidad: errores estándar robustos
-
-Cuando los residuos no tienen varianza constante (por ejemplo, mayor variabilidad en pacientes con mayor albuminuria), los coeficientes siguen siendo **insesgados** pero los **errores estándar** no. La solución simple es la **varianza robusta** (sandwich):
+Cuando los residuos no tienen varianza constante (por ejemplo, mayor variabilidad en pacientes con más albuminuria), los coeficientes siguen siendo **insesgados**, pero los **errores estándar** no. Se puede contrastar con la prueba de Breusch-Pagan y, sobre todo, se corrige con la **varianza robusta** (sándwich):
 
 ```{r}
 #| label: robustos
+bptest(m_lin)                                      # H0: varianza constante
+
 cl  <- coeftest(m_lin)["isglt2", ]
 rob <- coeftest(m_lin, vcov = vcovHC(m_lin, type = "HC3"))["isglt2", ]
 rbind(clasico = cl, robusto = rob) |> round(4)
 ```
 
-Con datos homocedásticos, ambos coinciden. Es recomendable usar el robusto **por defecto** en la regresión lineal observacional; si hay **agrupación** (pacientes por centro), usa `vcovCL(m, cluster = ~centro)`.
+El *p* de Breusch-Pagan (`r sprintf("%.2f", bptest(m_lin)$p.value)`) no sugiere heterocedasticidad y, en coherencia, el error estándar clásico (`r sprintf("%.4f", cl["Std. Error"])`) y el robusto (`r sprintf("%.4f", rob["Std. Error"])`) casi coinciden. Es recomendable usar el robusto **por defecto** en la regresión lineal observacional: no cuesta nada y protege si hay heterocedasticidad. Si hay **agrupación** (pacientes por centro; el supuesto "I" falla), usa `vcovCL(m, cluster = ~centro)` o modelos mixtos (Cap. 14).
 
-## Puntos influyentes
+## Paso 7. Puntos influyentes
 
 Un paciente con valores muy atípicos puede cambiar el modelo. Se detecta con la **distancia de Cook**:
 
@@ -206,11 +265,11 @@ augment(m_lin, data = ckd) |>
   mutate(across(where(is.numeric), \(x) round(x, 4)))
 ```
 
-Distancias de Cook muy pequeñas (< 0.01): ningún paciente domina. Si apareciera alguno > 0.5 o claramente separado del resto: (1) **verifica que no sea un error de datos**, (2) repite el análisis sin él como **análisis de sensibilidad**, (3) **no lo borres automáticamente** y **reporta** lo que hiciste.
+Las distancias de Cook más altas son muy pequeñas (< 0.01) frente a los umbrales habituales (alarma si > 0.5 o claramente separadas del resto): ningún paciente domina, comparado con el caso "feo" del Paso 2, donde llegaban a 1. Si apareciera alguno: (1) **verifica que no sea un error de datos**, (2) repite el análisis sin él como **análisis de sensibilidad**, (3) **no lo borres automáticamente** y **reporta** lo que hiciste.
 
-## Transformar el desenlace
+## Paso 8. Transformar el desenlace
 
-Si el desenlace es positivo y asimétrico (UACR, días de hospitalización, triglicéridos), conviene modelar su **logaritmo**. Los coeficientes se interpretan como **razones de medias geométricas**:
+Si el desenlace es positivo y asimétrico (UACR, días de hospitalización, triglicéridos), conviene modelar su **logaritmo**. Los coeficientes se interpretan entonces como **razones de medias geométricas**:
 
 ```{r}
 #| label: log-resultado
@@ -218,7 +277,7 @@ m_lu <- lm(log(uacr) ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + 
 exp(cbind(razon = coef(m_lu), confint(m_lu)))["isglt2", ]
 ```
 
-Los pacientes con iSGLT2 tienen una UACR basal **1.7 veces mayor** (media geométrica): es lo esperado, porque se les prescribe preferentemente a quienes tienen más albuminuria (confusión por indicación). Una diferencia de 0.5 en `log(uacr)` equivale a un 65 % más, y exponenciar el coeficiente evita errores de interpretación.
+Los pacientes con iSGLT2 tienen una UACR basal **`r sprintf("%.1f", exp(coef(m_lu)["isglt2"]))` veces mayor** (media geométrica): es lo esperado, porque se les prescribe preferentemente a quienes tienen más albuminuria (confusión por indicación). Exponenciar el coeficiente (aquí `r sprintf("%.2f", coef(m_lu)["isglt2"])` en escala log) evita errores de interpretación: una diferencia de 0.5 en `log(uacr)` equivale a ×1.65 (un 65 % más).
 
 ## Y para la logística y Cox
 
@@ -228,16 +287,15 @@ Los pacientes con iSGLT2 tienen una UACR basal **1.7 veces mayor** (media geomé
 ::: {.callout-important}
 ## 🎯 En resumen
 
--   Revisa **linealidad** (la que más sesga), independencia, homocedasticidad, colinealidad e influencia.
--   Los gráficos de **residuos** y el **Q-Q** son el primer filtro; `broom::augment()` los prepara.
--   Una **mala forma funcional de un confusor** deja confusión residual en la exposición: transforma (log) o usa ***splines*** (`ns`, `rcs`).
--   **No dicotomices** continuas para ajustar; **centra** al usar polinomios.
+-   Recuerda **LINE**: linealidad (la que más sesga), independencia, normalidad y equivalencia de varianzas; añade colinealidad e influencia.
+-   Los gráficos de **residuos** y el **Q-Q** son el primer filtro (`plot(modelo)` o `broom::augment()`); **un R² alto no prueba que el modelo sea adecuado**.
+-   Una **mala forma funcional de un confusor** deja confusión residual en la exposición: transforma (log) o usa ***splines*** (`ns`, `rcs`). **No dicotomices**; **centra** al usar polinomios.
 -   **Errores robustos** (`vcovHC`, `vcovCL`) protegen frente a heterocedasticidad y agrupamiento.
 -   **No borres** puntos influyentes sin investigar; haz un análisis de sensibilidad.
 :::
 
 ## Ejercicio
 
-1.  Ajusta el modelo con `rcs(luacr, 4)` en lugar de `luacr` y compara el AIC. ¿Cambia el coeficiente del iSGLT2?
+1.  Ajusta el modelo con `rms::rcs(luacr, 4)` en lugar de `luacr` y compara el AIC. ¿Cambia el coeficiente del iSGLT2?
 2.  Dibuja los residuos frente a la **edad**. ¿Hay patrón?
 3.  Calcula el IC del coeficiente del iSGLT2 con `vcovHC(type = "HC3")` y compáralo con el clásico.

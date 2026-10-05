@@ -1,80 +1,145 @@
 # Diseño del análisis: preespecificar
 
-## La aleatorización protege, el análisis puede estropearlo
+::: {.callout-note}
+## 🩺 Escenario
 
-Los ECA son el estándar de oro porque la **asignación al azar** hace que los grupos sean **intercambiables** (en promedio) en lo medido y en lo no medido (Cap. 3). Pero esa protección **se pierde** si el análisis:
+Eres el estadístico de un ensayo multicéntrico que asigna al azar a 640 pacientes con ERC G3b-G4 y acidosis leve a **bicarbonato de sodio** o **placebo**. Aún no has abierto la base. Te preguntas qué hay que decidir **hoy**, antes de ver un solo dato, para que nadie (tú incluido) pueda "encontrar" el resultado que quiere. La respuesta es el **plan de análisis**.
+:::
 
--   **excluye pacientes** después de asignarlos (por no cumplir, por perderse, por "no tener datos suficientes");
--   **elige el desenlace o los subgrupos después de ver los resultados**;
--   **cambia el modelo** hasta que sale lo esperado.
+**Lo que vamos a hacer**
 
-La defensa es **preespecificar** el análisis **antes** de abrir los datos, en un **plan de análisis estadístico** (PAE o SAP), idealmente registrado junto con el protocolo.
+-   Ver, con una simulación, **por qué** aleatorizar resuelve la confusión (y qué la rompería).
+-   Escribir la **pregunta precisa** del ensayo con el marco *estimand*.
+-   Conocer la base del ensayo y comprobar el **balance** de los grupos.
 
-## Estimand: la pregunta precisa
+## Paso 1: por qué se aleatoriza
 
-El marco ***estimand*** (ICH E9(R1)) obliga a definir cinco elementos antes de escoger la técnica estadística:
+En un estudio observacional, quien recibe el tratamiento suele ser distinto de quien no lo recibe. En un ECA, el azar elimina todas las flechas que llegan al tratamiento: **nada** (ni medido ni no medido) decide quién lo recibe. Lo vemos en dos DAG:
+
+```{r}
+#| label: dag-eca
+#| fig-width: 9
+#| fig-height: 3
+library(tidyverse)
+source("R/funciones_epi.R")
+theme_set(theme_minimal(base_size = 12))
+
+nodos <- tribble(~nombre, ~x, ~y, ~etiqueta, ~rol,
+                 "G", 2, 1.8, "Gravedad\nde la ERC", "confusor",
+                 "T", 1, 1.0, "Bicarbonato", "exposicion",
+                 "Y", 3, 1.0, "Pérdida de TFGe", "desenlace")
+p_obs <- dibujar_dag(nodos, tribble(~de, ~a, "G", "T", "G", "Y", "T", "Y"), tam_texto = 3, expandir = c(0.25, 0.3)) +
+  labs(title = "Observacional") + theme(legend.position = "none", plot.title = element_text(face = "bold", size = 11))
+p_eca <- dibujar_dag(nodos, tribble(~de, ~a, "G", "Y", "T", "Y"), tam_texto = 3, expandir = c(0.25, 0.3)) +
+  labs(title = "ECA: se borra la flecha hacia el tratamiento") + theme(legend.position = "none", plot.title = element_text(face = "bold", size = 11))
+patchwork::wrap_plots(p_obs, p_eca, nrow = 1)
+```
+
+Simulamos 4 000 pacientes cuyo tratamiento **verdadero** mejora la pendiente de TFGe en **+1.0** mL/min/1.73 m² por año. Repartimos el tratamiento de dos formas: según la gravedad (como en la práctica clínica: a los más graves se les trata más) y al azar (ECA).
+
+```{r}
+#| label: sim-aleatorizar
+set.seed(11)
+n <- 4000
+pob <- tibble(gravedad = rnorm(n)) |>
+  mutate(y0 = -3 - 1.0 * gravedad + rnorm(n, 0, 2),             # pendiente sin tratamiento (peor si más grave)
+         y1 = y0 + 1.0,                                         # verdad: el tratamiento aporta +1
+         trat_obs = rbinom(n, 1, plogis(1.2 * gravedad)),       # observacional: se trata más a los graves
+         trat_eca = rbinom(n, 1, 0.5))                          # ECA: moneda al aire
+
+efecto <- function(trat) {                                      # diferencia de medias observadas, como en 8.1
+  y <- ifelse(trat == 1, pob$y1, pob$y0)
+  mean(y[trat == 1]) - mean(y[trat == 0])
+}
+
+y_obs <- ifelse(pob$trat_obs == 1, pob$y1, pob$y0)
+ajustado_obs <- unname(coef(lm(y_obs ~ pob$trat_obs + pob$gravedad))[2])
+
+tab_sim <- tibble(analisis = c("Verdad", "Observacional, sin ajustar", "Observacional, ajustando por gravedad", "ECA, sin ajustar"),
+                  efecto = c(1, efecto(pob$trat_obs), ajustado_obs, efecto(pob$trat_eca)))
+tab_sim |> mutate(efecto = round(efecto, 2))
+```
+
+**Qué vemos.** En el estudio observacional, la comparación cruda **subestima** el efecto (`r round(tab_sim$efecto[2], 2)` frente a una verdad de 1: los tratados eran más graves, y la gravedad empeora la pendiente); solo se acerca a la verdad (`r round(tab_sim$efecto[3], 2)`) **si mides y ajustas** la gravedad. En el ECA, la comparación simple **ya recupera la verdad** (`r round(tab_sim$efecto[4], 2)`; la pequeña diferencia es azar de muestreo), sin conocer ni medir la gravedad: es el poder de la aleatorización. Ese poder se pierde si el **análisis** rompe la asignación, y es lo que cuida el plan de análisis.
+
+## Paso 2: de la pregunta al protocolo
+
+Un buen ensayo traduce la pregunta causal a un **protocolo** con siete elementos (Hernán y Robins): **elegibilidad**, **estrategias de tratamiento**, **asignación**, **seguimiento**, **desenlace**, **contraste causal** y **plan de análisis**. Para este ECA:
+
+| Elemento | En el ensayo de bicarbonato |
+|---|---|
+| Elegibilidad | Adultos con ERC G3b-G4 y bicarbonato sérico < 22 mEq/L |
+| Estrategias | Bicarbonato de sodio *vs.* placebo |
+| Asignación | Aleatoria 1:1, estratificada por centro |
+| Seguimiento | TFGe a 6, 12 y 24 meses; eventos hasta 36 meses |
+| Desenlace | Cambio de TFGe a 24 meses; falla renal o muerte |
+| Contraste causal | Efecto de **asignar** el tratamiento (ITT) y de **tomarlo** (CACE) |
+| Plan de análisis | Lo que preespecifica este subcapítulo |
+
+Cada elemento defiende un supuesto causal. Un ECA ideal resuelve por diseño la **exposición bien definida** (consistencia), la **positividad** (todos tienen probabilidad de recibir cada brazo) y la **intercambiabilidad**. En un ECA **real** la intercambiabilidad vuelve a ser frágil (abandonos, incumplimiento), y en un estudio observacional casi nada está resuelto de antemano:
+
+| Supuesto | ECA ideal | ECA real | Observacional |
+|---|---|---|---|
+| Consistencia (exposición bien definida) | 😄 | 😄 | 🤷 |
+| Positividad | 😄 | 😄 | 🤷 |
+| Intercambiabilidad | 😄 | 🤷 (abandonos, no adherencia) | 🤷 |
+
+(😄 = resuelto por diseño; 🤷 = hay que cuidarlo en el análisis.)
+
+## Paso 3: el *estimand*, la pregunta precisa
+
+El marco ***estimand*** (ICH E9(R1)) obliga a definir **cinco elementos** antes de escoger la técnica estadística:
 
 | Elemento | Pregunta | En nuestro ECA |
 |---|---|---|
-| **Población** | ¿A quiénes se aplica? | Adultos con ERC G3b-G4 y bicarbonato sérico < 22 mEq/L |
-| **Tratamiento** | ¿Qué se compara? | Bicarbonato de sodio vs. placebo, **asignados** |
-| **Variable** | ¿Qué se mide? | Cambio de TFGe a los 24 meses; falla renal o muerte |
-| **Evento intercurrente** | ¿Qué pasa con quien deja el fármaco, se pierde o muere? | Estrategias abajo |
+| **Población** | ¿A quiénes se aplica? | Adultos con ERC G3b-G4 y bicarbonato < 22 mEq/L |
+| **Tratamiento** | ¿Qué se compara? | Bicarbonato vs. placebo, **asignados** |
+| **Variable** | ¿Qué se mide? | Cambio de TFGe a 24 meses; falla renal o muerte |
+| **Evento intercurrente** | ¿Qué pasa con quien deja el fármaco, se pierde o muere? | Estrategia declarada (abajo) |
 | **Medida de resumen** | ¿Cómo se resume la diferencia? | Diferencia de medias; HR; *win ratio* |
 
-### Eventos intercurrentes y sus estrategias
+Un **evento intercurrente** ocurre **después** de la aleatorización y afecta la interpretación o la existencia de la medición: **abandono del tratamiento**, **rescate**, **muerte**, **pérdida de seguimiento**. Cada estrategia responde una pregunta distinta:
 
-Un **evento intercurrente** ocurre **después** de la aleatorización y afecta la interpretación o la existencia de la medición: **abandono del tratamiento**, **uso de tratamientos de rescate**, **muerte**, **pérdida de seguimiento**.
-
-| Estrategia | Significado | Análisis típico |
+| Estrategia | Pregunta | Análisis típico |
 |---|---|---|
-| **Política de tratamiento** | Se analiza **como se asignó**, pase lo que pase | **Intención de tratar** (ITT) |
-| **Hipotético** | ¿Qué habría pasado **si todos hubieran cumplido**? | Efecto en cumplidores (CACE), modelos con ponderación |
-| **Compuesto** | El evento intercurrente se **incluye en el desenlace** | Compuesto (falla renal **o** muerte) |
-| **Sobre la población** (*principal stratum*) | Efecto solo en quienes **no** tendrían el evento intercurrente | CACE (11.6) |
-| **Mientras en tratamiento** | Solo se cuenta el periodo antes del evento | Tasa de eventos mientras se toma el fármaco |
+| **Política de tratamiento** | ¿Qué efecto tiene *ofrecer* el tratamiento, pase lo que pase? | **ITT** (11.2) |
+| **Hipotético** | ¿Qué pasaría si *todos* cumplieran? | Efecto en cumplidores (11.6) |
+| **Compuesto** | El evento intercurrente forma parte del desenlace | Falla renal **o** muerte (11.7) |
+| **Estrato principal** | Efecto solo en quienes *no* tendrían el evento intercurrente | CACE (11.6) |
+| **Mientras en tratamiento** | Solo el periodo antes del evento | Tasa mientras toma el fármaco |
 
-::: {.callout-important}
-## 🎯 No existe "el análisis correcto" sin la pregunta
+**No existe "el análisis correcto" sin la pregunta.** La ITT responde *"¿qué efecto tiene ofrecer el tratamiento en la práctica real, con sus incumplimientos?"*; el efecto en cumplidores, *"¿qué efecto tiene tomarlo?"*. El ensayo debe **declarar cuál** es la principal y presentar las otras como secundarias.
 
-La **ITT** responde: *"¿Qué efecto tiene **ofrecer** el tratamiento en la práctica real, con sus incumplimientos?"* El **efecto en cumplidores** responde: *"¿Qué efecto tiene **tomar** el fármaco?"* Son preguntas distintas con respuestas distintas. El ensayo debe **declarar cuál** es la principal y analizar las otras como **secundarias**.
-:::
+## Paso 4: la base del ensayo y el balance
 
-## Plan de análisis: lista mínima
-
-::: {.callout-tip}
-## 💡 Qué incluir en un plan de análisis estadístico
-
--   [ ] **Objetivo primario y *estimand***, con estrategia para cada evento intercurrente.
--   [ ] **Población de análisis**: ITT (todos los aleatorizados) como principal.
--   [ ] **Variable primaria**, momento de medición y **cómo se define**.
--   [ ] **Modelo**: ajuste por las **variables de estratificación** y por el **valor basal** (ANCOVA).
--   [ ] **Tratamiento de los datos faltantes** y análisis de sensibilidad (Cap. 13).
--   [ ] **Multiplicidad**: un solo desenlace primario; si hay varios, jerarquía o corrección.
--   [ ] **Subgrupos preespecificados** (pocos) con prueba de **interacción**.
--   [ ] **Análisis intermedios** y reglas de detención (si las hay).
--   [ ] **Tamaño de muestra** y supuestos (Cap. 20).
--   [ ] Qué análisis son **secundarios** y cuáles **exploratorios**.
-:::
-
-## Estructura de los datos del ECA
+`eca_bicarbonato` es un ECA **simulado** (16 centros, 640 pacientes, asignación 1:1).
 
 ```{r}
 #| label: setup-111
-library(tidyverse)
-
 eca <- read_csv("Bases/eca_bicarbonato.csv") |>
   mutate(brazo = factor(brazo, levels = c("Placebo", "Bicarbonato")),
          sexo = factor(sexo, levels = c("Mujer", "Hombre")))
 glimpse(eca)
 ```
 
--   `brazo`: grupo **asignado** (Placebo / Bicarbonato).
--   `centro`: centro participante (estratificación).
--   `tfg0`, `bic0`, ...: valores **basales** (antes de aleatorizar).
--   `adhiere`: 1 = el paciente **tomó** el fármaco (solo se registra en el brazo activo; en placebo es 0).
+-   `brazo`: grupo **asignado**. `centro`: centro participante (estratificación).
+-   `tfg0`, `bic0`, `edad`...: valores **basales** (antes de aleatorizar).
+-   `adhiere`: 1 = el paciente **tomó** el fármaco (solo se registra en el brazo activo).
 -   `tfg_6`, `tfg_12`, `tfg_24`: TFGe de seguimiento, con **faltantes**.
 -   `tiempo_meses` y `estado`: tiempo hasta falla renal (1), muerte (2) o censura (0).
+
+Antes del efecto, la **Tabla 1**: ¿quedaron los grupos parecidos? En un ECA se compara con la **diferencia estandarizada (DEM)**, no con valores *p* (cualquier diferencia basal es producto del azar):
+
+```{r}
+#| label: tabla1-eca
+source("R/tabla1.R")
+tabla1(eca, vars = c("edad", "sexo", "dm", "tfg0", "bic0", "uacr", "pas"), grupo = "brazo",
+       no_normales = "uacr", binarias = "dm", valor_p = FALSE,
+       etiquetas = c(edad = "Edad, años", dm = "Diabetes", tfg0 = "TFGe basal", bic0 = "Bicarbonato basal, mEq/L",
+                     uacr = "UACR, mg/g", pas = "PAS, mmHg"))
+```
+
+Las DEM son pequeñas (por regla práctica, menos de 0.1 se considera buen balance), con una excepción: la **TFGe basal** (DEM 0.14, unos 0.8 mL/min/1.73 m² más en el brazo activo). Es un desbalance **por azar**, esperable con 640 pacientes, y nos dará una lección en 11.3. Y los **datos faltantes** de seguimiento, por brazo:
 
 ```{r}
 #| label: faltantes-eca
@@ -83,15 +148,32 @@ eca |>
   summarise(n = n(), across(c(tfg_6, tfg_12, tfg_24), \(x) round(100 * mean(is.na(x)), 1), .names = "falt_{.col}_%"))
 ```
 
-Hay más datos faltantes a medida que avanza el seguimiento y **algo más en el brazo activo**; es información para el análisis de datos faltantes (11.4 y Cap. 13).
+Hay más datos faltantes a medida que avanza el seguimiento y **algo más en el brazo activo**: es información para el análisis de datos faltantes (11.4 y Cap. 13).
+
+## Paso 5: el plan de análisis, lista mínima
+
+::: {.callout-tip}
+## 💡 Qué debe decir el plan de análisis estadístico (PAE), *antes* de abrir la base
+
+-   [ ] **Objetivo primario y *estimand***, con estrategia para cada evento intercurrente.
+-   [ ] **Población de análisis**: ITT (todos los aleatorizados) como principal.
+-   [ ] **Variable primaria**, momento de medición y cómo se define.
+-   [ ] **Modelo**: ajuste por las **variables de estratificación** y por el **valor basal** (ANCOVA, 11.3).
+-   [ ] **Datos faltantes** y análisis de sensibilidad (Cap. 13).
+-   [ ] **Multiplicidad**: un solo desenlace primario; si hay varios, jerarquía o corrección.
+-   [ ] **Subgrupos preespecificados** (pocos), con prueba de interacción (11.5).
+-   [ ] **Análisis intermedios**, **tamaño de muestra** y qué análisis son **secundarios** o **exploratorios** (Cap. 20).
+:::
+
+## Trampas frecuentes
 
 ::: {.callout-warning}
 ## ⚠️ Lo que nunca se hace con la base de un ECA
 
--   **Excluir pacientes aleatorizados** porque "no tomaron el fármaco" o "no tienen datos": eso destruye la comparabilidad.
+-   **Excluir pacientes aleatorizados** porque "no tomaron el fármaco" o "no tienen datos": destruye la comparabilidad.
 -   **Cambiar el desenlace primario** después de ver los datos (*outcome switching*).
 -   **Buscar subgrupos** hasta encontrar uno "significativo" y presentarlo como hallazgo principal.
--   **Comparar el antes y el después dentro de cada grupo** (con *p* por separado) en lugar de comparar **los grupos entre sí**.
+-   **Comparar el antes y el después dentro de cada grupo** (con un *p* por separado) en vez de comparar **los grupos entre sí**.
 :::
 
 ::: {.callout-important}
@@ -100,7 +182,7 @@ Hay más datos faltantes a medida que avanza el seguimiento y **algo más en el 
 -   La aleatorización solo protege si el análisis **respeta la asignación**: preespecifica población, desenlace, modelo y subgrupos.
 -   El ***estimand*** define la **pregunta**: población, tratamiento, variable, **evento intercurrente** y medida de resumen.
 -   **ITT** = efecto de **ofrecer** el tratamiento; **cumplidores** = efecto de **tomarlo**. Declara cuál es el primario.
--   Documenta el **plan de análisis** antes de abrir la base.
+-   Comprueba el **balance basal** con diferencias estandarizadas, no con valores *p*.
 :::
 
 ## Ejercicio

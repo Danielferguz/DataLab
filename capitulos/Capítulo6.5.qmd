@@ -1,10 +1,20 @@
-# Caso integrado y tamaño de muestra
+# Caso integrado: prevalencia de ERC en la región y tamaño de muestra
 
-## Caso: prevalencia de ERC en la región
+::: {.callout-note}
+## 🩺 Escenario
 
-Pregunta: *¿Cuál es la prevalencia de ERC en los adultos de la región y qué factores se asocian?* Reunimos todo el capítulo en un flujo de trabajo reproducible.
+La Dirección de Salud te pide el informe final: *¿cuál es la prevalencia de ERC en los adultos de la región, en quiénes es mayor y qué factores se asocian?* Además, el año próximo quieren repetir la encuesta en otra región: *¿a cuántas personas hay que medir?* Este subcapítulo reúne todo el capítulo en un flujo de trabajo reproducible, con las **tres tablas** clásicas de un artículo de encuestas: características (Tabla 1), comparación por grupos (Tabla 2) y regresión (Tabla 3).
+:::
 
-### 1. Diseño y marco (se escribe antes de recolectar)
+**Lo que vamos a hacer**
+
+1.  Dejar por escrito el **diseño** y declararlo.
+2.  **Tabla 1**: características de la muestra, **sin ponderar** y **ponderadas**.
+3.  **Tabla 2**: prevalencia de ERC por grupos, con prueba que respeta el diseño.
+4.  **Tabla 3**: OR crudos y ajustados con `svyglm()`.
+5.  **Tamaño de muestra** para la próxima encuesta, y qué debe decir tu informe.
+
+## Paso 1: el diseño, escrito antes de recolectar
 
 | Elemento | Decisión |
 |---|---|
@@ -15,61 +25,161 @@ Pregunta: *¿Cuál es la prevalencia de ERC en los adultos de la región y qué 
 | Desenlace | ERC (TFGe < 60 o albuminuria ≥ 30 mg/g persistente) |
 | Análisis | `survey`, con pesos de muestreo y ajuste por no respuesta |
 
-### 2. Estimaciones con el diseño
-
 ```{r}
 #| label: setup-65
 library(tidyverse)
 library(survey)
+source("R/funciones_extra_cap456.R")      # prev_svy(), tabla_svy_categ(), tabla_or_svy()
 
-enc <- read_csv("Bases/encuesta_erc.csv") |>
+enc <- read_csv("Bases/encuesta_erc.csv", show_col_types = FALSE) |>
   mutate(gedad = cut(edad, c(17, 39, 59, 100), labels = c("18-39", "40-59", "60+")),
-         sexo = factor(sexo, c("F", "M"), c("Mujer", "Hombre")))
+         sexo = factor(sexo, c("F", "M"), c("Mujer", "Hombre")),
+         diabetes_f = factor(diabetes, 0:1, c("No", "Sí")),
+         hta_f = factor(hta, 0:1, c("No", "Sí")),
+         erc_f = factor(erc, 0:1, c("Sin ERC", "Con ERC")))
 
 dis <- svydesign(ids = ~cluster, strata = ~area, weights = ~peso, data = enc, nest = TRUE)
 ```
 
+## Paso 2: Tabla 1, características de la muestra
+
+Una Tabla 1 de encuesta se reporta **de dos maneras**: los conteos **sin ponderar** (cuántas personas se midieron de verdad) y los porcentajes **ponderados con su IC** (lo que representan en la población). `tabla_svy_categ()` (en `R/funciones_extra_cap456.R`) arma ambas:
+
 ```{r}
-#| label: tabla-prev
+#| label: tabla1-svy
+tabla1 <- tabla_svy_categ(enc, dis, c("area", "sexo", "gedad", "diabetes_f", "hta_f", "erc_f"))
+
+tabla1 |> mutate(across(where(is.numeric), \(x) round(x, 1)))
+```
+
+Mira la primera fila: sin ponderar, el **50 %** de la muestra es rural; ponderado, solo el **`r sprintf("%.0f", tabla1$pct_pond[1])` %**. Esa es la diferencia entre describir *a quienes midiste* y describir *a la región*. Para una variable numérica, la media ponderada con su IC:
+
+```{r}
+#| label: edad-media
+media_edad <- svymean(~edad, dis)
+c(sin_ponderar = mean(enc$edad), ponderada = as.numeric(coef(media_edad)),
+  IC_inf = confint(media_edad)[1], IC_sup = confint(media_edad)[2]) |> round(1)
+```
+
+::: {.callout-tip}
+## 💡 Con el paquete `gtsummary` (no se ejecuta aquí)
+
+El autor produce estas tablas con `gtsummary`, que da la tabla ya formateada (para el artículo). Es la misma idea que `tabla_svy_categ()`:
+
+```r
+library(gtsummary)
+
+# a) Sin ponderar: lo que se midió
+tbl_summary(enc, include = c(area, sexo, gedad, diabetes_f, hta_f, erc_f))
+
+# b) Ponderada, con IC, tomando el diseño
+dis |>
+  tbl_svysummary(include = c(area, sexo, gedad, diabetes_f, hta_f, erc_f)) |>
+  add_ci()
+```
+:::
+
+## Paso 3: Tabla 2, prevalencia por grupos
+
+La Tabla 2 compara el desenlace entre grupos. Con el diseño, la prevalencia se calcula **dentro de cada subpoblación** (`subset()`, 6.3) y el contraste usa `svychisq()`, la versión de la prueba χ² que **respeta pesos y conglomerados** (corrección de Rao-Scott):
+
+```{r}
+#| label: tabla2-svy
+factores <- tribble(~variable,    ~etiqueta,
+                    "area",       "Área",
+                    "sexo",       "Sexo",
+                    "gedad",      "Edad (años)",
+                    "diabetes_f", "Diabetes",
+                    "hta_f",      "Hipertensión")
+
+tabla2 <- map_dfr(factores$variable, \(v) {
+  p <- svychisq(as.formula(paste("~ erc +", v)), dis)$p.value        # prueba que respeta el diseño
+  prev_svy(dis, "erc", por = v) |>
+    mutate(p_valor = if_else(row_number() == 1, p, NA_real_))
+}) |>
+  left_join(factores, by = "variable") |>
+  mutate(across(c(prevalencia, inf, sup), \(x) round(100 * x, 1)),
+         p_valor = scales::pvalue(p_valor, accuracy = 0.001)) |>
+  select(etiqueta, nivel, prevalencia, inf, sup, p_valor)
+
+tabla2
+```
+
+Lectura: la prevalencia de ERC **aumenta con la edad**, y es mayor en personas con **diabetes** o **hipertensión**. **No** difiere de forma apreciable por sexo ni por área en esta muestra. Recuerda que, en la región completa, la zona rural sí tiene más ERC (10.0 % frente a 6.6 %), pero con 1 500 adultos y 60 comunidades la encuesta no tiene la potencia para detectar esa diferencia: **"no significativo" no es "no existe"**.
+
+```{r}
+#| label: fig-prev-grupos
+#| fig-cap: "Prevalencia de ERC (IC 95 %) en la región, total y por grupos (encuesta simulada, con el diseño)."
 #| fig-width: 8
-#| fig-height: 4
-prev_por <- function(var) {
-  svyby(~erc, as.formula(paste("~", var)), dis, svymean, vartype = "ci") |>
-    as_tibble() |>
-    rename(nivel = 1, prevalencia = erc, inf = ci_l, sup = ci_u) |>
-    mutate(variable = var, nivel = as.character(nivel))
-}
+#| fig-height: 4.2
+total <- prev_svy(dis, "erc") |> mutate(etiqueta = "Total", nivel = "Región")
 
-tabla <- bind_rows(
-  tibble(variable = "Total", nivel = "Región",
-         prevalencia = coef(svymean(~erc, dis)),
-         inf = confint(svymean(~erc, dis))[1], sup = confint(svymean(~erc, dis))[2]),
-  prev_por("area"), prev_por("sexo"), prev_por("gedad")
-)
+grafico <- bind_rows(total, map_dfr(factores$variable, \(v) prev_svy(dis, "erc", por = v) |>
+                                      left_join(factores, by = "variable"))) |>
+  mutate(fila = paste0(etiqueta, ": ", nivel))
 
-tabla |> mutate(across(c(prevalencia, inf, sup), \(x) round(100 * x, 1)))
-
-ggplot(tabla, aes(prevalencia, fct_rev(fct_inorder(paste(variable, nivel, sep = ": "))), xmin = inf, xmax = sup)) +
+ggplot(grafico, aes(prevalencia, fct_rev(fct_inorder(fila)), xmin = inf, xmax = sup)) +
   geom_pointrange(color = "#0072B2") +
   scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
   labs(x = "Prevalencia de ERC (IC 95 %)", y = NULL, caption = "Datos simulados.") +
   theme_minimal(base_size = 11)
 ```
 
-### 3. Factores asociados
+## Paso 4: Tabla 3, factores asociados (OR crudos y ajustados)
+
+La Tabla 3 muestra, para cada factor, el **OR crudo** (modelo con ese factor solo) y el **OR ajustado** (modelo con todos). Ambos con el diseño (`svyglm()`):
 
 ```{r}
-#| label: modelo-caso
-m <- svyglm(erc ~ diabetes + hta + I(edad / 10) + sexo + area, design = dis, family = quasibinomial)
+#| label: tabla3-svy
+tabla3 <- tabla_or_svy(dis, "erc", c("diabetes", "hta", "I(edad/10)", "sexo", "area"))
 
-res <- cbind(OR = exp(coef(m)), exp(confint(m)))
-colnames(res) <- c("OR", "IC_inf", "IC_sup")
-round(res[-1, ], 2)
+tabla3 |>
+  transmute(termino,
+            `OR crudo (IC 95 %)`    = sprintf("%.2f (%.2f a %.2f)", or_crudo, inf_crudo, sup_crudo),
+            `OR ajustado (IC 95 %)` = sprintf("%.2f (%.2f a %.2f)", or_ajustado, inf_ajustado, sup_ajustado))
 ```
 
-Interpretación **descriptiva**: en esta región, la diabetes y la hipertensión se asocian con mayor odds de ERC, y por cada 10 años de edad el odds crece. **No** diremos que "la diabetes causa ERC con un OR de 4": es una asociación ajustada, y la causalidad exige los marcos de los capítulos 3 y 12. (Ver el Cap. 8 sobre la *falacia de la Tabla 2*: no interpretar todos los coeficientes de un modelo como efectos.)
+Como la encuesta es simulada, podemos comparar con el **OR verdadero** de la región (el mismo modelo ajustado en todos los adultos):
 
-## Tamaño de muestra para estimar una prevalencia
+```{r}
+#| label: or-verdadero
+source("R/simular_encuesta_erc.R")
+pob <- simular_poblacion_erc()
+m_pob <- glm(erc ~ diabetes + hta + I(edad / 10) + sexo + area, data = pob, family = binomial)
+
+tabla3 |>
+  mutate(or_verdadero = exp(coef(m_pob))[termino],
+         dentro_del_IC = or_verdadero >= inf_ajustado & or_verdadero <= sup_ajustado) |>
+  select(termino, or_ajustado, inf_ajustado, sup_ajustado, or_verdadero, dentro_del_IC) |>
+  mutate(across(where(is.numeric), \(x) round(x, 2)))
+```
+
+En los cinco términos el IC contiene el OR verdadero. Fíjate en el OR **crudo** de diabetes (`r sprintf("%.1f", tabla3$or_crudo[1])`) frente al **ajustado** (`r sprintf("%.1f", tabla3$or_ajustado[1])`): parte de la asociación cruda se debe a que la diabetes es más frecuente en los mayores, y la edad también aumenta la ERC (**confusión**).
+
+Interpretación **descriptiva**: en esta región, la diabetes y la hipertensión se asocian con mayor *odds* de ERC, y por cada 10 años de edad el *odds* crece. **No** diremos que "la diabetes causa ERC con un OR de `r sprintf("%.0f", tabla3$or_ajustado[1])`": es una asociación ajustada, y la causalidad exige los marcos de los Caps. 3 y 12. Tampoco se interpretan todos los coeficientes del modelo como efectos (la *falacia de la Tabla 2*, Cap. 8).
+
+::: {.callout-tip}
+## 💡 La Tabla 3 con `gtsummary` (no se ejecuta aquí)
+
+Con `gtsummary` las tablas crudo y ajustado salen juntas y formateadas:
+
+```r
+library(gtsummary)
+
+crudo <- dis |>
+  tbl_uvregression(method = survey::svyglm, y = erc,
+                   method.args = list(family = quasibinomial),
+                   include = c(diabetes, hta, edad, sexo, area),
+                   exponentiate = TRUE)
+
+m <- svyglm(erc ~ diabetes + hta + I(edad / 10) + sexo + area, design = dis, family = quasibinomial)
+ajustado <- tbl_regression(m, exponentiate = TRUE)
+
+tbl_merge(tbls = list(crudo, ajustado), tab_spanner = c("**Crudo**", "**Ajustado**"))
+```
+:::
+
+## Paso 5: tamaño de muestra para estimar una prevalencia
 
 Para estimar una proporción $p$ con precisión absoluta $d$ (semiamplitud del IC) y confianza del 95 %:
 
@@ -77,7 +187,7 @@ $$
 n_0 = \frac{z^2\,p\,(1-p)}{d^2}
 $$
 
-y, si el diseño tiene conglomerados, se multiplica por el **efecto de diseño**, y se agrega una **reserva por no respuesta**:
+Si el diseño tiene conglomerados, se multiplica por el **efecto de diseño** ($\text{deff} \approx 1 + (m-1)\rho$, con $m$ el número de personas **por conglomerado**), y se agrega una **reserva por no respuesta**:
 
 $$
 n = \frac{n_0 \times \text{deff}}{\text{tasa de respuesta}}
@@ -90,18 +200,16 @@ n_prevalencia <- function(p, d, deff = 1, resp = 1, z = 1.96) {
 }
 
 ## Esperamos ~8 % y queremos ±2 puntos de precisión
-n_prevalencia(p = 0.08, d = 0.02)                        # MAS
-n_prevalencia(p = 0.08, d = 0.02, deff = 1.6)            # conglomerados 25 x comunidad
-n_prevalencia(p = 0.08, d = 0.02, deff = 1.6, resp = 0.75)  # y 25 % de no respuesta
+n_prevalencia(p = 0.08, d = 0.02)                            # MAS
+n_prevalencia(p = 0.08, d = 0.02, deff = 1.6)                # conglomerados, 25 por comunidad
+n_prevalencia(p = 0.08, d = 0.02, deff = 1.6, resp = 0.75)   # y 25 % de no respuesta
 ```
 
-Tres reglas de la práctica:
+Una MAS necesitaría `r n_prevalencia(0.08, 0.02)` personas; con conglomerados (*deff* 1.6, el valor de 6.2) hacen falta `r n_prevalencia(0.08, 0.02, 1.6)`; y con un 25 % de no respuesta, hay que **invitar a `r n_prevalencia(0.08, 0.02, 1.6, 0.75)`**. Tres reglas de la práctica:
 
--   La precisión pide **proporciones esperadas**; si no se tiene idea de $p$, usar $p = 0.5$ es el caso más conservador (pero muy caro si la verdadera es 8 %).
+-   La fórmula pide una prevalencia esperada $p$; si no tienes idea, $p = 0.5$ es el caso más conservador (pero muy caro si la verdadera es 8 %).
 -   Para estimar la prevalencia **por subgrupos** (rural/urbano), el cálculo debe hacerse **por subgrupo**.
 -   El *deff* se toma de una **encuesta piloto o de la literatura** con un diseño parecido.
-
-Las cuentas de comparación de grupos y de poder estadístico están en el Cap. 20.
 
 ```{r}
 #| label: curva-n
@@ -118,25 +226,25 @@ ggplot(grid, aes(factor(d * 100), n, fill = factor(deff))) +
   theme_minimal(base_size = 11)
 ```
 
-## Lista de verificación para reportar una encuesta
+Las cuentas de comparación de grupos y de poder estadístico están en el Cap. 20.
 
-::: {.callout-tip}
-## 💡 Qué debe decir tu artículo o informe
+## Paso 6: qué debe decir tu informe
+
+Antes de entregar, repasa:
 
 -   [ ] **Población objetivo** y **marco** muestral.
 -   [ ] **Diseño**: estratos, conglomerados, etapas y cómo se sorteó (semilla).
 -   [ ] **Tamaño de muestra** previsto y cálculo (incluye *deff* y no respuesta).
 -   [ ] **Tasa de respuesta** y **diagrama de flujo**; cómo se trató la no respuesta.
--   [ ] **Pesos**: cómo se construyeron y qué se ajustó.
+-   [ ] **Pesos**: cómo se construyeron y qué se ajustó (y en qué escala vienen).
 -   [ ] **Software y paquete** (`survey`, versión) y el **objeto de diseño** declarado.
--   [ ] Estimaciones con **IC**, no solo porcentajes; *n* no ponderado **y** estimación ponderada.
+-   [ ] Estimaciones con **IC**, no solo porcentajes; *n* **sin ponderar** *y* estimación ponderada.
 -   [ ] **Limitaciones**: cobertura, no respuesta, mediciones.
-:::
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
--   Un análisis de encuesta ordenado: **diseño → pesos → `svydesign` → estimaciones con IC → modelos con el diseño**.
+-   Flujo de un análisis de encuesta: **diseño → pesos → `svydesign` → Tabla 1 (n sin ponderar y % ponderado) → Tabla 2 (`svychisq`) → Tabla 3 (`svyglm`)**.
 -   Los resultados de un modelo en datos de encuesta son **asociaciones**; la causalidad se trabaja aparte.
 -   El tamaño de muestra para una prevalencia es $z^2 p(1-p)/d^2$, multiplicado por el **efecto de diseño** y dividido por la **tasa de respuesta**.
 -   Reporta el diseño, los pesos, la respuesta y las limitaciones.
@@ -145,7 +253,7 @@ ggplot(grid, aes(factor(d * 100), n, fill = factor(deff))) +
 ## Ejercicio
 
 1.  Calcula el tamaño de muestra para estimar una prevalencia esperada de **3 %** de ERC avanzada con ±1 punto, *deff* 2 y 80 % de respuesta.
-2.  Agrega a la tabla del caso la prevalencia de ERC por **diabetes** (sí/no) con IC.
+2.  Agrega a la Tabla 2 la prevalencia de ERC por **diabetes y área** juntas (cuatro combinaciones) con IC. ¿Alguna celda tiene muy pocos casos para estimar con precisión?
 3.  Escribe un párrafo de **Métodos** para el estudio de esta región siguiendo la lista de verificación.
 
 ## Nota editorial

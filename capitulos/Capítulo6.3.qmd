@@ -1,6 +1,37 @@
-# Muestras complejas con `survey`
+# Muestras complejas con `survey`: del diseño al análisis
 
-## ¿Por qué hace falta un paquete especial?
+::: {.callout-note}
+## 🩺 Escenario
+
+Te llega la base de una encuesta regional de ERC: 1 500 adultos de 60 comunidades, con columnas `cluster`, `area` y `peso`. Calculas `mean(erc)` y obtienes 9.4 %. ¿Está bien? ¿Cuál es su IC? Si solo quieres a las mujeres de 60 años o más, ¿basta con filtrar la base? Este subcapítulo responde con un **flujo de trabajo** que sirve para cualquier encuesta (incluidas las nacionales de salud).
+:::
+
+**El flujo en cinco pasos**
+
+1.  **Conocer el diseño**: qué son los pesos, los conglomerados y los estratos de *tu* base.
+2.  **Declarar el diseño** una vez con `svydesign()`.
+3.  **Estimar** prevalencias, totales y subgrupos con el diseño.
+4.  **Subpoblaciones**: filtrar el *diseño*, no la base.
+5.  **Regresión** con el diseño (`svyglm()`).
+
+En cada paso compararemos con la **verdad**, porque la encuesta sale de la región simulada de 6.1 y 6.2.
+
+```{r}
+#| label: setup-63
+library(tidyverse)
+library(survey)
+source("R/simular_encuesta_erc.R")
+
+enc <- read_csv("Bases/encuesta_erc.csv", show_col_types = FALSE) |>
+  mutate(gedad = cut(edad, c(17, 39, 59, 100), labels = c("18-39", "40-59", "60+")))
+
+# La verdad (solo posible por simulación): la región completa
+pob <- simular_poblacion_erc() |>
+  mutate(gedad = cut(edad, c(17, 39, 59, 100), labels = c("18-39", "40-59", "60+")))
+prev_verdadera <- mean(pob$erc)
+```
+
+## Paso 1: conocer el diseño
 
 Una encuesta real casi nunca es una MAS. Suele combinar tres elementos, y los tres cambian el análisis:
 
@@ -10,37 +41,45 @@ Una encuesta real casi nunca es una MAS. Suele combinar tres elementos, y los tr
 | **Conglomerados** (*PSU*) | Personas agrupadas en comunidades | EE demasiado **pequeño** |
 | **Estratos** | Muestreo separado por grupo | EE demasiado **grande** (se pierde precisión) |
 
-El paquete **`survey`** (Thomas Lumley) incorpora los tres. Se define **una vez** el diseño y luego se usan funciones análogas a las de siempre: `svymean()`, `svytotal()`, `svyby()`, `svyglm()`.
-
-## La encuesta de ERC
-
-`encuesta_erc.csv` (simulada) tiene **1 500 adultos**: 30 comunidades urbanas y 30 rurales (**muestreo bietápico estratificado**), con 25 adultos sorteados en cada comunidad. Las zonas rurales se **sobremuestrearon**: hay el mismo número de comunidades en ambas áreas aunque la zona urbana tiene más habitantes.
+Nuestra base `encuesta_erc.csv` (simulada) tiene **1 500 adultos** de un **muestreo bietápico estratificado**: 30 comunidades urbanas y 30 rurales, y 25 adultos sorteados en cada una. Las zonas rurales se **sobremuestrearon**: hay el mismo número de comunidades en ambas áreas, aunque la urbana tiene más habitantes.
 
 ```{r}
-#| label: setup-63
-library(tidyverse)
-library(survey)
-
-enc <- read_csv("Bases/encuesta_erc.csv")
-glimpse(enc)
+#| label: columnas-diseno
+enc |> select(id, cluster, area, peso, tam, N_conglom, edad, erc) |> head(4)
 ```
 
--   `cluster`: comunidad (unidad primaria de muestreo).
--   `area`: estrato (urbano o rural).
--   `peso`: inversa de la probabilidad de selección = $1/(p_1 \times p_2)$, con $p_1$ la probabilidad de elegir la comunidad y $p_2$ la de elegir al adulto dentro de ella.
--   `tam`, `N_conglom`: datos auxiliares usados para calcular el peso.
+Las columnas que describen el diseño son:
+
+-   `cluster`: la comunidad (**unidad primaria de muestreo**, PSU).
+-   `area`: el **estrato** (urbano o rural).
+-   `peso`: la inversa de la probabilidad de selección, $1/(p_1 \times p_2)$, con $p_1$ la probabilidad de elegir la comunidad y $p_2$ la de elegir al adulto dentro de ella.
+-   `tam`, `N_conglom`: datos auxiliares con los que se calculó el peso.
+
+Los pesos no son magia: se pueden reconstruir. Con 30 comunidades elegidas por estrato y 25 adultos por comunidad, el peso es (comunidades del estrato ÷ 30) × (adultos de la comunidad ÷ 25):
 
 ```{r}
-#| label: pesos
+#| label: pesos-a-mano
+enc <- enc |> mutate(peso_a_mano = (N_conglom / 30) * (tam / 25))
+
+max(abs(enc$peso - enc$peso_a_mano))        # 0: coincide con el peso de la base
+
 enc |>
   group_by(area) |>
   summarise(adultos = n(), comunidades = n_distinct(cluster),
             peso_medio = mean(peso), adultos_representados = sum(peso))
 ```
 
-Un adulto rural representa a unos 29 adultos de la región y uno urbano a unos 71. La suma de pesos (≈ 75 000) estima el **tamaño de la población**.
+Un adulto rural representa a unos `r round(mean(enc$peso[enc$area == "Rural"]))` adultos de la región y uno urbano a unos `r round(mean(enc$peso[enc$area == "Urbano"]))`. La **suma de pesos** (`r format(round(sum(enc$peso)), big.mark = " ")`) estima el tamaño de la población, que sabemos que es `r format(nrow(pob), big.mark = " ")`.
 
-## Paso 1: declarar el diseño
+::: {.callout-tip}
+## 💡 Antes de usar los pesos de una encuesta pública
+
+**Lee el manual**: cuáles son las variables de diseño, y en qué **escala** vienen los pesos. Por ejemplo, en encuestas de hogares tipo DHS los pesos se guardan multiplicados por 1 000 000 y hay que dividirlos (el autor lo hace en sus talleres con la ENDES). Usar la variable equivocada o la escala equivocada es un error **silencioso**.
+:::
+
+## Paso 2: declarar el diseño
+
+Se declara **una vez** y se reutiliza en todo el análisis:
 
 ```{r}
 #| label: diseno
@@ -49,24 +88,46 @@ dis <- svydesign(
   strata  = ~area,       # estratos
   weights = ~peso,       # pesos de muestreo
   data    = enc,
-  nest    = TRUE         # los id de comunidad se repiten entre estratos: anidar
+  nest    = TRUE         # los códigos de comunidad se repiten entre estratos: anidar
 )
 dis
 ```
 
-::: {.callout-tip}
-## 💡 Tip práctico: qué poner en cada argumento
+Cada argumento corresponde a una pregunta sobre cómo se hizo el muestreo: **`ids`** es la primera etapa (comunidad, hospital, unidad de diálisis; si no hubo agrupación, `ids = ~1`); **`strata`** es la variable con la que se estratificó (se omite si no hubo); **`weights`** es la columna de pesos; y **`nest = TRUE`** va cuando los códigos de conglomerado se repiten dentro de distintos estratos.
 
--   **`ids`**: la **primera** etapa del muestreo (comunidad, hospital, unidad de diálisis). Si es MAS sin agrupar, `ids = ~1`.
--   **`strata`**: la variable usada para estratificar. Si no hubo, se omite.
--   **`weights`**: la columna de pesos. Los publica la encuesta (ENSANUT, NHANES) con la base.
--   **`nest = TRUE`** cuando los códigos de conglomerado se repiten dentro de distintos estratos.
--   Con encuestas públicas, **lee el manual** para saber cuáles son las variables de diseño: usar la equivocada es un error silencioso.
+El autor, en su taller de encuestas, escribe las cuatro combinaciones posibles; esta es la receta (no se ejecuta aquí porque nuestra encuesta es la cuarta):
+
+```{r}
+#| label: cuatro-disenos
+#| eval: false
+# 1. Aleatorio simple: sin pesos ni agrupación
+svydesign(ids = ~1, weights = NULL, strata = NULL, data = datos)
+
+# 2. Estratificado
+svydesign(ids = ~1, weights = ~peso, strata = ~area, data = datos)
+
+# 3. Por conglomerados
+svydesign(ids = ~cluster, weights = ~peso, strata = NULL, data = datos)
+
+# 4. Conglomerados estratificado (nuestro caso)
+svydesign(ids = ~cluster, weights = ~peso, strata = ~area, data = datos, nest = TRUE)
+```
+
+::: {.callout-tip}
+## 💡 Con el paquete `srvyr` (no se ejecuta aquí)
+
+`srvyr` envuelve a `survey` con una sintaxis tipo `dplyr` (permite `|>` y no exige la `~`):
+
+```r
+library(srvyr)
+dis_tidy <- enc |> as_survey_design(ids = cluster, strata = area, weights = peso, nest = TRUE)
+dis_tidy |> summarise(prevalencia = survey_mean(erc, vartype = "ci", proportion = TRUE))
+```
 :::
 
-## Paso 2: estimar con el diseño
+## Paso 3: estimar con el diseño
 
-### Prevalencia
+### Prevalencia, frente al análisis "ingenuo" y a la verdad
 
 ```{r}
 #| label: svymean
@@ -75,16 +136,15 @@ est
 confint(est)
 ```
 
-Con muestras de proporciones pequeñas, el IC logit de `svyciprop()` evita límites fuera de [0, 1] y suele preferirse:
+Con muestras de proporciones pequeñas, el IC *logit* de `svyciprop()` evita límites fuera de [0, 1] y suele preferirse:
 
 ```{r}
 #| label: svyciprop
-ic_logit <- svyciprop(~I(erc == 1), dis, method = "logit")
+ic_logit <- svyciprop(~erc, dis, method = "logit")
 ic_logit
-confint(ic_logit)
 ```
 
-### Comparar con el análisis "ingenuo"
+Pongamos las tres versiones en una tabla (en %):
 
 ```{r}
 #| label: ingenuo
@@ -92,18 +152,20 @@ p_ingenua <- mean(enc$erc)
 ee_ingenuo <- sqrt(p_ingenua * (1 - p_ingenua) / nrow(enc))
 
 tibble(
-  metodo = c("Ingenuo (sin pesos, MAS)", "Con el diseño (survey)"),
-  prevalencia = c(p_ingenua, coef(est)),
-  EE = c(ee_ingenuo, SE(est)),
-  IC_inf = prevalencia - 1.96 * EE,
-  IC_sup = prevalencia + 1.96 * EE
+  metodo = c("Ingenuo (sin pesos, como MAS)", "Con el diseño (survey)", "Verdad (región completa)"),
+  prevalencia = c(p_ingenua, coef(est), prev_verdadera),
+  EE = c(ee_ingenuo, SE(est), NA),
+  IC_inf = c(p_ingenua - 1.96 * ee_ingenuo, confint(est)[1], NA),
+  IC_sup = c(p_ingenua + 1.96 * ee_ingenuo, confint(est)[2], NA)
 ) |> mutate(across(where(is.numeric), \(x) round(100 * x, 2)))
 ```
 
 Dos efectos distintos pueden aparecer:
 
--   **El punto puede cambiar** (sesgo por no ponderar): el análisis ingenuo da demasiado peso a la zona rural (la mitad de la muestra, pero solo el 29 % de la población). Aquí el cambio es pequeño porque la prevalencia rural y urbana no difieren tanto; con estratos muy distintos, ignorar los pesos puede equivocar bastante.
--   **El error estándar cambia casi siempre**: con el diseño es mayor, porque las personas de una misma comunidad no aportan información independiente (*deff* = `r sprintf("%.2f", deff(est))`). El IC ingenuo es **demasiado optimista**.
+-   **El punto puede cambiar** (sesgo por no ponderar): el análisis ingenuo da demasiado peso a la zona rural (la mitad de la muestra, pero solo el 29 % de la población). Aquí el cambio es pequeño (`r sprintf("%.1f", 100 * p_ingenua)` % frente a `r sprintf("%.1f", 100 * coef(est))` %) porque la prevalencia rural y la urbana no difieren tanto; con estratos muy distintos, ignorar los pesos puede equivocar bastante.
+-   **El error estándar cambia casi siempre**: con el diseño es mayor (`r sprintf("%.2f", 100 * SE(est))` frente a `r sprintf("%.2f", 100 * ee_ingenuo)` puntos), porque las personas de una misma comunidad no aportan información independiente (*deff* = `r sprintf("%.2f", deff(est))`). El IC ingenuo es **demasiado optimista**.
+
+Ambas estimaciones quedan por encima de la verdad (`r sprintf("%.1f", 100 * prev_verdadera)` %), pero el **IC con el diseño la contiene**: es una sola muestra y tiene su error de muestreo.
 
 ::: {.callout-important}
 ## 🎯 Regla de oro
@@ -122,30 +184,68 @@ tot
 confint(tot)
 ```
 
+La región tiene `r format(sum(pob$erc), big.mark = " ")` adultos con ERC; la encuesta estima `r format(round(coef(tot)), big.mark = " ")` (IC `r format(round(confint(tot)[1]), big.mark = " ")` a `r format(round(confint(tot)[2]), big.mark = " ")`).
+
 ### Por subgrupos con `svyby()`
 
 ```{r}
 #| label: svyby
-por_area <- svyby(~erc, ~area, dis, svymean, vartype = c("se", "ci"))
-por_area
+por_area <- svyby(~erc, ~area, dis, svymean, vartype = "ci")
+verdad_area <- pob |> group_by(area) |> summarise(verdad = mean(erc))
 
-enc <- enc |> mutate(gedad = cut(edad, c(17, 39, 59, 100), labels = c("18-39", "40-59", "60+")))
-dis <- update(dis, gedad = enc$gedad)             # agrega variables al diseño sin perder pesos
-svyby(~erc, ~gedad, dis, svymean, vartype = "ci")
+por_area |> as_tibble() |> left_join(verdad_area, by = "area") |>
+  mutate(across(where(is.numeric), \(x) round(100 * x, 1)))
+
+por_edad <- svyby(~erc, ~gedad, dis, svymean, vartype = "ci")
+verdad_edad <- pob |> group_by(gedad) |> summarise(verdad = mean(erc))
+
+por_edad |> as_tibble() |> left_join(verdad_edad, by = "gedad") |>
+  mutate(across(where(is.numeric), \(x) round(100 * x, 1)))
 ```
 
-::: {.callout-warning}
-## ⚠️ Subpoblaciones: usa `subset()` sobre el **diseño**, no `filter()` sobre los datos
+En las dos tablas la verdad cae dentro del IC. La diferencia por **edad** (de `r sprintf("%.0f", 100 * por_edad$erc[1])` % a `r sprintf("%.0f", 100 * por_edad$erc[3])` %) es clara; la diferencia por **área** es pequeña y sus IC se superponen mucho (la verdad, en cambio, sí es mayor en la zona rural: `r sprintf("%.1f", 100 * verdad_area$verdad[1])` % frente a `r sprintf("%.1f", 100 * verdad_area$verdad[2])` %; la encuesta no tiene la potencia para verlo bien).
 
-Si quieres solo a los mayores de 60 años, **no** elimines filas de la base antes de crear el diseño: se pierde información de conglomerados y estratos y el EE sale mal. Filtra **el objeto de diseño**:
+## Paso 4: ¿funcionan los pesos? Comparar con la población
 
-```r
-dis_60 <- subset(dis, edad >= 60)
+Una comprobación que hace el autor en su plantilla de encuestas: **comparar la muestra con la población de origen** (en la vida real, con el censo). Si los pesos funcionan, la muestra **ponderada** debería parecerse a la población mucho más que la muestra **sin ponderar**:
+
+```{r}
+#| label: comparar-poblacion
+comparar <- function(var) {
+  bind_rows(
+    pob |> count(.data[[var]]) |> mutate(fuente = "1. Población", pct = 100 * n / sum(n)),
+    enc |> count(.data[[var]]) |> mutate(fuente = "2. Muestra sin pesos", pct = 100 * n / sum(n)),
+    enc |> count(.data[[var]], wt = peso) |> mutate(fuente = "3. Muestra ponderada", pct = 100 * n / sum(n))
+  ) |>
+    select(fuente, nivel = all_of(var), pct) |>
+    pivot_wider(names_from = fuente, values_from = pct) |>
+    mutate(across(where(is.numeric), \(x) round(x, 1)))
+}
+
+comparar("area")
+comparar("gedad")
+```
+
+Por **área**, la muestra sin pesos tiene 50 % rural frente a 29 % en la población; **ponderada** da `r sprintf("%.0f", 100 * weighted.mean(enc$area == "Rural", enc$peso))` %, casi idéntica. Por **edad** (variable que *no* se usó para construir los pesos), la muestra ponderada también se acerca más a la población en los tres grupos (el de 60 años o más pasa de `r sprintf("%.1f", 100 * mean(enc$gedad == "60+"))` % sin pesos a `r sprintf("%.1f", 100 * weighted.mean(enc$gedad == "60+", enc$peso))` % ponderado, frente a `r sprintf("%.1f", 100 * mean(pob$gedad == "60+"))` % en la población). Es una forma práctica de **detectar sesgo de muestreo** y de verificar que declaraste bien el diseño.
+
+## Paso 5: subpoblaciones, filtra el diseño y no la base
+
+Si quieres solo a las mujeres de 60 años o más, **no** elimines filas antes de crear el diseño: se pierde información sobre conglomerados y estratos y el EE puede salir mal (y a veces un estrato se queda con un solo conglomerado y R no puede calcular la varianza). Filtra **el objeto de diseño**:
+
+```{r}
+#| label: subset
+dis_60 <- subset(dis, edad >= 60 & sexo == "F")        # subpoblación: el diseño completo se conserva
 svymean(~erc, dis_60)
-```
-:::
 
-## Regresión con el diseño
+# Lo que NO se debe hacer: filtrar la base y declarar un diseño nuevo
+dis_mal <- svydesign(ids = ~cluster, strata = ~area, weights = ~peso, nest = TRUE,
+                     data = filter(enc, edad >= 60, sexo == "F"))
+svymean(~erc, dis_mal)
+```
+
+Aquí las dos versiones casi coinciden, porque casi todas las comunidades tienen mujeres de 60 años o más. Con subgrupos pequeños o raros la diferencia crece, y por eso la regla es siempre la misma: **`subset()` sobre el diseño**. La verdad en este subgrupo es `r sprintf("%.1f", 100 * mean(pob$erc[pob$edad >= 60 & pob$sexo == "F"]))` %.
+
+## Paso 6: regresión con el diseño
 
 `svyglm()` ajusta modelos lineales generalizados teniendo en cuenta pesos y conglomerados. Para un desenlace binario se usa la familia `quasibinomial` (evita avisos por pesos no enteros; los coeficientes son los mismos que con `binomial`).
 
@@ -153,64 +253,60 @@ svymean(~erc, dis_60)
 #| label: svyglm
 m_svy <- svyglm(erc ~ diabetes + hta + I(edad / 10) + area, design = dis, family = quasibinomial)
 
-tab <- cbind(coef(m_svy), confint(m_svy))
-round(exp(tab[-1, ]), 2) |> `colnames<-`(c("OR", "IC_inf", "IC_sup"))
+tab_svy <- cbind(coef(m_svy), confint(m_svy))
+round(exp(tab_svy[-1, ]), 2) |> `colnames<-`(c("OR", "IC_inf", "IC_sup"))
 ```
 
-Comparado con el modelo sin diseño:
+Comparemos con el modelo sin diseño y con el **OR verdadero** (el mismo modelo ajustado en toda la región):
 
 ```{r}
 #| label: glm-ingenuo
 m_ing <- glm(erc ~ diabetes + hta + I(edad / 10) + area, data = enc, family = binomial)
-round(exp(cbind(OR = coef(m_ing), confint.default(m_ing)))[-1, ], 2)
+m_pob <- glm(erc ~ diabetes + hta + I(edad / 10) + area, data = pob, family = binomial)
+
+tibble(
+  termino = names(coef(m_svy))[-1],
+  `OR con diseño` = exp(coef(m_svy))[-1],
+  `OR sin diseño` = exp(coef(m_ing))[-1],
+  `OR verdadero (región)` = exp(coef(m_pob))[-1]
+) |> mutate(across(where(is.numeric), \(x) round(x, 2)))
 ```
 
-Los OR son parecidos; los **IC** del modelo con diseño suelen ser más anchos para las variables que varían entre comunidades.
+El OR de diabetes es `r sprintf("%.1f", exp(coef(m_svy))["diabetes"])` con el diseño y `r sprintf("%.1f", exp(coef(m_ing))["diabetes"])` sin él, y el verdadero es `r sprintf("%.1f", exp(coef(m_pob))["diabetes"])`. Con solo `r sum(enc$erc)` casos de ERC en la muestra, los IC son anchos (el de diabetes va de `r sprintf("%.1f", exp(confint(m_svy))["diabetes", 1])` a `r sprintf("%.1f", exp(confint(m_svy))["diabetes", 2])`) y **contienen el valor verdadero**: una encuesta de 1 500 adultos da una estimación honesta pero **poco precisa** de un OR.
 
-::: {.callout-note}
-## ¿Pesos en una regresión? Una discusión abierta
+¿Pesos en una regresión? Para un **parámetro poblacional descriptivo** (prevalencia, totales) los pesos son indispensables. Para estimar **asociaciones** con un modelo bien especificado que incluye las variables de selección (aquí `area`), un modelo sin pesos es válido y más eficiente, pero **con conglomerados** hay que corregir el EE de todos modos. Los pesos protegen frente a una mala especificación. En la práctica, con encuestas oficiales, se analiza **con el diseño**.
 
-Cuando se estima un **parámetro poblacional descriptivo** (prevalencia, totales), los pesos son indispensables. Para estimar **asociaciones** con un modelo bien especificado que incluye las variables de selección (aquí `area`), un modelo **sin pesos** es válido y más eficiente, pero **con conglomerados** hay que corregir el EE de todos modos (errores robustos por conglomerado, o modelos mixtos). Los pesos protegen frente a una mala especificación. En la práctica con encuestas oficiales: se analiza **con el diseño**.
-:::
-
-## Alternativas cuando no hay `survey`
-
-Si trabajas con datos agrupados (pacientes en centros) pero **sin pesos**, puedes obtener **errores estándar robustos por conglomerado** con `sandwich` y `lmtest`:
+Y si tienes datos agrupados (pacientes en centros) pero **sin pesos**, puedes corregir los errores estándar por conglomerado con `sandwich` y `lmtest`:
 
 ```{r}
 #| label: robusto
 library(sandwich)
 library(lmtest)
 
-m_glm <- glm(erc ~ diabetes + hta + I(edad / 10) + area, data = enc, family = binomial)
-coeftest(m_glm, vcov = vcovCL(m_glm, cluster = ~cluster))
+coeftest(m_ing, vcov = vcovCL(m_ing, cluster = ~cluster))
 ```
 
 ## Peculiaridades que conviene conocer
 
--   **Grados de libertad**: en encuestas, no son $n-1$ sino **conglomerados − estratos** (aquí 60 − 2 = 58). `survey` lo usa en los IC de `svymean` con `degf(dis)`.
--   **Un solo conglomerado en un estrato** (*lonely PSU*): la varianza no se puede calcular; se configura con `options(survey.lonely.psu = "adjust")` y se discute.
+-   **Grados de libertad**: en encuestas no son $n-1$ sino **conglomerados − estratos** (aquí 60 − 2 = `r degf(dis)`); `survey` lo usa en los IC con `degf(dis)`.
+-   **Un solo conglomerado en un estrato** (*lonely PSU*): la varianza no se puede calcular; se configura con `options(survey.lonely.psu = "adjust")` (el autor usa `"certainty"` en su análisis de la ENDES) y se discute.
 -   **Pesos replicados** (BRR, jackknife): algunas encuestas públicas los entregan en lugar de `cluster`/`strata`; se usan con `svrepdesign()`.
 -   **Post-estratificación y calibración**: ajustar los pesos para que reproduzcan totales conocidos del censo (edad × sexo) con `postStratify()` o `calibrate()`.
-
-```{r}
-#| label: gl
-degf(dis)
-```
+-   **Valores faltantes**: `na.omit()` **antes** de declarar el diseño elimina filas y distorsiona el diseño; declara el diseño con todos los datos y deja que las funciones traten los `NA` (`na.rm = TRUE`) o usa `subset()` (y ve el Cap. 13).
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
 -   Una encuesta compleja tiene **pesos, conglomerados y estratos**; los tres entran al análisis.
--   Declara el diseño una vez con `svydesign()` y estima con `svymean()`, `svytotal()`, `svyby()` y `svyglm()`.
+-   Declara el diseño **una vez** con `svydesign()` y estima con `svymean()`, `svyciprop()`, `svytotal()`, `svyby()` y `svyglm()`.
 -   Ignorar el diseño produce **sesgo** (por no ponderar) y **EE subestimados** (por ignorar los conglomerados).
 -   Para subpoblaciones: `subset(diseño, ...)`, **nunca** filtrar la base antes.
+-   Comprueba los pesos comparando la muestra ponderada con la población de referencia (censo).
 -   El **efecto de diseño** (*deff*) resume cuánto se pierde en precisión.
--   Sin `survey`, usa EE robustos por conglomerado (`vcovCL`).
 :::
 
 ## Ejercicio
 
-1.  Estima la prevalencia de **diabetes** y de **hipertensión** con el diseño, con IC. Compáralas con las estimaciones ingenuas.
-2.  Calcula la prevalencia de ERC en **mujeres de 60 años o más**, usando `subset()`. ¿Cuántos adultos de la región representan?
+1.  Estima la prevalencia de **diabetes** y de **hipertensión** con el diseño, con IC. Compáralas con las estimaciones ingenuas y con las de la población (`mean(pob$diabetes)`, `mean(pob$hta)`).
+2.  Calcula la prevalencia de ERC en **mujeres de 60 años o más** con `subset()`. ¿Cuántos adultos de la región representan? (Pista: `svytotal(~I(edad >= 60 & sexo == "F"), dis)`.)
 3.  Ajusta un modelo con una **interacción diabetes × área** y evalúa con `regTermTest(m, ~diabetes:area)` si es significativa.

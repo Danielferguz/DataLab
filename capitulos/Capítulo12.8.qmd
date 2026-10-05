@@ -1,17 +1,29 @@
-# Análisis de sensibilidad
+# ¿Y si me falta algo? Análisis de sensibilidad
 
-## Lo que los métodos no pueden decirte
+::: {.callout-note}
+## 🩺 Escenario
 
-Todo lo que hicimos en este capítulo equilibra lo **medido**. La conclusión de que el iSGLT2 enlentece la pérdida de TFGe depende de un supuesto **que no se puede comprobar con los datos**: que **no hay confusión no medida importante** (intercambiabilidad condicional). En 10.6 vimos las herramientas para **cuantificar** ese riesgo; aquí las usamos en el flujo de análisis causal y añadimos dos más: la **medición parcial del confusor** y los **controles negativos**.
+Presentas el resultado: el iSGLT2 enlentece la pérdida de TFGe. Un colega objeta: "seguro que tus pacientes tratados eran los más *robustos*, y eso no lo mediste". Puede tener razón o no, y **no puedes comprobarlo con tus datos**. Lo que sí puedes hacer es preguntarte: **¿qué tan fuerte tendría que ser ese "confusor fantasma" para cambiar tu conclusión?**
+:::
+
+Todo lo que hicimos en el capítulo equilibra lo **medido**. La conclusión depende de un supuesto que **no se puede verificar**: que no hay confusión no medida importante (intercambiabilidad condicional). En 10.6 viste las herramientas para **cuantificar** ese riesgo. Aquí las usamos dentro del flujo de análisis causal y añadimos dos: la **medición parcial del confusor** y los **controles negativos**.
+
+**Lo que vamos a hacer**
+
+-   Calcular el **E-value** y compararlo con confusores medidos (*benchmarking*).
+-   Ver cuánto sesgo corrige un **proxy imperfecto** de la fragilidad.
+-   Buscar **señales de sesgo** con un **control negativo**.
 
 ```{r}
 #| label: setup-128
 library(tidyverse)
+library(boot)
 source("R/funciones_epi.R")
+source("R/funciones_extra_cap1213.R")
 
-oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv") |>
-  mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")), luacr = log(uacr))
-x <- "I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv"
+oraculo <- cargar_oraculo()
+ckd <- observado(oraculo)
+x <- confusores_medidos
 
 ipw_ate <- function(d, formula_ps, y = "pendiente_tfg") {
   ps <- fitted(glm(formula_ps, data = d, family = binomial))
@@ -23,20 +35,78 @@ estimado <- ipw_ate(oraculo, as.formula(paste("isglt2 ~", x)))
 c(estimado_IPW = estimado, verdad = ate_verdadero) |> round(2)
 ```
 
-## 1. E-value: ¿qué fuerza debe tener un confusor para anular el efecto?
+## Paso 1: el E-value (¿qué tan fuerte debería ser el fantasma?)
 
-Ya visto en 10.6. Con el **RR ponderado de evento renal a 36 meses** (≈ 0.57):
+El **E-value** (VanderWeele y Ding) responde con un número: la **fuerza mínima** (en escala de razón de riesgos) que un confusor no medido tendría que tener **con el tratamiento Y con el desenlace**, a la vez, para **explicar todo el efecto observado**. Un E-value alto es tranquilizador; uno bajo, preocupante. Lo calculamos con el **RR ponderado de evento renal a 36 meses** y el límite del IC más cercano a 1 (obtenido por *bootstrap*):
 
 ```{r}
 #| label: evalue-128
-e_value(rr = 0.57, lim = NA)
+rr_fn <- function(d, i) {
+  d <- d[i, ]
+  ps <- fitted(glm(as.formula(paste("isglt2 ~", x)), data = d, family = binomial))
+  w <- ifelse(d$isglt2 == 1, 1 / ps, 1 / (1 - ps))
+  r1 <- weighted.mean(d$evento[d$isglt2 == 1], w[d$isglt2 == 1])
+  r0 <- weighted.mean(d$evento[d$isglt2 == 0], w[d$isglt2 == 0])
+  r1 / r0
+}
+set.seed(3)
+b <- boot(ckd, rr_fn, R = 200)
+rr <- b$t0
+ic_rr <- quantile(b$t, c(0.025, 0.975))
+ev <- e_value(rr, lim = ic_rr[2])      # el límite del IC más cercano a 1 es el superior
+c(RR = rr, ic_rr) |> round(2)
+ev |> mutate(across(everything(), \(x) round(x, 2)))
 ```
 
-Un confusor no medido tendría que asociarse **con RR ≈ 2.9** con el tratamiento **y** con el desenlace para explicar todo el efecto. **Referencia (*benchmarking*)**: la **albuminuria**, el confusor medido más fuerte, se asocia con el evento con un RR de ~1.4 por duplicación. ¿Hay un factor no medido **más fuerte** que la albuminuria? La fragilidad podría serlo, pero para anular el efecto necesitaría una asociación **extrema**.
+**Qué vemos:** el RR ponderado es **`r round(rr, 2)`** (IC `r round(ic_rr[1], 2)` a `r round(ic_rr[2], 2)`). Un confusor no medido tendría que asociarse con un RR de **`r round(ev$e_value_punto, 1)`** (o **`r round(ev$e_value_ic, 1)`** para mover el IC hasta el 1) con el tratamiento **y** con el desenlace para explicar todo el efecto.
 
-## 2. ¿Y si midiéramos mal el confusor? Medición parcial
+¿Es mucho o poco? Hay que **compararlo con confusores medidos**. Tomamos la **albuminuria alta (A3, UACR ≥ 300)**, el confusor medido más fuerte, y calculamos su asociación con el desenlace y con el tratamiento:
 
-Un confusor no medido es el caso extremo: normalmente se mide **con error** (un *proxy*: velocidad de marcha, albúmina, hospitalizaciones previas). ¿Cuánta de la confusión se corrige con un **proxy imperfecto**? Simulamos *proxies* de la fragilidad con distinto ruido y los añadimos al modelo de PS:
+```{r}
+#| label: benchmark
+d <- ckd |> mutate(a3 = as.integer(uacr >= 300))
+m_y <- glm(evento ~ a3 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + ecv + isglt2, data = d, family = poisson)
+m_t <- glm(isglt2 ~ a3 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + ecv, data = d, family = poisson)
+rr_ud <- unname(exp(coef(m_y)["a3"])); rr_eu <- unname(exp(coef(m_t)["a3"]))
+factor_sesgo <- rr_eu * rr_ud / (rr_eu + rr_ud - 1)          # máximo sesgo que causaría un confusor de esa fuerza
+c(RR_con_el_desenlace = rr_ud, RR_con_el_tratamiento = rr_eu, factor_de_sesgo = factor_sesgo, RR_corregido = rr * factor_sesgo) |> round(2)
+```
+
+**Qué vemos:** la albuminuria alta se asocia con el evento con un RR de **`r round(rr_ud, 2)`** y con recibir el fármaco con un RR de **`r round(rr_eu, 2)`**. Un confusor **no medido tan fuerte como la albuminuria** inflaría el RR por un factor de a lo sumo **`r round(factor_sesgo, 2)`**: llevaría el RR de `r round(rr, 2)` a **`r round(rr * factor_sesgo, 2)`**, y el efecto protector se mantendría. Para anularlo haría falta un confusor **mucho más fuerte** que cualquiera de los que mediste.
+
+## Paso 2: un "mapa" de escenarios (sesgo cuantitativo)
+
+El E-value es un resumen. El análisis de sesgo cuantitativo (10.6) te deja **explorar escenarios concretos**. Supón un confusor binario no medido (p. ej., "fragilidad alta") con prevalencia $p_1$ en los tratados y $p_0$ en los no tratados, y un RR $RR_{UD}$ con el evento. El RR observado queda multiplicado por $B = \frac{p_1(RR_{UD}-1)+1}{p_0(RR_{UD}-1)+1}$, así que el **RR corregido** es el observado dividido por $B$:
+
+```{r}
+#| label: mapa-sesgo
+#| fig-width: 7.5
+#| fig-height: 4
+escenarios <- expand_grid(rr_ud = seq(1, 4, 0.05), dif_prev = seq(0, 0.6, 0.01)) |>
+  mutate(p1 = 0.2, p0 = p1 + dif_prev,                        # más fragilidad entre los NO tratados
+         B = (p1 * (rr_ud - 1) + 1) / (p0 * (rr_ud - 1) + 1),
+         rr_corregido = rr / B)
+
+ejemplo <- tibble(rr_ud = 2, dif_prev = 0.2)                  # 40 % de fragilidad en no tratados vs 20 % en tratados
+rr_ejemplo <- rr / ((0.2 * (2 - 1) + 1) / (0.4 * (2 - 1) + 1))
+
+ggplot(escenarios, aes(dif_prev, rr_ud, fill = rr_corregido)) +
+  geom_tile() +
+  geom_contour(aes(z = rr_corregido), breaks = 1, color = "black", linewidth = 0.8) +
+  geom_point(data = ejemplo, aes(dif_prev, rr_ud), inherit.aes = FALSE, shape = 21, size = 3.5, fill = "white", color = "black") +
+  scale_fill_gradient2(low = "#0072B2", mid = "white", high = "#D55E00", midpoint = 1, name = "RR corregido",
+                       limits = c(0.5, 1.5), oob = scales::squish) +
+  labs(x = "Diferencia de prevalencia del confusor (no tratados − tratados)",
+       y = "RR del confusor con el evento",
+       caption = "Línea negra: RR corregido = 1 (el efecto desaparece). Círculo: ejemplo del texto. Datos simulados.") +
+  theme_minimal(base_size = 11)
+```
+
+**Qué vemos:** si la fragilidad alta fuera del **40 %** en los no tratados y del **20 %** en los tratados, con un RR de 2 con el evento (el círculo), el RR corregido sería de **`r round(rr_ejemplo, 2)`**: más cerca del valor verdadero (`r sprintf("%.2f", mean(oraculo$evento_36m_1) / mean(oraculo$evento_36m_0))`) y aún protector. Para que el efecto **desaparezca** (línea negra) hacen falta escenarios más extremos: mucha diferencia de prevalencia **y** un RR alto.
+
+## Paso 3: ¿y si midiéramos mal el confusor? (proxy)
+
+Un confusor "no medido" es el caso extremo. Lo habitual es medirlo **con error**: un *proxy* como la velocidad de marcha, la albúmina o las hospitalizaciones previas. ¿Cuánto del sesgo corrige un proxy imperfecto? Simulamos proxies de la fragilidad con distinto ruido y los añadimos al modelo del PS:
 
 ```{r}
 #| label: proxy
@@ -47,16 +117,14 @@ res <- map_dfr(niveles, \(s) {
   tibble(ruido = s, fiabilidad = var(d$fragilidad) / var(d$proxy),
          estimado = ipw_ate(d, as.formula(paste("isglt2 ~", x, "+ proxy"))))
 })
-bind_rows(res, tibble(ruido = Inf, fiabilidad = 0, estimado = estimado)) |>
-  mutate(across(where(is.numeric), \(x) round(x, 2)))
+res |> mutate(across(where(is.numeric), \(x) round(x, 2)))
 ```
 
 ```{r}
 #| label: graf-proxy
 #| fig-width: 7
-#| fig-height: 3.6
-res |>
-  ggplot(aes(fiabilidad, estimado)) +
+#| fig-height: 3.4
+ggplot(res, aes(fiabilidad, estimado)) +
   geom_hline(yintercept = ate_verdadero, color = "#D55E00", linewidth = 1) +
   geom_hline(yintercept = estimado, linetype = "dashed", color = "grey40") +
   geom_line(color = "#0072B2") + geom_point(size = 3, color = "#0072B2") +
@@ -65,13 +133,28 @@ res |>
   theme_minimal(base_size = 11)
 ```
 
-Con un proxy de **fiabilidad 0.5** ya se corrige **más de la mitad del sesgo** (de 0.41 a 0.18); con **0.8**, cerca de **tres cuartas partes**. Moraleja práctica: **mide lo mejor que puedas variables relacionadas** con la fragilidad (marcha, fuerza de prensión, albúmina, hospitalizaciones, polifarmacia); aunque imperfectas, **reducen** el sesgo.
+**Qué vemos:** sin proxy el sesgo es de **`r round(estimado - ate_verdadero, 2)`**. Con un proxy de **fiabilidad `r round(res$fiabilidad[res$ruido == 1], 2)`** el sesgo baja a **`r round(res$estimado[res$ruido == 1] - ate_verdadero, 2)`**, y con fiabilidad `r round(res$fiabilidad[res$ruido == 2], 2)`, a `r round(res$estimado[res$ruido == 2] - ate_verdadero, 2)`. Moraleja práctica: **mide lo mejor que puedas** variables relacionadas con la fragilidad (marcha, fuerza de prensión, albúmina, hospitalizaciones, polifarmacia): aunque imperfectas, **reducen** el sesgo.
 
-## 3. Controles negativos
+## Paso 4: controles negativos (buscar señales de sesgo)
 
-Un **control negativo** es un desenlace (o exposición) que **no debería estar causalmente relacionado** con el tratamiento, pero que **comparte las mismas fuentes de sesgo**. Si el análisis encuentra una asociación donde no puede haber efecto, **revela confusión residual**.
+Un **control negativo** es un desenlace (o una exposición) que **no debería** estar causalmente relacionado con el tratamiento, pero que **comparte las mismas fuentes de sesgo**. Si el análisis encuentra una asociación donde no puede haber efecto, **delata confusión residual**. Piénsalo como un **detector de humo**: no apaga el incendio, pero avisa.
 
-Simulamos un desenlace de control negativo: **fracturas por caídas**, que dependen de la **fragilidad** y la edad, y **no** del iSGLT2:
+Simulamos como control negativo las **fracturas por caídas**: dependen de la fragilidad y la edad, **no** del iSGLT2 (datos simulados):
+
+```{r}
+#| label: dag-cn
+#| fig-width: 7
+#| fig-height: 3.2
+nodos <- tribble(~nombre, ~x, ~y, ~etiqueta, ~rol,
+  "F", 2, 2, "Fragilidad\n(no medida)", "no medido",
+  "A", 1, 1, "iSGLT2", "exposicion",
+  "Y", 3, 1, "Evento renal", "desenlace",
+  "C", 2, 3.2, "Fractura\n(control negativo)", "otro")
+aristas <- tribble(~de, ~a, "F", "A", "F", "Y", "A", "Y", "F", "C")
+dibujar_dag(nodos, aristas, tam_texto = 3.3, expandir = c(0.25, 0.15))
+```
+
+Fíjate en que **no hay flecha** de iSGLT2 a fractura: cualquier asociación que veamos es **sesgo**.
 
 ```{r}
 #| label: control-negativo
@@ -79,48 +162,35 @@ set.seed(5)
 oraculo <- oraculo |>
   mutate(fractura = rbinom(n(), 1, plogis(-3 + 0.7 * fragilidad + 0.02 * (edad - 64))))     # sin efecto del tratamiento
 
-ckd <- oraculo |> select(-fragilidad, -pendiente_0, -pendiente_1, -ite, -starts_with("evento_36m"))
+ckd <- observado(oraculo)        # incluye la columna `fractura`
 modelo_cn <- glm(as.formula(paste("fractura ~ isglt2 +", x)), data = ckd, family = binomial)
-exp(cbind(OR = coef(modelo_cn), confint.default(modelo_cn)))["isglt2", ] |> round(2)
+or_cn <- exp(cbind(OR = coef(modelo_cn), confint.default(modelo_cn)))["isglt2", ]
+round(or_cn, 2)
 ```
 
-El iSGLT2 aparece **"protector" contra fracturas** (OR ≈ 0.53, IC 0.41-0.69), algo biológicamente poco plausible (no hay efecto en la simulación). La señal indica **confusión residual por fragilidad**: los pacientes tratados son "más robustos" en algo que **no medimos**.
+**Qué vemos:** el iSGLT2 aparece **"protector" contra fracturas** (OR `r round(or_cn[1], 2)`, IC `r round(or_cn[2], 2)` a `r round(or_cn[3], 2)`), algo biológicamente poco plausible (en la simulación no hay efecto). Es la **huella de la fragilidad**: los tratados son "más robustos" en algo que **no medimos**. El OR del control negativo da una **idea de la magnitud del sesgo** y, en trabajos más avanzados, se usa para **calibrar** el efecto principal.
 
-::: {.callout-important}
-## 🎯 Cómo usar el control negativo
+Ejemplos de controles negativos en nefrología: vacuna antigripal y fractura de cadera; iSGLT2 y cáncer de piel; el uso del fármaco **después** del evento, o un desenlace que ocurrió **antes** de iniciar el fármaco (no puede ser causado por él).
 
--   Una asociación **nula** en el control negativo **tranquiliza** (pero no demuestra ausencia de sesgo: puede haber confusores específicos del desenlace principal).
--   Una asociación **no nula** **alerta**: hay sesgo compartido. El OR del control negativo (0.53) da una **idea de su magnitud** (se puede usar para **calibrar** empíricamente el efecto principal).
--   El control negativo debe ser **creíble** (sin efecto causal) y **sensible** a las mismas fuentes de sesgo.
-:::
+## Otras comprobaciones de robustez
 
-**Ejemplos de controles negativos en nefrología**: vacuna antigripal como "tratamiento" frente a fracturas de cadera; uso de iSGLT2 y **cáncer de piel**; **uso de fármaco antes de que se inicie** (un desenlace que ocurrió *antes* del tratamiento no puede ser causado por él).
-
-## 4. Análisis de sesgo cuantitativo
-
-Resumido en 10.6: corrección simple, probabilística, tipping point. Para el iSGLT2, con una **fragilidad alta en el 40 % de los no tratados y el 20 % de los tratados, RR 2 para el evento**, el RR corregido es ~0.64, cerca de la verdad (0.70).
-
-## 5. Otras comprobaciones de robustez
-
-| Análisis | Qué se hace | Qué se espera |
-|---|---|---|
-| **Cambiar el modelo de PS** | Añadir no linealidad e interacciones | Resultados estables |
-| **Cambiar el método** (emparejar, IPW, AIPW) | Comparar | Resultados parecidos (aunque eso no valida los supuestos) |
-| **Restringir la población** | Excluir pesos extremos o colas del PS | Efecto sin cambios drásticos |
-| **Cambiar el desenlace** | Otros desenlaces relacionados | Coherencia biológica |
-| **Dosis-respuesta** | Más dosis, más efecto | Si existe, apoya causalidad |
-| **Falsificación temporal** | Desenlaces **previos** al inicio del fármaco | Sin efecto |
+-   **Cambiar el modelo del PS** (no linealidad, interacciones): el resultado debería ser estable.
+-   **Cambiar de método** (emparejar, IPW, AIPW): resultados parecidos *no validan* los supuestos, pero uno muy distinto es una alarma.
+-   **Restringir la población** (excluir colas del PS o pesos extremos): sin cambios drásticos.
+-   **Dosis-respuesta** y **desenlaces biológicamente relacionados**: coherencia a favor de causalidad.
+-   **Falsificación temporal**: desenlaces **previos** al inicio del fármaco, sin efecto.
+-   **Otro diseño**: si crees que el confusor no medido es grave, quizá necesites **otra estrategia** (variables instrumentales, regresión discontinua, diferencias en diferencias; Caps. 15 y 19).
 
 ::: {.callout-warning}
-## ⚠️ No uses los análisis de sensibilidad como "salvoconducto"
+## ⚠️ No uses la sensibilidad como salvoconducto
 
-Un E-value alto o un control negativo nulo **no prueban causalidad**. Son **argumentos** para evaluar cuánto puede pesar la confusión no medida; la discusión crítica con los **expertos clínicos** sigue siendo indispensable.
+Un E-value alto o un control negativo nulo **no prueban causalidad**. Son **argumentos** para evaluar cuánto podría pesar la confusión no medida. La discusión crítica con los **expertos clínicos** sigue siendo indispensable.
 :::
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
--   El **supuesto central** (no hay confusión no medida importante) **no se verifica con datos**: se **cuantifica** su posible efecto.
+-   El **supuesto central** (no hay confusión no medida importante) **no se verifica con datos**: se **cuantifica** cuánto podría pesar.
 -   **E-value**: fuerza mínima de un confusor no medido que anularía el efecto; compárala con confusores medidos (*benchmarking*).
 -   Un **proxy imperfecto** del confusor ya corrige parte del sesgo: mide lo mejor posible variables relacionadas.
 -   Un **control negativo** con asociación espuria **delata** confusión residual.
@@ -129,6 +199,6 @@ Un E-value alto o un control negativo nulo **no prueban causalidad**. Son **argu
 
 ## Ejercicio
 
-1.  Calcula el E-value del **límite del IC** del RR ponderado. ¿Cuánto cambia?
-2.  Usa un **control negativo** con una exposición: ¿el iSGLT2 predice un desenlace que ocurrió **antes** (p. ej., hospitalización en los 12 meses previos)? Simúlalo.
+1.  Calcula el E-value de la **estimación puntual** y del **límite del IC** de otro RR (por ejemplo, el del emparejamiento de 12.4). ¿Cuánto cambia?
+2.  Usa un **control negativo con una exposición**: ¿el iSGLT2 predice una hospitalización en los 12 meses **previos**? Simúlala.
 3.  Propón un **control negativo creíble** para tu pregunta clínica y justifica por qué no debería haber efecto causal.

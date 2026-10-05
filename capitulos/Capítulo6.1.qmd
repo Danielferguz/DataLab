@@ -1,6 +1,18 @@
 # Población, marco y muestra
 
-## Tres conjuntos que no se deben confundir
+::: {.callout-note}
+## 🩺 Escenario
+
+La Dirección de Salud te pide estimar **cuántos adultos de la región tienen enfermedad renal crónica (ERC)**. No puedes medir creatinina y albuminuria a 75 000 personas: mides a unas cuantas y quieres hablar de todas. ¿A quiénes mides, cómo los eliges y cuánto puedes equivocarte?
+:::
+
+**Lo que vamos a hacer**
+
+-   Distinguir **población objetivo, marco muestral y muestra**, y **parámetro** de **estimador**.
+-   Ver con una región simulada (donde *conocemos* la verdad) que cada muestra da un resultado distinto.
+-   Entender qué mide el **error estándar** y qué significa realmente un **IC del 95 %**.
+
+## Paso 1: tres conjuntos que no se deben confundir
 
 -   **Población objetivo**: a quiénes queremos que apliquen las conclusiones (*todos los adultos de la región*).
 -   **Marco muestral**: la **lista o mecanismo** desde donde realmente podemos elegir (padrón de hogares, listado de unidades de diálisis, registro de laboratorio). Rara vez coincide con la población objetivo.
@@ -8,18 +20,18 @@
 
 Y dos números que tampoco se deben confundir:
 
--   **Parámetro**: el valor verdadero en la población (por ejemplo, la prevalencia real de ERC). Casi nunca se conoce.
--   **Estimador / estadístico**: el valor calculado en la muestra (la prevalencia observada). Es nuestro intento de acertar al parámetro.
+-   **Parámetro**: el valor verdadero en la población (la prevalencia real de ERC). Casi nunca se conoce.
+-   **Estimador**: el valor calculado en la muestra (la prevalencia observada). Es nuestro intento de acertar al parámetro.
 
 ::: {.callout-warning}
 ## ⚠️ El marco puede dejar gente fuera
 
-Si el marco es "pacientes con una creatinina registrada en el laboratorio del hospital", **quedan fuera** quienes nunca se midieron: precisamente muchos con ERC no diagnosticada. Ninguna fórmula estadística arregla un marco que no cubre a la población objetivo (*error de cobertura*).
+Si el marco es "pacientes con una creatinina registrada en el laboratorio del hospital", **quedan fuera** quienes nunca se midieron: precisamente muchos con ERC no diagnosticada. Ninguna fórmula arregla un marco que no cubre a la población objetivo (*error de cobertura*).
 :::
 
-## Nuestra región simulada
+## Paso 2: nuestra región simulada
 
-Cargamos las funciones que simulan la región (`R/simular_encuesta_erc.R`). Es una región con **600 conglomerados** (comunidades o sectores censales), 360 urbanos y 240 rurales. Cada adulto tiene edad, sexo, diabetes, hipertensión y ERC. Todos los datos son **simulados**.
+Para poder **comprobar** cada idea trabajamos con una región **simulada**, en la que conocemos la verdad. Tiene **600 conglomerados** (comunidades o sectores censales): 360 urbanos y 240 rurales. Cada adulto tiene edad, sexo, diabetes, hipertensión y ERC. Todos los datos son **simulados** (`R/simular_encuesta_erc.R`).
 
 ```{r}
 #| label: setup-61
@@ -30,7 +42,7 @@ pob <- simular_poblacion_erc()
 glimpse(pob)
 ```
 
-Como tenemos a *toda* la población, podemos calcular el **parámetro** verdadero. En la vida real esto es imposible: por eso se toma una muestra.
+Como tenemos a *toda* la población, podemos calcular el **parámetro**. En la vida real esto es imposible: por eso se toma una muestra.
 
 ```{r}
 #| label: parametro
@@ -39,13 +51,13 @@ prev_verdadera <- mean(pob$erc)
 
 pob |>
   group_by(area) |>
-  summarise(adultos = n(), con_erc = sum(erc), prevalencia = mean(erc)) |>
-  bind_rows(tibble(area = "Total", adultos = N, con_erc = sum(pob$erc), prevalencia = prev_verdadera))
+  summarise(adultos = n(), con_erc = sum(erc), prevalencia = round(mean(erc), 3)) |>
+  bind_rows(tibble(area = "Total", adultos = N, con_erc = sum(pob$erc), prevalencia = round(prev_verdadera, 3)))
 ```
 
-La prevalencia verdadera es **`r sprintf("%.1f", 100 * prev_verdadera)` %**: más alta en la zona rural que en la urbana.
+La prevalencia verdadera es **`r sprintf("%.1f", 100 * prev_verdadera)` %** (`r format(sum(pob$erc), big.mark = " ")` de `r format(N, big.mark = " ")` adultos): más alta en la zona rural que en la urbana. Esa es la meta; veamos qué tan cerca llega una muestra.
 
-## Una muestra, un resultado
+## Paso 3: una muestra, un resultado
 
 Tomemos una **muestra aleatoria simple** (MAS) de 300 adultos: cada adulto tiene la misma probabilidad de ser elegido.
 
@@ -58,7 +70,7 @@ p_hat <- mean(muestra$erc)
 p_hat
 ```
 
-Con 300 adultos obtuvimos `r sprintf("%.1f", 100 * p_hat)` %. ¿Cuánto nos podemos equivocar? Para una proporción, el **error estándar** es
+Con 300 adultos obtuvimos **`r sprintf("%.1f", 100 * p_hat)` %** de ERC. ¿Cuánto nos podemos equivocar? Para una proporción, el **error estándar** (EE) es
 
 $$
 EE(\hat p) = \sqrt{\frac{\hat p\,(1-\hat p)}{n}}\;\sqrt{1-\frac{n}{N}}
@@ -75,19 +87,21 @@ c(p_hat = p_hat, EE = ee, IC_inf = p_hat - 1.96 * ee, IC_sup = p_hat + 1.96 * ee
 prop.test(sum(muestra$erc), n)$conf.int      # Wilson con corrección de continuidad
 ```
 
-## Muchas muestras: la distribución muestral
+El IC de Wilson va de `r sprintf("%.1f", 100 * prop.test(sum(muestra$erc), n)$conf.int[1])` % a `r sprintf("%.1f", 100 * prop.test(sum(muestra$erc), n)$conf.int[2])` %: **contiene la verdad** (`r sprintf("%.1f", 100 * prev_verdadera)` %). Pero nota que esta muestra no la acertó exactamente, y otra muestra tampoco lo haría.
 
-Si repetimos el muestreo **muchas veces**, cada muestra da un estimador distinto. Esa variación **aleatoria** es el *error de muestreo*. La simulamos con 2 000 muestras de tamaños 100, 300, 1 000 y 3 000:
+## Paso 4: muchas muestras, la distribución muestral
+
+Si repetimos el muestreo **muchas veces**, cada muestra da un estimador distinto. Esa variación **aleatoria** es el *error de muestreo*. Simulamos 2 000 muestras para cuatro tamaños (cada uno **cuatro veces** mayor que el anterior):
 
 ```{r}
 #| label: dist-muestral
 #| fig-width: 9
 #| fig-height: 4
 set.seed(1)
-tamanos <- c(100, 300, 1000, 3000)
+tamanos <- c(100, 400, 1600, 6400)
 
 dist <- map_dfr(tamanos, \(n) {
-  tibble(n = n, estimado = replicate(2000, mean(sample(pob$erc, n))))
+  tibble(n = n, estimado = replicate(2000, mean(sample(pob$erc, n))))    # 2000 muestras de tamaño n
 }) |>
   mutate(n = factor(n, levels = tamanos, labels = paste("n =", tamanos)))
 
@@ -101,21 +115,29 @@ ggplot(dist, aes(estimado)) +
   theme_minimal(base_size = 11)
 ```
 
+Y la desviación estándar de esas 2 000 estimaciones (el **error estándar**), comparada con la fórmula:
+
 ```{r}
 #| label: resumen-dist
-dist |>
+resumen_dist <- dist |>
   group_by(n) |>
-  summarise(media = mean(estimado), desv_est = sd(estimado)) |>
-  mutate(across(c(media, desv_est), \(x) round(100 * x, 2)))
+  summarise(media = mean(estimado), error_estandar = sd(estimado)) |>
+  mutate(n_num = tamanos,
+         ee_formula = sqrt(prev_verdadera * (1 - prev_verdadera) / n_num * (1 - n_num / N))) |>
+  select(-n_num) |>
+  mutate(across(c(media, error_estandar, ee_formula), \(x) round(100 * x, 2)))
+
+resumen_dist
 ```
 
-Tres lecciones que se ven en el gráfico:
+Qué vemos (los valores están en puntos porcentuales):
 
-1.  **Las muestras acertan "en promedio"**: el centro cae sobre la línea (el estimador es **insesgado** con muestreo aleatorio).
-2.  **Con muestras pequeñas el resultado puede estar muy lejos** de la verdad: un solo estudio es una sola flecha.
-3.  **El error disminuye con la raíz del tamaño de muestra**: para reducir el error a la mitad hay que **cuadruplicar** *n*. Duplicar la muestra no basta.
+1.  **Las muestras acertan "en promedio"**: la media cae sobre la verdad (`r sprintf("%.2f", 100 * prev_verdadera)` %). Con muestreo aleatorio el estimador es **insesgado**.
+2.  **Con muestras pequeñas el resultado puede estar muy lejos**: con n = 100 el error estándar es de `r resumen_dist$error_estandar[1]` puntos. Un estudio es una sola flecha lanzada.
+3.  **El error baja con la raíz de *n***: cada vez que cuadruplicamos la muestra, el error estándar se reduce a **la mitad** (`r resumen_dist$error_estandar[1]` → `r resumen_dist$error_estandar[2]` → `r resumen_dist$error_estandar[3]` → `r resumen_dist$error_estandar[4]`). Duplicar la muestra no basta.
+4.  **La fórmula funciona**: la columna `ee_formula` coincide con lo simulado.
 
-## ¿Qué significa realmente un IC del 95 %?
+## Paso 5: ¿qué significa realmente un IC del 95 %?
 
 El IC **no** dice "hay 95 % de probabilidad de que la verdad esté dentro de *este* intervalo". Dice que, **si repitiéramos el estudio muchas veces**, el 95 % de los intervalos construidos así contendrían la verdad. Lo vemos con 40 estudios independientes de n = 300:
 
@@ -140,20 +162,14 @@ ggplot(estudios, aes(y = estudio, x = p, xmin = inf, xmax = sup, color = cubre))
   labs(x = "Prevalencia estimada (IC 95 %)", y = "Estudio",
        caption = "Datos simulados.") +
   theme_minimal(base_size = 11) + theme(legend.position = "bottom")
-
-mean(estudios$cubre)
 ```
 
-Con 40 estudios es normal que 1 o 2 intervalos (en promedio el 5 %) **no contengan** la verdad.
+De los 40 intervalos, **`r sum(estudios$cubre)`** contienen la verdad (`r sprintf("%.1f", 100 * mean(estudios$cubre))` %). Con 40 estudios es normal que 1 o 2 (en promedio el 5 %) **no la contengan**: no es un error, es lo que significa "95 %".
 
-## Error aleatorio y error sistemático
+## Paso 6: error aleatorio y error sistemático
 
-| | **Error aleatorio** | **Error sistemático (sesgo)** |
-|---|---|---|
-| Origen | Azar del muestreo | Cómo se eligió o midió |
-| Se reduce con | Más tamaño de muestra | **Nada que dependa de *n*** |
-| Se describe con | EE, IC | Diseño, análisis de sesgos |
-| Ejemplo | Una muestra rural tuvo más ERC por azar | Solo se midió a quien acudió a la clínica |
+-   **Error aleatorio**: viene del azar del muestreo. Se **reduce con más *n*** y se describe con el EE y el IC.
+-   **Error sistemático (sesgo)**: viene de *cómo* se eligió o midió (por ejemplo, medir solo a quien acude a la clínica). **No depende de *n***: más pacientes no lo arreglan; se evita con el diseño y se estudia con análisis de sesgos.
 
 ::: {.callout-warning}
 ## ⚠️ Una muestra enorme y sesgada es **peor** que una pequeña y bien elegida
@@ -161,19 +177,14 @@ Con 40 estudios es normal que 1 o 2 intervalos (en promedio el 5 %) **no conteng
 Un IC estrecho alrededor del valor equivocado da falsa seguridad. En 6.4 lo comprobaremos con la clínica de nefrología.
 :::
 
-## Validez interna y externa
-
--   **Validez interna**: ¿la comparación dentro del estudio es correcta? (se estudia con los Caps. 3, 10, 11 y 12).
--   **Validez externa** (*generalizabilidad*): ¿el resultado vale para otra población? Depende de **cómo se muestreó** y de si el efecto cambia entre poblaciones.
-
-Un ECA con muy buena validez interna puede tener poca validez externa si reclutó solo pacientes jóvenes y sin comorbilidad. Para estimar **frecuencias** (prevalencia) la muestra aleatoria es esencial; para estimar **efectos causales** la aleatorización o el ajuste importan más que la representatividad, pero la representatividad define *a quién* se aplica el efecto.
+**Validez interna y externa.** La **validez interna** pregunta si la comparación *dentro* del estudio es correcta (Caps. 3, 10, 11 y 12). La **validez externa** (*generalizabilidad*) pregunta si el resultado vale para otra población, y depende de **cómo se muestreó**. Un ECA con excelente validez interna puede tener poca validez externa si reclutó solo pacientes jóvenes y sin comorbilidad. Para estimar **frecuencias** (prevalencia) la muestra aleatoria es esencial; para estimar **efectos causales** importan más la aleatorización o el ajuste, pero la representatividad define *a quién* se aplica el efecto.
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
--   **Población objetivo ≠ marco ≠ muestra**. Revisa quién queda fuera del marco.
+-   **Población objetivo ≠ marco ≠ muestra**: revisa quién queda fuera del marco.
 -   El **parámetro** es fijo y desconocido; el **estimador** cambia de muestra en muestra.
--   El **error estándar** mide la variación aleatoria y baja con $\sqrt{n}$ (cuadruplicar *n* para reducir a la mitad).
+-   El **error estándar** mide la variación aleatoria y baja con $\sqrt{n}$: cuadruplicar *n* reduce el error a la mitad.
 -   El **IC 95 %** describe el procedimiento: 95 de cada 100 intervalos contendrían la verdad.
 -   Más *n* **no corrige** un sesgo de selección ni de medición.
 :::
@@ -181,5 +192,5 @@ Un ECA con muy buena validez interna puede tener poca validez externa si reclut�
 ## Ejercicio
 
 1.  Repite el cálculo de la distribución muestral con `n = 500` y verifica que la desviación estándar coincide con $\sqrt{p(1-p)/n}$.
-2.  Calcula el IC 95 % de la prevalencia **rural** con una MAS de 300 adultos (usa `filter(area == "Rural")` antes de muestrear). ¿Es más ancho que el global? ¿Por qué?
-3.  Con tus propias palabras: ¿por qué un IC angosto no garantiza que la estimación sea cercana a la verdad?
+2.  Calcula el IC 95 % de la prevalencia **rural** con una MAS de 300 adultos rurales (`filter(area == "Rural")` antes de muestrear). ¿Es más ancho que el global? ¿Por qué?
+3.  Con tus palabras: ¿por qué un IC angosto no garantiza que la estimación esté cerca de la verdad?

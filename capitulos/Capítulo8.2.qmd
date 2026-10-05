@@ -1,6 +1,18 @@
-# Regresión lineal
+# Regresión lineal: cuánto cambia el desenlace, en promedio
 
-## El modelo
+::: {.callout-note}
+## 🩺 Escenario
+
+En tu base, los pacientes con iSGLT2 pierden menos TFGe por año que los demás. Tu tutor pregunta: "¿**cuánto** menos? ¿Y sigue siendo así si comparas pacientes de la misma edad, con la misma albuminuria y la misma HbA1c?". Para contestar "cuánto" con un desenlace continuo (la pendiente anual de TFGe) usamos la **regresión lineal**. Como los datos son simulados, además sabremos **cuál es la respuesta correcta** y podremos ver cuánto nos acercamos.
+:::
+
+**Lo que vamos a hacer**
+
+-   Entender qué hace una regresión lineal (la recta que mejor resume la nube) y **leer su salida** paso a paso.
+-   Interpretar cada coeficiente con ejemplos clínicos: continuas, categóricas, intercepto.
+-   Comparar el efecto **crudo**, el **ajustado** y la **verdad** y ver qué no puede arreglar un modelo.
+
+## Paso 1. La idea: la recta que mejor resume la nube
 
 La regresión lineal describe cómo cambia, **en promedio**, un desenlace continuo $Y$ según una o más variables $X$:
 
@@ -8,11 +20,7 @@ $$
 E[Y \mid X] = \beta_0 + \beta_1 X_1 + \beta_2 X_2 + \dots + \beta_p X_p
 $$
 
--   $\beta_0$ (**intercepto**): el promedio de $Y$ cuando todas las $X$ valen 0 (por eso conviene *centrar* las variables continuas).
--   $\beta_j$: la **diferencia promedio de $Y$** por cada unidad de $X_j$, **manteniendo constantes** las demás variables del modelo.
--   Con una exposición binaria $X_1$ (iSGLT2 sí/no), $\beta_1$ es la **diferencia de medias ajustada**.
-
-En nefrología se usa para desenlaces como la **pendiente de TFGe**, la creatinina a los 12 meses, la presión arterial, el peso seco o la hemoglobina.
+Antes de las letras, el dibujo. Tomemos solo 30 pacientes y miremos cómo se relaciona la edad con la pendiente de TFGe. La recta de regresión es la que **minimiza la suma de los cuadrados de las distancias verticales** (los **residuos**, en naranja) entre cada punto y la recta. Por eso se llama de **mínimos cuadrados ordinarios** (MCO, o *OLS*):
 
 ```{r}
 #| label: setup-82
@@ -21,36 +29,75 @@ library(broom)
 library(marginaleffects)
 source("R/funciones_epi.R")
 
-ckd <- read_csv("Bases/ckd_isglt2.csv") |>
+ckd <- read_csv("Bases/ckd_isglt2.csv", show_col_types = FALSE) |>
   mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")),
          luacr = log(uacr))
 
 ## "Oráculo" (solo existe porque simulamos): contiene el efecto verdadero de cada paciente
-oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv")
+oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv", show_col_types = FALSE)
 ate_verdadero <- mean(oraculo$ite)
 ate_verdadero
 ```
 
-El **efecto causal verdadero** promedio del iSGLT2 sobre la pendiente de TFGe es **`r sprintf("%.2f", ate_verdadero)` mL/min/1.73 m²/año** (la columna `ite` del oráculo; en la vida real *nunca* se conoce). Veamos qué estima cada modelo.
+El **efecto causal verdadero** promedio del iSGLT2 sobre la pendiente de TFGe es **`r sprintf("%.2f", ate_verdadero)` mL/min/1.73 m²/año** (la columna `ite` del oráculo; en la vida real *nunca* se conoce). Guarda ese número: es la vara con la que mediremos cada modelo.
 
-## Modelo simple (crudo)
+```{r}
+#| label: ols-visual
+#| fig-width: 7
+#| fig-height: 3.8
+set.seed(7)
+mini <- slice_sample(ckd, n = 30)
+m_mini <- lm(pendiente_tfg ~ edad, data = mini)
+mini$ajustado <- fitted(m_mini)
+
+ggplot(mini, aes(edad, pendiente_tfg)) +
+  geom_segment(aes(xend = edad, yend = ajustado), color = "#D55E00", alpha = 0.7) +
+  geom_abline(intercept = coef(m_mini)[1], slope = coef(m_mini)[2], color = "#0072B2", linewidth = 1) +
+  geom_point(size = 2) +
+  labs(x = "Edad (años)", y = "Cambio anual de TFGe (mL/min/1.73 m²/año)",
+       caption = "30 pacientes simulados. Naranja: residuos. Azul: recta de mínimos cuadrados.") +
+  theme_minimal(base_size = 11)
+```
+
+**Qué vemos.** La recta baja con la edad: en esta mini-muestra, `r sprintf("%.2f", coef(m_mini)[2])` mL/min/1.73 m²/año de pendiente **por cada año más de edad**. Los residuos son lo que la recta no explica; cuanto más cortos, mejor el ajuste.
+
+## Paso 2. Leer la salida de `summary(lm())`
+
+Ahora el modelo que de verdad nos interesa. Con una exposición binaria (iSGLT2 sí/no) como única variable, el coeficiente es la **diferencia de medias** entre tratados y no tratados (la estimación **cruda**, sin ajustar por nada):
 
 ```{r}
 #| label: lm-crudo
 m0 <- lm(pendiente_tfg ~ isglt2, data = ckd)
+summary(m0)
+```
+
+**Cómo se lee esta salida**, de arriba abajo:
+
+-   `Call`: la fórmula que ajustaste. `pendiente_tfg ~ isglt2` se lee "pendiente en función de isglt2".
+-   `Residuals`: resumen de los residuos (mínimo, cuartiles, máximo). Una mediana cercana a 0 y cuartiles simétricos es buena señal.
+-   `Coefficients`, **Estimate**: la estimación. `(Intercept)` = `r sprintf("%.2f", coef(m0)[1])` es la pendiente media en los **no tratados** (isglt2 = 0); `isglt2` = `r sprintf("%.2f", coef(m0)[2])` es lo que **se suma** en los tratados: los tratados pierden **`r sprintf("%.2f", coef(m0)[2])` mL/min/1.73 m²/año menos**.
+-   **Std. Error**: la incertidumbre de la estimación (cuánto variaría en otras muestras). **t value** = Estimate / Std. Error, y **Pr(>|t|)** es el *p* de la hipótesis "este coeficiente es 0".
+-   `Residual standard error`: la desviación típica de los residuos (aquí `r sprintf("%.2f", sigma(m0))`), en unidades del desenlace.
+-   `Multiple R-squared`: la fracción de la variación de $Y$ que explica el modelo (`r sprintf("%.3f", summary(m0)$r.squared)`: poca, porque solo usamos el tratamiento).
+-   `F-statistic`: prueba si **alguna** variable del modelo sirve (la hipótesis de que todos los coeficientes son 0). Con una sola variable, es lo mismo que el *p* del coeficiente.
+
+`broom::tidy()` presenta lo mismo en una tabla ordenada y añade los IC:
+
+```{r}
+#| label: tidy-crudo
 tidy(m0, conf.int = TRUE)
 ```
 
-El coeficiente de `isglt2` es la **diferencia de medias** entre tratados y no tratados (idéntica a la de una prueba *t* de varianzas iguales). Es la estimación **cruda**: sin ajustar por nada.
+Es exactamente la diferencia de medias:
 
 ```{r}
 #| label: igual-dif-medias
 ckd |> group_by(isglt2) |> summarise(media = mean(pendiente_tfg)) |> summarise(dif = diff(media))
 ```
 
-## Ajustar por otras variables
+## Paso 3. Ajustar por otras variables
 
-Agregamos las covariables medidas. Reescalamos la edad (por 10 años) para que su coeficiente sea interpretable, y usamos `luacr` (logaritmo de la UACR) porque la UACR es muy asimétrica:
+Los tratados no son iguales a los no tratados (Tabla 1, Cap. 7.2). Para **comparar pacientes parecidos** añadimos las covariables medidas. Reescalamos la edad (por 10 años) para que su coeficiente sea legible, y usamos `luacr` (logaritmo de la UACR) porque la UACR es muy asimétrica:
 
 ```{r}
 #| label: lm-ajustado
@@ -63,38 +110,60 @@ tidy(m1, conf.int = TRUE) |>
 
 ### Cómo leer cada coeficiente
 
-| Término | Estimación | Se interpreta como |
-|---|---|---|
-| `isglt2` | ≈ +1.3 | Los tratados pierden **1.3 mL/min/1.73 m²/año menos**, a igual edad, sexo, HbA1c, PAS, TFGe, albuminuria y ECV |
-| `I(edad/10)` | ≈ −0.45 | Por cada **10 años más de edad**, la pendiente es 0.45 peor |
-| `hba1c` | ≈ −0.25 | Por cada **punto más de HbA1c**, 0.25 peor |
-| `pas` | ≈ −0.02 | Por cada **mmHg** más de PAS, 0.02 peor (0.2 por cada 10 mmHg) |
-| `tfg_basal` | ≈ +0.015 | A mayor TFGe basal, la pendiente es algo menos negativa |
-| `luacr` | ≈ −0.23 | Cada **aumento de 1 en ln(UACR)** (UACR × 2.7) empeora la pendiente 0.23 |
-| `ecv` | ≈ −0.5 | Con ECV previa, 0.5 peor |
-| `sexoHombre` | ≈ 0 | Sin diferencia relevante |
+Cada coeficiente es la diferencia promedio de $Y$ **por cada unidad de esa variable, manteniendo constantes todas las demás** del modelo:
+
+-   **`isglt2` (`r sprintf("%+.2f", coef(m1)["isglt2"])`)**: a igual edad, sexo, HbA1c, PAS, TFGe, albuminuria y ECV, los tratados pierden **`r sprintf("%.1f", coef(m1)["isglt2"])` mL/min/1.73 m²/año menos**. Es la diferencia de medias **ajustada**.
+-   **`I(edad/10)` (`r sprintf("%+.2f", coef(m1)["I(edad/10)"])`)**: por cada **10 años más de edad**, la pendiente es `r sprintf("%.2f", abs(coef(m1)["I(edad/10)"]))` peor.
+-   **`hba1c` (`r sprintf("%+.2f", coef(m1)["hba1c"])`)**: por cada **punto más de HbA1c**, `r sprintf("%.2f", abs(coef(m1)["hba1c"]))` peor.
+-   **`pas` (`r sprintf("%+.3f", coef(m1)["pas"])`)**: por cada mmHg más de PAS, `r sprintf("%.2f", abs(coef(m1)["pas"]))` peor (`r sprintf("%.1f", 10 * abs(coef(m1)["pas"]))` por cada 10 mmHg).
+-   **`luacr` (`r sprintf("%+.2f", coef(m1)["luacr"])`)**: cada aumento de 1 en ln(UACR) (la UACR se multiplica por 2.7) empeora la pendiente `r sprintf("%.2f", abs(coef(m1)["luacr"]))`.
+-   **`ecv` (`r sprintf("%+.2f", coef(m1)["ecv"])`)**: con ECV previa, `r sprintf("%.2f", abs(coef(m1)["ecv"]))` peor.
+-   **`sexoHombre` (`r sprintf("%+.2f", coef(m1)["sexoHombre"])`)**: sin diferencia relevante (IC que incluye 0). El nombre indica que se compara **Hombre frente a la categoría de referencia (Mujer)**.
+-   **`tfg_basal` (`r sprintf("%+.3f", coef(m1)["tfg_basal"])`)**: a mayor TFGe basal, la pendiente es algo menos negativa.
+
+### El intercepto y la categoría de referencia
+
+El **intercepto** es el valor esperado de $Y$ cuando **todas** las covariables valen 0. Con el modelo anterior (`r sprintf("%.2f", coef(m1)["(Intercept)"])`) eso describe a un paciente de 0 años con PAS de 0 mmHg: no existe. La solución es **centrar** las variables en un valor típico; así el intercepto describe a un paciente "de referencia" real:
+
+```{r}
+#| label: centrar
+m1c <- lm(pendiente_tfg ~ isglt2 + I((edad - 64) / 10) + sexo + I(hba1c - 7.8) + I(pas - 135) +
+            I(tfg_basal - 46) + I(luacr - 4.8) + ecv, data = ckd)
+round(coef(m1c)["(Intercept)"], 2)
+```
+
+Ahora el intercepto (`r sprintf("%.2f", coef(m1c)["(Intercept)"])`) es la pendiente esperada de una **mujer sin iSGLT2, de 64 años, HbA1c 7.8 %, PAS 135 mmHg, TFGe 46, UACR ≈ 120 mg/g y sin ECV**. Con las variables categóricas, la **categoría de referencia** es la primera del factor. Cambiarla (con `relevel()` o `fct_relevel()`) solo cambia **con quién se compara**, no el modelo:
+
+```{r}
+#| label: referencia
+m_ref <- lm(pendiente_tfg ~ isglt2 + relevel(sexo, ref = "Hombre"), data = ckd)
+round(coef(m_ref)[3], 3)       # antes era sexoHombre: ahora es el efecto de ser Mujer
+round(coef(lm(pendiente_tfg ~ isglt2 + sexo, data = ckd))[3], 3)
+```
+
+El coeficiente cambia de signo (es la misma diferencia, mirada desde el otro lado).
 
 ::: {.callout-tip}
-## 💡 Tip práctico: escalar para interpretar mejor
+## 💡 Escala tus variables para poder leerlas
 
--   Edad **por 10 años**, PAS **por 10 mmHg**, UACR en **logaritmo base 2** (`log2(uacr)`: cada unidad = *duplicar* la UACR) hacen los coeficientes más fáciles de leer que "por 1 año" o "por 1 mg/g".
--   Variables categóricas: la categoría de **referencia** es la primera del factor; cámbiala con `relevel()` o `fct_relevel()` para comparar contra el grupo que tiene sentido clínico.
+Edad **por 10 años**, PAS **por 10 mmHg** y UACR en **logaritmo base 2** (`log2(uacr)`: cada unidad equivale a *duplicar* la UACR) dan coeficientes mucho más fáciles de interpretar que "por 1 año" o "por 1 mg/g". Y para variables categóricas, elige como referencia el grupo que tenga sentido clínico (p. ej., "sin tratamiento").
 :::
 
-## ¿Qué tan bien ajusta? R², error residual
+## Paso 4. ¿Qué tan bien ajusta?
 
 ```{r}
 #| label: glance
-glance(m1) |> select(r.squared, adj.r.squared, sigma, nobs) |> round(3)
+glance(m1) |> select(r.squared, adj.r.squared, sigma, AIC, BIC, nobs) |> round(3)
 ```
 
--   **R²** = fracción de la variación de $Y$ explicada por el modelo. Aquí ≈ 0.48.
--   **sigma** (error residual) = desviación típica de lo que el modelo no explica, en unidades de $Y$.
--   **Un R² alto no significa que el modelo sea causalmente correcto, ni un R² bajo que no sirva**: para estimar el efecto de la exposición, importa el **sesgo de ese coeficiente**, no el R².
+-   **R²** = fracción de la variación de $Y$ explicada por el modelo (aquí `r sprintf("%.2f", glance(m1)$r.squared)`); el **R² ajustado** penaliza por el número de variables, útil para comparar modelos con distinto número de covariables.
+-   **sigma** (error residual) = `r sprintf("%.2f", glance(m1)$sigma)`: en promedio, el valor real de un paciente se aleja ~`r sprintf("%.1f", glance(m1)$sigma)` mL/min/1.73 m²/año de lo que predice el modelo.
+-   **AIC y BIC** sirven para **comparar modelos ajustados a los mismos datos** (menor es mejor; BIC penaliza más los modelos grandes). No son pruebas de hipótesis y su valor absoluto no significa nada.
+-   **Un R² alto no significa que el modelo sea causalmente correcto, ni uno bajo que no sirva**: para estimar el efecto de una exposición importa el **sesgo de ese coeficiente**, no el R².
 
-## ¿Qué hace el ajuste? Crudo vs. ajustado vs. verdad
+## Paso 5. Crudo, ajustado y verdad
 
-Comparemos el coeficiente del iSGLT2 en tres modelos con la **verdad** (`r sprintf("%.2f", ate_verdadero)`). El tercer modelo incluye la **fragilidad**, que en la vida real **no se mide**:
+Comparemos el coeficiente del iSGLT2 en tres modelos con la **verdad** (`r sprintf("%.2f", ate_verdadero)`). El tercero incluye la **fragilidad**, que en la vida real **no se mide**:
 
 ```{r}
 #| label: comparar-modelos
@@ -120,7 +189,7 @@ bind_rows(
 #| fig-width: 8
 #| fig-height: 3.4
 tibble(
-  modelo = factor(c("Crudo", "Ajustado por\nlo medido", "Ajustado +\nfragilidad"), 
+  modelo = factor(c("Crudo", "Ajustado por\nlo medido", "Ajustado +\nfragilidad"),
                   levels = c("Crudo", "Ajustado por\nlo medido", "Ajustado +\nfragilidad")),
   est = c(coef(m0)["isglt2"], coef(m1)["isglt2"], coef(m2)["isglt2"]),
   inf = c(confint(m0)["isglt2", 1], confint(m1)["isglt2", 1], confint(m2)["isglt2", 1]),
@@ -136,40 +205,39 @@ tibble(
 
 Esto resume la lección del capítulo:
 
-1.  El estimador **crudo sobrestima** el beneficio (tratados = pacientes de mejor pronóstico).
-2.  **Ajustar por lo medido** lo acerca a la verdad, pero **no lo alcanza**: queda **confusión residual** por la fragilidad.
-3.  Solo cuando se incluye la variable **no medida** se recupera la verdad. Un modelo de regresión **no puede arreglar lo que no se midió**. Para eso sirven el diseño (aleatorización), los análisis de sensibilidad (E-value) o los instrumentos (Cap. 19).
+1.  El estimador **crudo** (`r sprintf("%.2f", coef(m0)["isglt2"])`) **sobrestima** el beneficio: los tratados son los pacientes de mejor pronóstico.
+2.  **Ajustar por lo medido** lo acerca a la verdad (`r sprintf("%.2f", coef(m1)["isglt2"])`), pero **no lo alcanza**: queda **confusión residual** por la fragilidad.
+3.  Solo cuando se incluye la variable **no medida** se recupera la verdad (`r sprintf("%.2f", coef(m2)["isglt2"])`). Un modelo de regresión **no puede arreglar lo que no se midió**. Para eso sirven el diseño (aleatorización), los análisis de sensibilidad (E-value) o los instrumentos (Cap. 19).
 
-::: {.callout-warning}
-## ⚠️ El modelo no es el DAG
+## Paso 6. Predicciones y efectos promedio con `marginaleffects`
 
-Un coeficiente ajustado es "causal" **solo si** (1) el conjunto de ajuste cierra todos los caminos de puerta trasera (Cap. 3), (2) no se ajusta por mediadores ni colisionadores, y (3) el modelo está bien especificado. La **selección de covariables** viene del DAG, no del valor *p* de cada coeficiente.
-:::
-
-## Predicciones y efectos promedio: `marginaleffects`
-
-Un coeficiente solo equivale al efecto promedio cuando el modelo **no tiene interacciones ni transformaciones**. Una forma general es **predecir** cada paciente con y sin tratamiento y promediar la diferencia (esto es el **efecto marginal promedio**, base de la g-fórmula, Cap. 12):
+Un coeficiente solo equivale al efecto promedio cuando el modelo **no tiene interacciones ni transformaciones**. Una forma general es **predecir** cada paciente con y sin tratamiento y promediar la diferencia (**efecto marginal promedio**, base de la g-fórmula, Cap. 12):
 
 ```{r}
 #| label: marginal
 avg_comparisons(m1, variables = "isglt2")
 ```
 
-Con este modelo lineal sin interacciones el resultado coincide con el coeficiente. Con modelos con interacción o no lineales (8.3 a 8.5) se diferencian, y `avg_comparisons()` sigue entregando **el efecto promedio en la población**.
+Con este modelo lineal sin interacciones, el resultado coincide con el coeficiente (`r sprintf("%.2f", coef(m1)["isglt2"])`). Con modelos con interacción o no lineales (8.3 a 8.5) se diferencian, y `avg_comparisons()` sigue entregando **el efecto promedio en la población**.
+
+::: {.callout-warning}
+## ⚠️ El modelo no es el DAG
+
+Un coeficiente ajustado es "causal" **solo si** (1) el conjunto de ajuste cierra todos los caminos de puerta trasera (Cap. 3), (2) no se ajusta por mediadores ni colisionadores, y (3) el modelo está bien especificado. La **selección de covariables** viene del DAG, no del valor *p* de cada coeficiente. Y recuerda: "significativo" no es "importante" ni "causal".
+:::
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
--   $\beta_j$ = diferencia promedio de $Y$ por unidad de $X_j$, **manteniendo constantes** las demás.
--   Con exposición binaria, el coeficiente es la **diferencia de medias ajustada**.
--   Escala las variables (por 10 años, `log2(uacr)`) y fija la **categoría de referencia** para interpretar.
--   **Crudo ≠ ajustado**: ajustar por lo medido reduce la confusión pero **no elimina la no medida**.
+-   $\beta_j$ = diferencia promedio de $Y$ por unidad de $X_j$, **manteniendo constantes** las demás. Con exposición binaria, el coeficiente es la **diferencia de medias ajustada**.
+-   Lee la salida en este orden: **Estimate** (cuánto), **IC o Std. Error** (con qué precisión), **R² y sigma** (cuánto explica).
+-   Centra las variables para que el **intercepto** tenga sentido; escala (por 10 años, `log2(uacr)`) y fija la **referencia** de las categóricas.
+-   **Crudo ≠ ajustado**: ajustar por lo medido reduce la confusión, pero **no elimina la no medida** (el modelo "con fragilidad" es la verdad, y solo existe en la simulación).
 -   R² describe el ajuste, no la causalidad; el **DAG** decide las covariables.
--   `broom::tidy()/glance()` ordenan el resultado; `avg_comparisons()` da el efecto marginal promedio.
 :::
 
 ## Ejercicio
 
 1.  Ajusta un modelo con `log2(uacr)` en lugar de `log(uacr)`. ¿Cómo cambia la interpretación del coeficiente?
-2.  Cambia con `relevel(sexo, ref = "Hombre")` el **sexo de referencia**. ¿Qué cambia en la tabla y qué no?
+2.  Cambia con `relevel(sexo, ref = "Hombre")` el **sexo de referencia** en el modelo completo. ¿Qué cambia en la tabla y qué no?
 3.  ¿Qué pasa con el coeficiente del iSGLT2 si **quitas** `luacr` del modelo? ¿Por qué se aleja de la verdad?

@@ -1,33 +1,40 @@
-# La Tabla 1
+# La Tabla 1: ¿quiénes son y son comparables?
 
-## Qué es y para qué sirve
+::: {.callout-note}
+## 🩺 Escenario
 
-La **Tabla 1** de un artículo describe las **características basales** de la población estudiada, general y por grupos. Responde a dos preguntas del lector:
-
-1.  **¿Quiénes son estos pacientes?** (validez externa: ¿se parecen a los míos?).
-2.  **¿Son comparables los grupos?** (validez interna: ¿hay desbalance que pueda confundir?).
-
-::: {.callout-warning}
-## ⚠️ Valores *p* en la Tabla 1
-
--   En un **ECA bien aleatorizado**, cualquier diferencia basal es **fruto del azar**; un valor *p* no tiene sentido (CONSORT lo desaconseja).
--   En un estudio **observacional**, la pregunta no es "¿es significativa la diferencia?" sino "**¿qué tan grande** es?". El *p* depende del tamaño de muestra: con 5 000 pacientes, diferencias triviales son "significativas"; con 50, diferencias grandes no lo son.
--   La medida recomendada es la **diferencia estandarizada de medias** (DEM o *SMD*): la diferencia entre grupos expresada en unidades de DE, **independiente de *n***. Se considera desbalance relevante un |DEM| > 0.10.
+Terminaste de recolectar tu cohorte: pacientes con ERC y diabetes que iniciaron o no un iSGLT2 (datos **simulados**). Tu tutor te pide "la Tabla 1 para el manuscrito". El revisor, además, quiere saber si los dos grupos **se parecen lo suficiente** como para compararlos. Una sola tabla tiene que contestar ambas cosas.
 :::
 
-## La función `tabla1()`
+**Lo que vamos a hacer**
 
-El libro incluye `R/tabla1.R` con la función `tabla1()`, que no depende de paquetes externos. Sus argumentos:
+-   Entender qué dos preguntas contesta la Tabla 1 y por qué **no lleva valores *p*** (o no solo ellos).
+-   Construirla con la función `tabla1()` del libro, para toda la cohorte y por grupo de tratamiento.
+-   Leer la **diferencia estandarizada de medias (DEM)**, verla en un gráfico y exportar la tabla a Word.
 
-| Argumento | Para qué sirve |
-|---|---|
-| `datos` | La base |
-| `vars` | Las variables a describir, en el orden de la tabla |
-| `grupo` | Variable de agrupación (si se omite, una sola columna "Total") |
-| `no_normales` | Variables continuas que se resumen con **mediana [Q1, Q3]** |
-| `binarias` | Variables codificadas 0/1 que se muestran en **una sola fila** |
-| `etiquetas` | Nombres presentables: `c(edad = "Edad, años")` |
-| `valor_p`, `dem`, `faltantes` | Mostrar o no cada columna |
+## Paso 1. Qué contesta la Tabla 1
+
+La **Tabla 1** de un artículo describe las **características basales** de la población, en total y por grupos. Responde a dos preguntas del lector:
+
+1.  **¿Quiénes son estos pacientes?** (validez externa: ¿se parecen a los míos?).
+2.  **¿Son comparables los grupos?** (validez interna: ¿hay un desbalance que pueda confundir?).
+
+Para la segunda pregunta la costumbre es poner un valor *p* al lado de cada fila. Es una mala costumbre:
+
+-   En un **ECA bien aleatorizado**, cualquier diferencia basal es **fruto del azar**; un valor *p* no tiene sentido (CONSORT lo desaconseja).
+-   En un **estudio observacional**, la pregunta no es "¿es significativa la diferencia?" sino "**¿qué tan grande es?**". El *p* depende del tamaño de muestra: con 5 000 pacientes, diferencias triviales salen "significativas"; con 50, diferencias grandes no.
+-   La medida recomendada es la **diferencia estandarizada de medias** (DEM; *SMD* en inglés): la diferencia entre grupos expresada en **unidades de DE**, independiente de *n*. Se considera un desbalance relevante una |DEM| > 0.10.
+
+## Paso 2. La función `tabla1()`
+
+El libro incluye `R/tabla1.R` con la función `tabla1()`, que no depende de paquetes externos. Los argumentos que más usarás:
+
+-   `datos`, `vars`: la base y las variables que quieres describir, **en el orden de la tabla**.
+-   `grupo`: la variable que define las columnas (si la omites, una sola columna "Total").
+-   `no_normales`: las continuas que se resumen con **mediana [Q1, Q3]** (las asimétricas, Cap. 7.1).
+-   `binarias`: las codificadas 0/1 que se muestran en **una sola fila** ("ECV previa, n (%)").
+-   `etiquetas`: nombres presentables, p. ej. `c(edad = "Edad, años")`.
+-   `valor_p`, `dem`, `faltantes`: mostrar o no cada columna.
 
 ```{r}
 #| label: setup-72
@@ -35,37 +42,40 @@ library(tidyverse)
 source("R/funciones_epi.R")
 source("R/tabla1.R")
 
-ckd <- read_csv("Bases/ckd_isglt2.csv") |>
+ckd <- read_csv("Bases/ckd_isglt2.csv", show_col_types = FALSE) |>
   mutate(
     sexo = factor(sexo, levels = c("Mujer", "Hombre")),
     trat = factor(isglt2, levels = 0:1, labels = c("Sin iSGLT2", "Con iSGLT2")),
     cat_g = categoria_g(tfg_basal), cat_a = categoria_a(uacr),
     riesgo = riesgo_kdigo(cat_g, cat_a)
   )
+
+etiquetas <- c(edad = "Edad, años", sexo = "Sexo", hba1c = "HbA1c, %", pas = "PAS, mmHg",
+               tfg_basal = "TFGe, mL/min/1.73 m²", uacr = "UACR, mg/g",
+               ecv = "ECV previa", riesgo = "Riesgo KDIGO")
 ```
 
 ### Una sola columna: toda la cohorte
+
+Empezamos por la versión más simple: sin `grupo`, solo "¿quiénes son?".
 
 ```{r}
 #| label: tabla1-total
 tabla1(
   ckd,
   vars = c("edad", "sexo", "hba1c", "pas", "tfg_basal", "uacr", "ecv"),
-  no_normales = "uacr", binarias = "ecv",
-  etiquetas = c(edad = "Edad, años", hba1c = "HbA1c, %", pas = "PAS, mmHg",
-                tfg_basal = "TFGe, mL/min/1.73 m²", uacr = "UACR, mg/g",
-                ecv = "ECV previa", sexo = "Sexo")
+  no_normales = "uacr", binarias = "ecv", etiquetas = etiquetas
 )
 ```
 
+**Cómo se lee.** Cada fila trae su resumen en el nombre: "media (DE)" para las simétricas y "mediana [Q1, Q3]" para la UACR, que declaramos asimétrica. Las categóricas muestran *n* (%) por nivel. La columna `Faltantes` debe estar **siempre**; aquí es 0 porque la base está completa.
+
 ### Por grupo de tratamiento
+
+Ahora añadimos `grupo = "trat"`: la función agrega el valor *p* y la **DEM** de cada fila.
 
 ```{r}
 #| label: tabla1-grupo
-etiquetas <- c(edad = "Edad, años", sexo = "Sexo", hba1c = "HbA1c, %", pas = "PAS, mmHg",
-               tfg_basal = "TFGe, mL/min/1.73 m²", uacr = "UACR, mg/g",
-               ecv = "ECV previa", riesgo = "Riesgo KDIGO")
-
 t1 <- tabla1(
   ckd,
   vars = c("edad", "sexo", "hba1c", "pas", "tfg_basal", "uacr", "ecv", "riesgo"),
@@ -74,23 +84,21 @@ t1 <- tabla1(
 knitr::kable(t1, align = "lrrrrrr")
 ```
 
-## Cómo leer esta tabla
+## Paso 3. Cómo leer la tabla (de verdad)
 
--   Los dos grupos **no son comparables**: los que reciben iSGLT2 son **más jóvenes** (|DEM| ≈ 0.6), tienen **mayor TFGe**, **más albuminuria** y más HbA1c. Es lo esperable en la práctica: se indica el fármaco a quien tiene albuminuria y a quien no está demasiado frágil.
--   Los valores *p* muy pequeños acompañan DEM grandes. En cambio la **PAS**, la **ECV** y el **sexo** tienen |DEM| ≤ 0.04: están balanceados. Con *n* = 5 000 incluso una diferencia trivial podría salir "significativa", y con *n* pequeño una diferencia grande no; la **DEM** no depende de *n*.
--   La columna **Faltantes** debe estar siempre. Aquí es 0 porque simulamos una base completa.
+Mira primero la **DEM**, no el *p*:
 
-Esa diferencia entre grupos es exactamente **confusión por indicación** (Cap. 3). Una comparación directa de los desenlaces estará sesgada; en el Cap. 12 repetiremos la Tabla 1 **después de ajustar** para ver si el balance mejoró.
+-   **Edad**: los tratados son más jóvenes (DEM = `r t1$DEM[2]`): casi **0.6 desviaciones estándar** de diferencia. Es el desbalance más grande.
+-   **TFGe, UACR y HbA1c**: los tratados tienen **más TFGe** (DEM = `r t1$DEM[8]`), **más albuminuria** (`r t1$DEM[9]`) y **más HbA1c** (`r t1$DEM[6]`). Es lo esperable en la práctica: se prescribe el fármaco a quien tiene albuminuria y a quien no está demasiado frágil.
+-   **PAS, ECV y sexo**: |DEM| ≤ 0.04. Están balanceados.
 
-::: {.callout-important}
-## 🎯 La Tabla 1 en los estudios observacionales sirve para...
+Los valores *p* siguen la misma historia (muy pequeños donde la DEM es grande), pero con *n* = 5 000 incluso una diferencia trivial podría salir "significativa" y con *n* pequeño una grande no. La DEM no depende de *n*.
 
-Mostrar **cuánta confusión hay** *antes* de ajustar. Una Tabla 1 con DEM pequeñas no demuestra que no haya confusión (faltan las variables no medidas), pero una con DEM grandes demuestra que **el ajuste es indispensable**.
-:::
+Esa diferencia entre grupos es exactamente **confusión por indicación** (Cap. 3). Una comparación directa de los desenlaces estará sesgada; en el Cap. 12 repetiremos la Tabla 1 **después de ajustar** para ver si el balance mejoró. Una Tabla 1 con DEM pequeñas no demuestra ausencia de confusión (faltan las variables no medidas), pero una con DEM grandes demuestra que **el ajuste es indispensable**.
 
-### Ver las DEM en un gráfico
+## Paso 4. Ver las DEM en un gráfico
 
-Un *love plot* (gráfico de DEM absolutas) resume el desbalance de un vistazo. Usamos `smd()` de `R/funciones_epi.R` para las variables numéricas:
+Con muchas filas, un gráfico de DEM absolutas (*love plot*) resume el desbalance de un vistazo. Usamos `smd()` de `R/funciones_epi.R`:
 
 ```{r}
 #| label: love-plot
@@ -109,30 +117,46 @@ ggplot(dem, aes(abs(DEM), variable)) +
   theme_minimal(base_size = 11)
 ```
 
-::: {.callout-tip}
-## 💡 Variables sesgadas: la DEM de la UACR
+Los puntos a la derecha de la línea punteada (edad, TFGe, UACR, HbA1c) son los que requieren ajuste. En el Cap. 12 el mismo gráfico mostrará puntos "antes" y "después" de ponderar.
 
-La DEM de la UACR usa la media y DE **crudas**, muy influidas por valores extremos. Una opción es calcular la DEM del **logaritmo** de la UACR (`smd(log(ckd$uacr), ckd$isglt2)`), que es el verdadero equivalente de la comparación entre grupos en una variable log-normal.
-:::
+Hay un matiz con las variables sesgadas: la DEM de la UACR usa la media y la DE **crudas**, muy influidas por valores extremos. Calculada sobre el **logaritmo**, la diferencia sube de `r round(smd(ckd$uacr, ckd$isglt2), 2)` a `r round(smd(log(ckd$uacr), ckd$isglt2), 2)`: con la escala cruda estábamos **subestimando** el desbalance de albuminuria.
 
-## Mejores prácticas para la Tabla 1
+## Paso 5. La "otra" tabla: por desenlace
 
-::: {.callout-tip}
-## 💡 Checklist
+A veces conviene una segunda tabla descriptiva, con los grupos definidos por el **desenlace** (¿en quiénes ocurrió el evento?) en lugar de por la exposición. Es descriptiva y cruda: **no estima efectos**.
 
--   [ ] Define **qué grupos** (exposición/tratamiento) y **qué población** (¿tras criterios de exclusión?). Incluye el *n* arriba de cada columna.
--   [ ] **Unidades** en el nombre de cada variable (mg/dL, mL/min/1.73 m²).
--   [ ] Una **decimal** (dos si el valor es pequeño, como la creatinina).
--   [ ] **Media (DE)** para simétricas; **mediana [Q1, Q3]** para asimétricas. Especifica cuál usas.
--   [ ] **DEM** en lugar de *p* (o además, si la revista lo pide).
--   [ ] **Faltantes**: *n* (%) por variable.
--   [ ] Sin duplicar información (solo edad continua **o** categórica).
--   [ ] Misma tabla, **mismo código**, cada vez que cambien los datos.
-:::
+```{r}
+#| label: tabla-desenlace
+ckd <- ckd |> mutate(desenlace = factor(evento, levels = 0:1, labels = c("Sin evento", "Con evento")))
 
-## Exportar a Word o PowerPoint
+tabla1(ckd, vars = c("trat", "edad", "tfg_basal", "uacr", "ecv"),
+       grupo = "desenlace", no_normales = "uacr", binarias = "ecv",
+       etiquetas = c(trat = "Tratamiento", edad = "Edad, años", tfg_basal = "TFGe",
+                     uacr = "UACR, mg/g", ecv = "ECV previa"),
+       valor_p = FALSE) |>
+  knitr::kable(align = "lrrrrr")
+```
 
-Con `flextable` se convierte la tabla en un objeto editable que se guarda como `.docx`:
+Entre quienes tuvieron el evento renal hay **menos tratados** (33.5 % frente a 49.4 %), más edad (67.7 frente a 63.1 años), menos TFGe, más albuminuria y más ECV previa. Es un retrato de "quién se complica", no una prueba de que el fármaco funcione. En esta segunda tabla puedes también querer el porcentaje **por fila** ("¿qué proporción de cada grupo tuvo el evento?"):
+
+```{r}
+#| label: riesgo-por-fila
+ckd |> count(trat, desenlace) |> group_by(trat) |>
+  mutate(porcentaje_por_fila = round(100 * n / sum(n), 1)) |>
+  filter(desenlace == "Con evento")
+```
+
+El riesgo crudo de evento es `r round(100 * mean(ckd$evento[ckd$isglt2 == 0]), 1)` % en los no tratados y `r round(100 * mean(ckd$evento[ckd$isglt2 == 1]), 1)` % en los tratados. Esta es una comparación **cruda**: contiene la confusión que vimos en la Tabla 1.
+
+## Paso 6. Antes de enviar: checklist y exportación
+
+-   Define **qué grupos** (exposición) y **qué población** (¿después de aplicar los criterios de exclusión?). Pon el *n* arriba de cada columna.
+-   **Unidades** en el nombre de cada variable (mg/dL, mL/min/1.73 m²) y **una decimal** (dos si el valor es pequeño, como la creatinina).
+-   **Media (DE)** para simétricas; **mediana [Q1, Q3]** para asimétricas, y dilo en el pie de tabla.
+-   **DEM** en lugar de *p* (o además, si la revista lo pide) y **faltantes** por variable.
+-   Sin duplicar información (edad continua **o** categórica, no ambas) y con **el mismo código** cada vez que cambien los datos.
+
+Para llevar la tabla a Word, `flextable` la convierte en un objeto editable:
 
 ```{r}
 #| label: flextable
@@ -144,31 +168,54 @@ ft <- flextable(t1) |>
   bold(i = 1, part = "header") |>
   align(j = -1, align = "right", part = "all")
 
-save_as_docx(ft, path = "resultados/tabla1.docx")      # crea la carpeta 'resultados' antes
+save_as_docx(ft, path = "resultados/tabla1.docx")      # crea antes la carpeta 'resultados'
 ```
 
 En un documento Quarto basta con `knitr::kable(t1)` (HTML, PDF o Word según el formato de salida).
 
-## Alternativa con paquetes estándar
+## Con los paquetes estándar (no se ejecutan aquí)
 
-::: {.callout-note}
-## Paquetes populares (no ejecutados aquí)
+`tabla1()` hace lo esencial sin instalar nada. Los paquetes siguientes producen tablas más pulidas y se ven mucho en la literatura:
 
-```r
-# install.packages("gtsummary")
+```{r}
+#| label: gtsummary-tabla1
+#| eval: false
+# Con el paquete gtsummary (no se ejecuta aquí)
 library(gtsummary)
+
 ckd |>
   select(trat, edad, sexo, hba1c, pas, tfg_basal, uacr, ecv) |>
-  tbl_summary(by = trat, statistic = list(uacr ~ "{median} [{p25}, {p75}]")) |>
-  add_difference(test = everything() ~ "smd") |>
-  add_overall()
+  tbl_summary(
+    by = trat,                                              # una columna por grupo
+    statistic = list(all_continuous() ~ "{mean} ({sd})",    # continuas: media (DE)
+                     uacr ~ "{median} [{p25}, {p75}]",      # la UACR: mediana [Q1, Q3]
+                     all_categorical() ~ "{n} ({p}%)"),     # categóricas: n (%)
+    digits = all_continuous() ~ 1,                          # una decimal
+    label = list(edad ~ "Edad, años", tfg_basal ~ "TFGe"),  # nombres presentables
+    missing_text = "Faltantes"
+  ) |>
+  add_overall() |>                                          # columna con el total
+  add_difference(test = everything() ~ "smd") |>            # DEM en lugar de p
+  modify_header(label ~ "**Variable**") |>
+  bold_labels()
 
-# install.packages("tableone")
-library(tableone)
-CreateTableOne(vars = c("edad", "sexo", "uacr"), strata = "trat", data = ckd, smd = TRUE)
+# Para llevarla a Word: gtsummary::as_flex_table(tabla) |> flextable::save_as_docx(path = "tabla1.docx")
 ```
 
-Producen tablas muy pulidas. `tabla1()` hace lo esencial con el mismo espíritu y sin instalar nada; es tu punto de partida si tu servidor no permite instalar paquetes.
+```{r}
+#| label: tableone-tabla1
+#| eval: false
+# Con el paquete tableone (no se ejecuta aquí)
+library(tableone)
+CreateTableOne(vars = c("edad", "sexo", "hba1c", "uacr"), strata = "trat", data = ckd) |>
+  print(smd = TRUE, nonnormal = "uacr")
+```
+
+::: {.callout-warning}
+## ⚠️ Trampas frecuentes
+
+-   **Ponerle *p* a la Tabla 1 de un ensayo aleatorizado** y comentar las "diferencias significativas" (son el azar del reparto).
+-   **Creer que una Tabla 1 balanceada prueba que no hay confusión**: solo muestra el balance de lo que **mediste**. Lo no medido (la fragilidad, en nuestro ejemplo) no aparece en ninguna fila.
 :::
 
 ::: {.callout-important}
@@ -176,12 +223,12 @@ Producen tablas muy pulidas. `tabla1()` hace lo esencial con el mismo espíritu 
 
 -   La **Tabla 1** muestra quiénes son los pacientes **y** si los grupos son comparables.
 -   En ECA **no** pongas *p*; en observacionales usa la **DEM** (|DEM| > 0.10 = desbalance).
--   `tabla1()` reúne todo: resumen por tipo de variable, faltantes, *p* y DEM. Se exporta con `knitr::kable()` o `flextable`.
--   Las diferencias basales en un estudio observacional **motivan el ajuste** que veremos en los Caps. 8 y 12.
+-   `tabla1()` reúne todo: resumen según el tipo de variable, faltantes, *p* y DEM. Se exporta con `knitr::kable()` o `flextable`.
+-   Las diferencias basales en un estudio observacional **motivan el ajuste** de los Caps. 8 y 12.
 :::
 
 ## Ejercicio
 
 1.  Genera la Tabla 1 **por sexo**, incluyendo `trat` como variable. ¿Hay desbalance en la proporción de tratados entre hombres y mujeres?
-2.  Calcula la DEM de `log(uacr)` y compárala con la de `uacr`. ¿Cambia la conclusión?
-3.  Exporta tu tabla a Word con `flextable`.
+2.  Calcula la DEM de `log(uacr)` y compárala con la de `uacr`. ¿Cambia la conclusión sobre el balance?
+3.  Exporta tu tabla a Word con `flextable` (o, si tienes instalado `gtsummary`, reprodúcela con `tbl_summary()`).

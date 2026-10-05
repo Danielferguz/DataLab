@@ -1,23 +1,54 @@
 # Cómo cuantificar un sesgo
 
-## De "puede haber sesgo" a "¿cuánto?"
+> **La pregunta de esta herramienta:** *¿cuánto tendría que ser el sesgo para cambiar mi conclusión?*
 
-Toda discusión sobre limitaciones dice *"posible confusión residual"*. Eso informa poco. El **análisis cuantitativo de sesgo** pregunta: **¿qué tan grande tendría que ser el sesgo para cambiar la conclusión?** y **¿qué conclusión alcanzaríamos con supuestos razonables sobre el sesgo?**
+::: {.callout-note}
+## 🩺 Escenario
+
+Presentas un estudio observacional: los pacientes que recibieron iSGLT2 tuvieron menos eventos renales (razón de tasas 0.55), ajustada por edad, HbA1c, TFGe, albuminuria y más. Un revisor escribe: *"posible confusión residual por fragilidad, que no se midió"*. Es verdad, y no se puede refutar con otra frase. Lo que sí puedes hacer es **ponerle números**: ¿qué tan fuerte tendría que ser esa fragilidad para anular tu resultado?
+:::
+
+**Lo que vamos a hacer**
+
+-   Calcular el **E-value**, la fuerza mínima de un confusor no medido que explicaría todo el efecto.
+-   Hacer una **corrección simple** y un **análisis tipping point** con parámetros explícitos, y compararlos con la verdad.
+-   Pasar a un análisis **probabilístico** y conocer los **controles negativos**.
+
+## Paso 0: de "puede haber sesgo" a "¿cuánto?"
+
+Decir *"posible confusión residual"* informa poco. El **análisis cuantitativo de sesgo** pregunta: **¿qué tan grande tendría que ser el sesgo para cambiar la conclusión?** y **¿qué conclusión alcanzaríamos con supuestos razonables?**
 
 | Tipo de análisis | Pregunta |
 |---|---|
-| **Simple** | ¿Qué estimación corregida obtengo con *un* conjunto de supuestos? |
-| **Multidimensional / tipping point** | ¿Con qué valores de los parámetros del sesgo el efecto se anularía? |
-| **Probabilístico** | ¿Cuál es la distribución de estimaciones corregidas si doy una **distribución** a cada parámetro? |
 | **E-value** | ¿Qué fuerza mínima debe tener un confusor no medido para explicar todo el efecto? |
+| **Simple** | ¿Qué estimación corregida obtengo con *un* conjunto de supuestos? |
+| **Tipping point** | ¿Con qué valores de los parámetros del sesgo el efecto se anularía? |
+| **Probabilístico** | ¿Cuál es la distribución de estimaciones corregidas si doy una **distribución** a cada parámetro? |
 
-Trabajamos con el estimador del iSGLT2 de capítulos anteriores: la razón de tasas **ajustada por lo medido**, que sabemos que sufre confusión residual por la **fragilidad** (no medida).
+En un DAG, el problema es un confusor no medido $U$ (fragilidad) que causa tanto recibir el tratamiento (menos probable si hay fragilidad) como el evento:
+
+```{r}
+#| label: dag-confusor-nm
+#| fig-width: 7
+#| fig-height: 2.8
+library(tidyverse)
+source("R/funciones_epi.R")
+theme_set(theme_minimal(base_size = 12))
+
+dibujar_dag(
+  tribble(~nombre, ~x, ~y, ~etiqueta, ~rol,
+          "U", 2, 1.8, "Fragilidad\n(no medida)", "no medido",
+          "A", 1, 1.0, "iSGLT2", "exposicion",
+          "Y", 3, 1.0, "Evento renal", "desenlace"),
+  tribble(~de, ~a, "U", "A", "U", "Y", "A", "Y"),
+  tam_texto = 3.3, expandir = c(0.25, 0.25)
+)
+```
+
+Trabajamos con los datos simulados del iSGLT2 de capítulos anteriores. La base "oráculo" nos permite, **solo aquí**, comparar con la verdad: el HR causal simulado es **0.70**.
 
 ```{r}
 #| label: setup-106
-library(tidyverse)
-source("R/funciones_epi.R")
-
 o <- read_csv("Bases/ckd_isglt2_oraculo.csv") |>
   mutate(luacr = log(uacr), sexo = factor(sexo, levels = c("Mujer", "Hombre")))
 
@@ -26,56 +57,84 @@ modelo <- glm(evento ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + 
 
 rr_obs <- unname(exp(coef(modelo)["isglt2"]))
 ic_obs <- exp(confint.default(modelo)["isglt2", ])
-c(RR_observado = rr_obs, ic_obs) |> round(2)
+round(c(RR_observado = rr_obs, ic_obs), 2)
 ```
 
-Razón de tasas observada: **0.55** (IC 0.47-0.65). ¿Cuánto es efecto y cuánto sesgo por un confusor no medido?
+La razón de tasas observada, **ajustada por lo medido**, es **`r round(rr_obs, 2)`** (IC `r round(ic_obs[1], 2)` a `r round(ic_obs[2], 2)`). La verdad es 0.70: queda **confusión residual** por la fragilidad no medida (los pacientes frágiles reciben menos el fármaco y tienen peor pronóstico). Pero en la vida real no tendrías la verdad. ¿Qué harías?
 
-## 1. El E-value
+## Paso 1: el E-value
 
-El **E-value** (VanderWeele y Ding) es la **intensidad de asociación mínima** que un confusor no medido tendría que tener con **tratamiento y desenlace** (en razón de riesgos) para **explicar por completo** el efecto observado.
+El **E-value** (VanderWeele y Ding) es la **fuerza de asociación mínima** que un confusor no medido tendría que tener **con el tratamiento y con el desenlace** (en razón de riesgos), para **explicar por completo** el efecto observado.
 
 ```{r}
 #| label: evalue
-e_value(rr_obs, lim = ic_obs[2])       # el IC "más cercano a 1" es el límite superior
+ev <- e_value(rr_obs, lim = ic_obs[2])       # el límite del IC "más cercano a 1" es el superior
+ev
 ```
 
--   E-value del **punto**: ≈ 3.0. Un confusor no medido tendría que asociarse **con un RR ≥ 3** tanto con el tratamiento como con el desenlace para "explicar" todo el efecto.
--   E-value del **límite del IC**: ≈ 2.5, para llevar el IC hasta 1.
+-   E-value del **punto**: **`r round(ev$e_value_punto, 1)`**. Un confusor no medido tendría que asociarse con un **RR ≥ `r round(ev$e_value_punto, 1)`** tanto con el tratamiento como con el desenlace para "explicar" todo el efecto.
+-   E-value del **límite del IC**: **`r round(ev$e_value_ic, 1)`**, para llevar el IC hasta 1.
 
-**¿Es plausible un RR de 2.5-3?** En nuestro ejemplo, el confusor no medido (fragilidad) tiene un RR ~2 con el desenlace y una prevalencia distinta entre grupos: **no basta para anular el efecto** (sí para **atenuarlo**), consistente con la verdad (HR = 0.70 y un RR observado de 0.55).
+**¿Es plausible un RR de 2.5-3?** Para tener una vara de comparación, un ejemplo clásico: Hammond y Horn estimaron que fumar multiplicaba por ~10.7 el riesgo de cáncer de pulmón (IC 8.0 a 14.4), y Fisher propuso que un factor genético podría explicarlo todo. Su E-value es mucho mayor:
+
+```{r}
+#| label: evalue-clasico
+e_value(10.73, lim = 8.02)
+```
+
+Un confusor tendría que multiplicar por ~21 el riesgo **y** estar 21 veces más presente en fumadores: casi imposible. Un efecto de 0.55 es **menos robusto** (E-value 3), pero esa fuerza tampoco es fácil de alcanzar: la fragilidad de este ejemplo tiene un RR de ~2 con el evento.
 
 ::: {.callout-warning}
 ## ⚠️ Cómo interpretar un E-value
 
--   El E-value **no dice si hay confusión**; dice **cuánta se necesitaría**.
--   Compáralo con la **fuerza de los confusores conocidos** (por ejemplo, el RR de la albuminuria o la TFGe, ya medidos): si ningún confusor medido llega a esa fuerza, es poco probable que uno no medido sí.
--   No sustituye al **diseño**: un E-value alto no arregla un sesgo de selección.
+-   Dice **cuánta confusión se necesitaría**, no si hay confusión.
+-   Compáralo con la **fuerza de los confusores medidos** (el RR de la albuminuria o la TFGe): si ninguno llega a ese valor, es poco probable que uno **no** medido sí.
+-   **No sustituye al diseño**: un E-value alto no arregla un sesgo de selección ni de tiempo inmortal.
 :::
 
-## 2. Corrección simple de un confusor no medido
+```{r}
+#| label: evalue-paquete
+#| eval: false
+# Con el paquete {EValue} (no se ejecuta aquí; el autor lo usa en su curso)
+library(EValue)
+evalues.RR(est = 0.55, lo = 0.47, hi = 0.65)    # E-value del punto y del IC
+bias_plot(0.55, xmax = 5)                        # combinaciones de RR (confusor-tratamiento, confusor-desenlace) que anulan el efecto
+```
 
-Con un confusor binario no medido $U$ (por ejemplo, **fragilidad alta**), el sesgo en la razón de riesgos es:
+## Paso 2: corrección simple de un confusor binario no medido
+
+Para un confusor binario no medido $U$ (fragilidad alta), el sesgo en la razón de riesgos es:
 
 $$
 B = \frac{RR_{UD}\,p_1 + (1 - p_1)}{RR_{UD}\,p_0 + (1 - p_0)} \qquad RR_{\text{corregido}} = \frac{RR_{\text{observado}}}{B}
 $$
 
-con $RR_{UD}$ = asociación de $U$ con el desenlace, $p_1$ y $p_0$ = prevalencia de $U$ en tratados y no tratados.
-
-Elegimos parámetros **plausibles** que alguien podría proponer sin ver los datos: fragilidad alta en el **40 % de los no tratados** y el **20 % de los tratados**, con RR de 2 para el evento:
+con $RR_{UD}$ = asociación de $U$ con el desenlace, y $p_1$ y $p_0$ = prevalencia de $U$ en tratados y no tratados. Alguien podría proponer, **sin ver los datos**, estos valores plausibles: fragilidad alta en el **40 %** de los no tratados y el **20 %** de los tratados, con RR = 2 para el evento:
 
 ```{r}
 #| label: sesgo-simple
 factor_sesgo <- function(rr_ud, p1, p0) (rr_ud * p1 + 1 - p1) / (rr_ud * p0 + 1 - p0)
 
 B <- factor_sesgo(rr_ud = 2, p1 = 0.20, p0 = 0.40)
-c(factor_de_sesgo = B, RR_corregido = rr_obs / B) |> round(2)
+round(c(factor_de_sesgo = B, RR_corregido = rr_obs / B), 2)
 ```
 
-El **RR corregido ≈ 0.64** es cercano al efecto verdadero (el HR simulado es 0.70). **Estos parámetros no los conocemos en la vida real**: la fuerza del método está en que se **explicitan y se discuten**.
+El **RR corregido ≈ `r round(rr_obs / B, 2)`** se acerca al efecto verdadero (0.70). Aquí, **solo porque simulamos**, podemos "espiar" qué valores tienen realmente esos parámetros:
 
-### ¿Y si los parámetros fueran distintos? Análisis *tipping point*
+```{r}
+#| label: espiar-parametros
+o <- o |> mutate(u = as.integer(fragilidad > 0.5))          # "fragilidad alta" (solo existe en el oráculo)
+p1_real <- mean(o$u[o$isglt2 == 1]); p0_real <- mean(o$u[o$isglt2 == 0])
+rr_ud_real <- mean(o$evento_36m_0[o$u == 1]) / mean(o$evento_36m_0[o$u == 0])
+
+c(p1 = p1_real, p0 = p0_real, RR_UD = rr_ud_real) |> round(2)
+```
+
+Los supuestos (0.20, 0.40, 2) casi coinciden con los reales (`r round(p1_real, 2)`, `r round(p0_real, 2)`, `r round(rr_ud_real, 2)`). **En la vida real no los conoces**: la fuerza del método está en que los **explicitas y los discutes**.
+
+## Paso 3: ¿y si los parámetros fueran otros? Tipping point
+
+En vez de elegir un solo valor, se barren los parámetros y se marca dónde el efecto **se anula** (RR corregido = 1):
 
 ```{r}
 #| label: tipping
@@ -91,13 +150,13 @@ ggplot(rejilla, aes(dif_prev, rr_ud, fill = rr_corregido)) +
   scale_fill_gradient2(low = "#0072B2", mid = "white", high = "#D55E00", midpoint = 1, name = "RR corregido") +
   labs(x = "Diferencia de prevalencia del confusor (no tratados − tratados)",
        y = "RR del confusor con el desenlace",
-       caption = "Línea negra: RR corregido = 1 (efecto anulado). RR observado = 0.55. Datos simulados.") +
+       caption = paste0("Línea negra: RR corregido = 1 (efecto anulado). RR observado = ", round(rr_obs, 2), ". Datos simulados.")) +
   theme_minimal(base_size = 11)
 ```
 
-Solo en la **esquina superior derecha** (confusor muy fuerte **y** muy desbalanceado entre grupos) el efecto se anula. Para valores moderados, el RR corregido permanece **claramente < 1**.
+Solo en la **esquina superior derecha** (confusor muy fuerte **y** muy desbalanceado entre grupos) el efecto se anula. Con valores moderados, el RR corregido sigue **claramente por debajo de 1**.
 
-## 3. Análisis probabilístico de sesgo
+## Paso 4: análisis probabilístico
 
 En vez de un punto, se asigna una **distribución** a cada parámetro y se obtiene una **distribución de estimaciones corregidas** (Monte Carlo):
 
@@ -111,7 +170,8 @@ rr_ud <- exp(rnorm(N, log(2), 0.2))                     # RR ~2 (IC ~1.4-3)
 
 rr_corr <- rr_obs / factor_sesgo(rr_ud, p1, p0)
 
-quantile(rr_corr, c(0.025, 0.5, 0.975)) |> round(2)
+q_corr <- quantile(rr_corr, c(0.025, 0.5, 0.975))
+round(q_corr, 2)
 ```
 
 ```{r}
@@ -123,33 +183,51 @@ ggplot(tibble(rr = rr_corr), aes(rr)) +
   geom_vline(xintercept = c(rr_obs, 0.70), color = c("grey30", "#D55E00"), linewidth = 1,
              linetype = c("dashed", "solid")) +
   labs(x = "Razón de tasas corregida", y = "Simulaciones",
-       caption = "Gris punteado: RR observado (0.55). Naranja: HR verdadero (0.70). Datos simulados.") +
+       caption = paste0("Gris punteado: RR observado (", round(rr_obs, 2), "). Naranja: HR verdadero (0.70). Datos simulados.")) +
   theme_minimal(base_size = 11)
 ```
 
-El resultado: **RR corregido mediano ≈ 0.65 (intervalo de simulación 0.58-0.77)**: un beneficio claro, **menor** que el observado (0.55), y compatible con la verdad (0.70).
+**Resultado:** RR corregido mediano **`r round(q_corr[2], 2)`** (intervalo de simulación `r round(q_corr[1], 2)` a `r round(q_corr[3], 2)`): un beneficio claro, **menor** que el observado (`r round(rr_obs, 2)`) y compatible con la verdad (0.70). Elegir los parámetros del sesgo es la parte difícil. Fuentes: **estudios de validación**, la **literatura**, la **fuerza de un confusor medido similar** (*benchmarking*) y la **opinión de expertos** con rangos amplios. Y **declara todo y publica el código**: el valor está en la transparencia.
 
-::: {.callout-tip}
-## 💡 Cómo elegir los parámetros del sesgo
+```{r}
+#| label: episensr-prob
+#| eval: false
+# Con el paquete {episensr} (no se ejecuta aquí; el autor lo usa en su curso).
+# Ejemplo HIPOTÉTICO de error de clasificación de la exposición con sensibilidades y especificidades probabilísticas.
+library(episensr)
+tabla <- matrix(c(40, 160, 80, 720), nrow = 2, byrow = TRUE,
+                dimnames = list(c("Evento", "Sin evento"), c("Expuesto", "No expuesto")))   # conteos inventados
+probsens(tabla, type = "exposure", reps = 20000,
+         seca_parms = list("uniform", c(0.85, 0.95)),    # sensibilidad en casos
+         seexp_parms = list("uniform", c(0.70, 0.90)),   # sensibilidad en no casos
+         spca_parms = list("uniform", c(0.99, 1)),       # especificidad en casos
+         spexp_parms = list("uniform", c(0.99, 1)))      # especificidad en no casos
+# Para varios sesgos a la vez (confusión + selección + clasificación): EValue::multi_bias() y multi_bound()
+```
 
--   **Estudios de validación** (para sensibilidad y especificidad).
--   **Literatura** (asociación de la fragilidad, el IMC o el tabaquismo con el desenlace).
--   **Datos internos**: la fuerza de un confusor **medido** similar da una referencia (*benchmarking*).
--   **Opinión de expertos**, con rangos amplios.
--   **Declara todo y publica el código**: el valor está en la **transparencia**.
-:::
+## Paso 5: controles negativos
 
-## 4. Controles negativos
+Otra estrategia complementaria: un **desenlace de control negativo**, que el tratamiento **no debería** afectar pero que **sí** comparte los mismos sesgos. Si el análisis ajustado "encuentra efecto" en el control, hay sesgo residual. Ejemplo: **fracturas por trauma** con el iSGLT2. Lo simulamos con la fragilidad (que las aumenta) y **sin ningún efecto** del fármaco:
 
-Otra estrategia complementaria: buscar un **desenlace de control negativo** que **no debería** estar afectado por el tratamiento pero **sí** compartir los mismos sesgos. Si el análisis ajustado "encuentra efecto" en el control negativo, hay sesgo residual. Ejemplo: el iSGLT2 y las **fracturas por trauma** o el **cáncer de piel**; si aparece "beneficio", los grupos difieren en fragilidad o en salud general.
+```{r}
+#| label: control-negativo
+set.seed(7)
+o <- o |> mutate(fractura = rbinom(n(), 1, plogis(-2.2 + 0.5 * fragilidad)))     # solo depende de la fragilidad
+
+cn <- glm(fractura ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv, data = o, family = binomial)
+or_cn <- exp(c(coef(cn)["isglt2"], confint.default(cn)["isglt2", ]))
+round(or_cn, 2)
+```
+
+La verdad es **sin efecto** (OR = 1), pero el análisis ajustado da **`r round(or_cn[1], 2)`** (IC `r round(or_cn[2], 2)` a `r round(or_cn[3], 2)`): un falso "beneficio" por la fragilidad no medida. Esa es exactamente la señal de **confusión residual** que dibuja el control negativo, y su tamaño da una idea de cuánto sesgo arrastra el análisis principal.
 
 ## Panel de herramientas
 
 | Sesgo | Herramienta | Dónde |
 |---|---|---|
-| Confusión no medida | E-value; corrección simple/probabilística; control negativo; controles de benchmarking | 10.6, 12.8 |
+| Confusión no medida | E-value; corrección simple/probabilística; control negativo; *benchmarking* | 10.6, 12.8 |
 | Error de clasificación | Corrección con Se/Sp; análisis de sensibilidad | 10.3 |
-| Selección | Ponderación por la probabilidad de selección; cotas (*bounds*) | 6.4, 12, 19 |
+| Selección | Ponderación por la probabilidad de selección | 10.1, 12, 19 |
 | Pérdidas informativas | IPCW; análisis del "peor caso" | 10.5, 19 |
 | Tiempo inmortal, indicación | Diseño (nuevo usuario, tiempo cero alineado) | 10.2, 10.4, 12.1 |
 
@@ -158,15 +236,15 @@ Otra estrategia complementaria: buscar un **desenlace de control negativo** que 
 
 -   Cuantifica el sesgo: **"¿cuánto tendría que ser?"** y **"¿qué resultado con supuestos razonables?"**
 -   El **E-value** resume la fuerza mínima de un confusor no medido que anularía el efecto.
--   La corrección **simple** usa tres parámetros (RR del confusor con el desenlace, prevalencia en cada grupo); el **probabilístico** les asigna distribuciones.
--   Un **gráfico de tipping point** muestra qué combinaciones anulan el resultado.
--   **Explicita y publica** los supuestos y el código: es el valor central del análisis de sesgo.
+-   La corrección **simple** usa tres parámetros (RR del confusor con el desenlace y prevalencia en cada grupo); la **probabilística** les da distribuciones; el **tipping point** muestra qué combinaciones anulan el resultado.
+-   Un **control negativo** detecta confusión residual con un desenlace donde no esperas efecto.
+-   **Explicita y publica** los supuestos y el código.
 :::
 
 ## Ejercicio
 
 1.  Usa un RR del confusor de **3** y una diferencia de prevalencia de **30 puntos**. ¿Qué RR corregido obtienes?
-2.  Calcula el **E-value** (`e_value()`) de un RR observado de **1.5 (IC 1.2-1.9)**. ¿Cómo cambia si el RR fuera 0.5? (la función invierte los valores < 1).
+2.  Calcula el **E-value** (`e_value()`) de un RR observado de **1.5 (IC 1.2-1.9)**. ¿Cómo cambia si el RR fuera 0.5? (La función invierte los valores < 1.)
 3.  Elige un estudio publicado que uses y escribe, en una frase, **qué confusor no medido** podría explicar su resultado y **qué parámetros** supondrías.
 
 ## Nota editorial

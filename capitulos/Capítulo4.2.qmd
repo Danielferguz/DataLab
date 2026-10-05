@@ -1,6 +1,35 @@
-# Objetos, funciones y paquetes
+# Objetos, funciones y paquetes: tus primeras líneas de código
 
-## Objetos: guardar un valor con un nombre
+::: {.callout-note}
+## 🩺 Escenario
+
+Tienes la creatinina de cinco pacientes y quieres saber cuántos superan 2 mg/dL, pasarlos a µmol/L y sacar el promedio. En Excel arrastrarías fórmulas; en R **escribes la receta una vez** y la aplicas a todos a la vez.
+
+Este subcapítulo reúne las cinco ideas con las que se construye todo lo demás: objetos, vectores, tipos de datos, tablas y funciones.
+:::
+
+**Lo que vamos a hacer**
+
+-   Guardar valores en **objetos** y operar con ellos.
+-   Trabajar con **vectores** (muchos valores a la vez) y **tablas** (*tibble*).
+-   Usar y crear **funciones**, y encadenar pasos con el *pipe* `|>`.
+-   Instalar y cargar **paquetes**.
+
+## Paso 1: operadores, la "calculadora" de R
+
+R tiene tres familias de operadores. Las comparaciones y las operaciones lógicas devuelven `TRUE` o `FALSE`.
+
+```{r}
+#| label: operadores
+5 + 3; 5 - 3; 5 * 3; 5 / 3; 5^3     # aritméticos: suma, resta, producto, división, potencia
+5 > 3; 5 == 3; 5 != 3              # comparación: mayor, igual, distinto
+(5 > 3) & (2 > 3)                   # lógicos: "y" (&) -> ambas deben cumplirse
+(5 > 3) | (2 > 3)                   # "o" (|)  -> basta con una
+```
+
+Dos detalles que ahorran dolores de cabeza: **igualdad se escribe con doble signo** (`==`), porque el `=` simple asigna; y los paréntesis mandan sobre el orden de las operaciones.
+
+## Paso 2: objetos, o cómo ponerle nombre a un valor
 
 Con `<-` guardas un resultado en un **objeto** para usarlo después. Léelo como "se guarda en".
 
@@ -9,39 +38,58 @@ Con `<-` guardas un resultado en un **objeto** para usarlo después. Léelo como
 creatinina <- 1.8                       # mg/dL
 edad <- 67                              # años
 
-creatinina * 88.4                       # µmol/L
+creatinina * 88.4                       # µmol/L (usa el valor guardado)
 ```
 
-Un objeto puede contener **varios valores** (un *vector*) con `c()`:
+::: {.callout-tip}
+## 💡 Nombres de objetos
+
+Usa nombres **descriptivos, en minúscula, sin espacios ni tildes**: `tfg_basal`, `datos_ckd`. Evita `x1`, `base nueva`, `Resultados Final(2)`. R distingue mayúsculas: `Edad` y `edad` son objetos distintos.
+:::
+
+## Paso 3: vectores, muchos valores con un solo nombre
+
+Un **vector** es una fila de valores del mismo tipo; se crea con `c()` (de "concatenar").
 
 ```{r}
 #| label: vectores
 creat <- c(0.9, 1.1, 1.8, 2.4, 3.1)     # creatinina de cinco pacientes (mg/dL)
 
-creat * 88.4                            # operaciones sobre todo el vector
-mean(creat)                             # promedio
+creat * 88.4                            # la operación se aplica a TODOS los valores
 creat > 2                               # ¿quiénes superan 2 mg/dL?
-sum(creat > 2)                          # ¿cuántos?
+sum(creat > 2)                          # TRUE cuenta como 1: ¿cuántos?
+creat[creat > 2]                        # ¿cuáles son? (filtrar con corchetes)
+creat[2]                                # el segundo paciente
+mean(creat)                             # promedio
 ```
 
-::: {.callout-tip}
-## 💡 Tip práctico: nombres de objetos
+Qué vemos: una sola línea convierte los cinco valores a µmol/L. A esto se le llama **vectorización** y es la razón por la que R es tan cómodo con bases de miles de pacientes.
 
-Usa nombres **descriptivos, en minúscula y sin espacios ni tildes**: `tfg_basal`, `datos_ckd`. Evita `x1`, `base nueva`, `Resultados Final(2)`.
+::: {.callout-warning}
+## ⚠️ Un solo `NA` contamina el promedio
+
+`NA` es el valor faltante. Si hay uno, las funciones devuelven `NA` salvo que les pidas ignorarlo:
+
+```{r}
+#| label: na-contamina
+mean(c(1.2, NA, 3.4))                   # NA: R no sabe qué hacer con el faltante
+mean(c(1.2, NA, 3.4), na.rm = TRUE)     # ignora el NA (hazlo sabiendo que lo haces)
+```
+
+Ignorar faltantes es una **decisión**, no un trámite (Cap. 13).
 :::
 
-## Tipos de datos
+## Paso 4: tipos de datos
 
-R distingue el tipo de cada variable, y muchos errores vienen de ahí:
+R distingue el **tipo** de cada variable, y muchos errores vienen de ahí (un número leído como texto no se puede promediar).
 
 | Tipo | Ejemplo clínico | Cómo se ve |
 |---|---|---|
-| **Numérico** (`numeric`) | Creatinina, edad, HbA1c | `1.8` |
-| **Entero** (`integer`) | Número de hospitalizaciones | `3L` |
-| **Texto** (`character`) | Nombre del diagnóstico | `"Nefropatía diabética"` |
-| **Factor** (`factor`) | Categorías: estadio G3a, G3b… | niveles definidos |
-| **Lógico** (`logical`) | Fallecido sí/no | `TRUE` / `FALSE` |
-| **Fecha** (`Date`) | Fecha de inicio de diálisis | `2024-05-17` |
+| Numérico (`numeric`) | Creatinina, edad, HbA1c | `1.8` |
+| Texto (`character`) | Diagnóstico escrito | `"Nefropatía diabética"` |
+| Factor (`factor`) | Categorías con orden: G3a, G3b, G4 | niveles definidos |
+| Lógico (`logical`) | Fallecido sí/no | `TRUE` / `FALSE` |
+| Fecha (`Date`) | Inicio de diálisis | `2024-05-17` |
 
 ```{r}
 #| label: tipos
@@ -50,14 +98,15 @@ class("G3a")
 class(TRUE)
 class(as.Date("2024-05-17"))
 
+# Un factor guarda categorías; el orden de los niveles lo defines tú
 estadio <- factor(c("G3a", "G3b", "G4", "G3a"),
-                  levels = c("G3a", "G3b", "G4"))   # el orden de niveles importa
+                  levels = c("G3a", "G3b", "G4"))
 table(estadio)
 ```
 
-## Tablas de datos: `data.frame` y `tibble`
+## Paso 5: tablas de datos (*tibble*)
 
-Una **base de datos** es una tabla donde cada **fila** es un paciente (o una visita) y cada **columna** una variable. En el tidyverse se llama *tibble*.
+Una **base de datos** es una tabla: cada **fila** es un paciente (o una visita) y cada **columna** una variable. En el tidyverse se llama *tibble*.
 
 ```{r}
 #| label: tibble
@@ -72,7 +121,7 @@ pacientes <- tibble(
 pacientes
 ```
 
-Para acceder a una columna se usa `$`; para filtrar o crear columnas, las funciones de `dplyr` (Cap. 5):
+Para llegar a una columna se usa `$`; para elegir filas, `filter()` (el Cap. 5 profundiza):
 
 ```{r}
 #| label: acceso
@@ -81,35 +130,53 @@ pacientes[2, ]                          # la fila 2
 pacientes |> filter(diabetes)           # solo pacientes con diabetes
 ```
 
-## Funciones: la unidad de trabajo
+## Paso 6: funciones y el *pipe* `|>`
 
-Una **función** recibe *argumentos* (entre paréntesis) y devuelve un resultado: `nombre_funcion(argumento1, argumento2)`.
-
-```{r}
-#| label: funciones
-round(mean(pacientes$creat), 2)         # funciones anidadas
-mean(c(1, NA, 3), na.rm = TRUE)         # el argumento na.rm ignora los faltantes
-```
-
-### El operador *pipe* `|>`
-
-El *pipe* lee como "y luego": pasa el resultado de la izquierda como primer argumento de la función de la derecha. Hace el código legible como una receta.
+Una **función** recibe *argumentos* entre paréntesis y devuelve un resultado: `nombre(argumento1, argumento2)`. El *pipe* `|>` se lee "y luego": pasa lo de la izquierda como primer argumento de la función de la derecha.
 
 ```{r}
 #| label: pipe
 # Sin pipe: se lee de dentro hacia fuera
 round(mean(pacientes$creat[pacientes$diabetes]), 2)
 
-# Con pipe: se lee de izquierda a derecha
+# Con pipe: se lee de izquierda a derecha, como una receta
 pacientes |>
-  filter(diabetes) |>
-  summarise(creat_media = mean(creat)) |>
-  mutate(creat_media = round(creat_media, 2))
+  filter(diabetes) |>                                  # 1) solo con diabetes
+  summarise(creat_media = mean(creat)) |>              # 2) promedio de creatinina
+  mutate(creat_media = round(creat_media, 2))          # 3) redondear
 ```
 
-### Crear tus propias funciones
+## Paso 7: crear tus propias funciones
 
-Si repites un cálculo, escríbelo una vez como función. Ejemplo: clasificar la TFGe en categorías **G** de KDIGO.
+Si copias el mismo bloque dos veces, conviene hacer una función. Imagina que tu jefe pide un histograma de la TFGe con su media y desviación estándar... y luego **el mismo gráfico para otras 49 variables**. Copiar y pegar 50 veces produce errores y es imposible de corregir. Una función se escribe **una vez**:
+
+```{r}
+#| label: funcion-histograma
+# nombre <- function(argumentos) { cuerpo }
+crear_histograma <- function(datos, nombre) {
+  media <- mean(datos, na.rm = TRUE)
+  de    <- sd(datos, na.rm = TRUE)
+  hist(datos, main = nombre, xlab = nombre, ylab = "Frecuencia", col = "gold")
+  abline(v = media, col = "red")                     # media en rojo
+  abline(v = media + c(-1, 1) * de, col = "blue")    # ±1 DE en azul
+}
+```
+
+La usamos con dos variables de la base simulada del libro (la importaremos formalmente en 4.3):
+
+```{r}
+#| label: fig-histogramas
+#| fig-cap: "El mismo código, dos variables (datos simulados). Rojo: media; azul: ±1 DE."
+#| fig-width: 8
+#| fig-height: 3.2
+ckd <- read_csv("Bases/ckd_isglt2.csv", show_col_types = FALSE)
+
+par(mfrow = c(1, 2))                                  # dos gráficos lado a lado
+crear_histograma(ckd$tfg_basal, "TFGe basal (mL/min/1.73 m²)")
+crear_histograma(ckd$hba1c, "HbA1c (%)")
+```
+
+Una función también puede ser pequeña y clínica. Esta clasifica la TFGe en categorías **G** de KDIGO (la versión completa está en `R/funciones_epi.R`):
 
 ```{r}
 #| label: funcion-propia
@@ -127,45 +194,48 @@ categoria_g <- function(tfg) {
 categoria_g(c(95, 62, 47, 33, 20, 8))
 ```
 
-## Paquetes: instalar una vez, cargar cada sesión
+## Paso 8: paquetes y ayuda
+
+Los **paquetes** son colecciones de funciones. **Se instalan una vez** en tu computadora y **se cargan en cada sesión** en que los uses.
 
 ```{r}
 #| label: paquetes
 #| eval: false
-install.packages("survival")   # se instala UNA vez en tu computadora
-library(survival)              # se carga CADA sesión en que lo uses
+install.packages("survival")   # UNA vez por computadora
+library(survival)              # CADA sesión en que lo uses
 survival::Surv                 # alternativa: usar una función sin cargar el paquete (paquete::función)
 ```
 
-::: {.callout-warning}
-## ⚠️ Cuidado: conflictos de nombres
-
-Dos paquetes pueden tener funciones con el mismo nombre (por ejemplo, `filter()` existe en `dplyr` y en `stats`). Si algo se comporta distinto a lo esperado, usa `dplyr::filter()` para indicar de cuál paquete hablas.
-:::
-
-## Pedir ayuda sobre una función
+Cuando no sepas qué hace una función o qué argumentos tiene:
 
 ```{r}
 #| label: ayuda
 #| eval: false
-?mean               # ayuda de la función mean
-help("t.test")      # lo mismo
-example(mean)       # ejemplos de uso
+?mean                # ayuda de la función mean
+help("t.test")       # lo mismo
+??"regresión"        # busca el término en toda la documentación instalada
+example(mean)        # ejemplos de uso
 ```
+
+::: {.callout-warning}
+## ⚠️ Conflictos de nombres
+
+Dos paquetes pueden tener funciones con el mismo nombre (por ejemplo, `filter()` existe en `dplyr` y en `stats`). Al cargar `tidyverse` verás el aviso *"dplyr::filter() masks stats::filter()"*: no es un error; R te dice cuál usará. Si algo se comporta distinto a lo esperado, indica el paquete con `dplyr::filter()`.
+:::
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
--   `<-` guarda un valor en un objeto; `c()` crea vectores.
--   Los **tipos** (numérico, texto, factor, fecha) importan: revísalos siempre.
--   Una base es un *tibble*: filas = pacientes, columnas = variables.
+-   `<-` guarda un valor en un **objeto**; `c()` crea **vectores**; las operaciones se aplican a todos los valores a la vez.
+-   El **tipo** (numérico, texto, factor, fecha) importa: revísalo siempre con `class()`.
+-   Una base es un *tibble*: filas = pacientes, columnas = variables (`$` para una columna).
 -   `|>` encadena pasos: "y luego".
 -   Si repites algo, **escribe una función**.
--   **Instalar** (`install.packages`) una vez; **cargar** (`library`) en cada sesión.
+-   **Instalar** (`install.packages`) una vez; **cargar** (`library`) en cada sesión; `?función` para pedir ayuda.
 :::
 
 ## Ejercicio
 
-1.  Crea un vector con las TFGe de seis pacientes y calcula su mediana y cuántos tienen TFGe < 60.
+1.  Crea un vector con las TFGe de seis pacientes, calcula su mediana y cuenta cuántos tienen TFGe < 60.
 2.  Aplica `categoria_g()` a ese vector y haz una tabla con `table()`.
-3.  Escribe una función `umol_a_mgdl()` que convierta creatinina de µmol/L a mg/dL.
+3.  Escribe una función `umol_a_mgdl()` que convierta creatinina de µmol/L a mg/dL, y comprueba que `umol_a_mgdl(88.4)` da 1.

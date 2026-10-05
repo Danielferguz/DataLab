@@ -1,6 +1,18 @@
-# Diseños de muestreo
+# Diseños de muestreo: simple, estratificado y por conglomerados
 
-## Probabilística o no probabilística
+::: {.callout-note}
+## 🩺 Escenario
+
+No existe una lista de los 75 000 adultos de la región, pero sí una **lista de las 600 comunidades**. Puedes (a) sortear personas si tuvieras la lista, (b) separar la región en zona urbana y rural y sortear en cada una, o (c) sortear comunidades y medir a varios vecinos en cada una, que sale mucho más barato en el trabajo de campo. ¿Cuál estima mejor? ¿Y qué se paga por el ahorro?
+:::
+
+**Lo que vamos a hacer**
+
+-   Distinguir muestreo **probabilístico** de **no probabilístico**.
+-   Programar cuatro diseños y compararlos con un **experimento de muestreo repetido** (conocemos la verdad).
+-   Entender los **pesos** del sobremuestreo y el **efecto de diseño** de los conglomerados.
+
+## Paso 1: probabilística o no probabilística
 
 En un muestreo **probabilístico** cada persona de la población tiene una **probabilidad conocida y mayor que cero** de ser elegida. Eso permite calcular el error y estimar sin sesgo. En uno **no probabilístico** (conveniencia, bola de nieve, "los que vienen a consulta") no se conocen esas probabilidades y **no se puede cuantificar el sesgo**.
 
@@ -9,12 +21,12 @@ En un muestreo **probabilístico** cada persona de la población tiene una **pro
 | **Aleatorio simple** (MAS) | Sorteo directo del listado | Hay un listado completo y pequeño |
 | **Sistemático** | Un punto al azar y luego 1 de cada *k* | Listado ordenado (registro de diálisis) |
 | **Estratificado** | MAS dentro de grupos (estratos) | Grupos con distinta frecuencia; asegurar subgrupos pequeños |
-| **Por conglomerados** | Se sortean grupos y se miden todos (o parte) | No hay listado de personas, pero sí de comunidades, hospitales, unidades |
-| **Bietápico / polietápico** | Conglomerados y luego personas dentro | Encuestas nacionales (ENSANUT, NHANES) |
+| **Por conglomerados** | Se sortean grupos y se mide a todos (o a parte) | No hay listado de personas, pero sí de comunidades, hospitales, unidades |
+| **Bietápico / polietápico** | Conglomerados y luego personas dentro | Encuestas nacionales de salud |
 
-## Cómo se hace en R
+## Paso 2: cada diseño es una pequeña función
 
-Con `dplyr`, cada diseño es una pequeña función. Trabajamos con la región simulada (`pob`) y un tamaño de muestra de **1 500 adultos**.
+Con `dplyr`, cada diseño se escribe en pocas líneas. Trabajamos con la región simulada (`pob`) y un tamaño de muestra de **1 500 adultos**. Cada función devuelve la muestra con una columna `peso`: la **inversa de la probabilidad de selección** (1 si todos tienen la misma probabilidad).
 
 ```{r}
 #| label: setup-62
@@ -25,11 +37,11 @@ pob <- simular_poblacion_erc()
 N <- nrow(pob); n <- 1500
 pob <- pob |>
   mutate(gedad = cut(edad, c(17, 39, 59, 100), labels = c("18-39", "40-59", "60+")),
-         tam = ave(erc, cluster, FUN = length))        # tamaño de la comunidad (marco)
+         tam = ave(erc, cluster, FUN = length))        # tamaño de la comunidad (lo conoce el marco)
+```
 
-## Cada función devuelve la muestra con una columna `peso` = inversa de la probabilidad de selección
-## (1 en los diseños donde todos tienen igual probabilidad).
-
+```{r}
+#| label: disenos
 ## 1. Aleatorio simple
 muestra_mas <- function() slice_sample(pob, n = n) |> mutate(peso = 1)
 
@@ -44,105 +56,136 @@ muestra_estrat <- function() {
   pob |> group_by(gedad) |> slice_sample(prop = n / N) |> ungroup() |> mutate(peso = 1)
 }
 
-## 4. Por conglomerados (en dos etapas): 60 comunidades y 25 adultos en cada una
+## 4. Por conglomerados en dos etapas: 60 comunidades y 25 adultos en cada una
 muestra_cong <- function(n_cl = 60, por_cl = 25) {
   ids <- sample(unique(pob$cluster), n_cl)
   pob |> filter(cluster %in% ids) |> group_by(cluster) |> slice_sample(n = por_cl) |> ungroup() |>
-    mutate(peso = (n_distinct(pob$cluster) / n_cl) * tam / por_cl)     # (1 / prob. de la comunidad) x (1 / prob. dentro de ella)
+    mutate(peso = (n_distinct(pob$cluster) / n_cl) * tam / por_cl)   # (1/prob. de la comunidad) x (1/prob. dentro de ella)
 }
 ```
 
-En el diseño por conglomerados, un adulto de una comunidad **pequeña** tiene más probabilidad de salir (se eligen 25 de pocos) que uno de una comunidad grande. Para estimar sin sesgo hay que **ponderar** por `peso`; por eso todas las funciones devuelven esa columna.
+En el diseño por conglomerados, un adulto de una comunidad **pequeña** tiene más probabilidad de salir (se eligen 25 de pocos) que uno de una comunidad grande. Para estimar sin sesgo hay que **ponderar** por `peso`. Siempre fija la semilla (`set.seed()`) **antes** de sortear y guarda los ID sorteados: así cualquiera puede reproducir y auditar tu muestra.
 
-::: {.callout-tip}
-## 💡 Tip práctico: reproducibilidad
+## Paso 3: ¿qué diseño estima mejor? Un experimento repetido
 
-Siempre fija la semilla (`set.seed()`) **antes** de sortear y guarda las IDs sorteadas. Así cualquiera puede reproducir tu muestra y auditar el sorteo.
-:::
-
-## ¿Qué diseño estima mejor? Experimento de muestreo repetido
-
-Como conocemos la población completa, podemos sacar **500 muestras de cada diseño** y ver (a) si el estimador cae en promedio sobre la verdad y (b) cuánto varía de una muestra a otra.
+Como conocemos toda la población, podemos sacar **1 000 muestras de cada diseño** y mirar (a) si el estimador cae en promedio sobre la verdad (*sesgo*) y (b) cuánto varía de una muestra a otra. Para los conglomerados calculamos dos estimaciones de cada muestra: **con** y **sin** pesos.
 
 ```{r}
 #| label: comparar-disenos
 set.seed(1)
-reps <- 500
+reps <- 1000
 prev_verdadera <- mean(pob$erc)
 
-estimar <- function(f) replicate(reps, { m <- f(); weighted.mean(m$erc, m$peso) })
-resultados <- tibble(
-  diseno = c("Aleatorio simple", "Sistemático", "Estratificado (edad)", "Conglomerados (60 × 25)"),
-  est = list(estimar(muestra_mas), estimar(muestra_sis), estimar(muestra_estrat), estimar(muestra_cong))
-)
+# De cada muestra devuelve la prevalencia ponderada y la no ponderada
+estimar <- function(f) {
+  replicate(reps, { m <- f(); c(ponderada = weighted.mean(m$erc, m$peso), sin_pesos = mean(m$erc)) })
+}
+est <- list(mas = estimar(muestra_mas), sis = estimar(muestra_sis),
+            estrat = estimar(muestra_estrat), cong = estimar(muestra_cong))
 
-## Error estándar teórico de una MAS del mismo tamaño: referencia para el efecto de diseño
+# Error estándar teórico de una MAS del mismo tamaño: referencia para el efecto de diseño
 ee_mas <- sqrt(prev_verdadera * (1 - prev_verdadera) / n * (1 - n / N))
 
+resultados <- tibble(
+  diseno = c("Aleatorio simple", "Sistemático", "Estratificado (edad)",
+             "Conglomerados 60 × 25, ponderado", "Conglomerados 60 × 25, SIN ponderar"),
+  estimaciones = list(est$mas["ponderada", ], est$sis["ponderada", ], est$estrat["ponderada", ],
+                      est$cong["ponderada", ], est$cong["sin_pesos", ])
+)
+
 resumen <- resultados |>
-  mutate(media = map_dbl(est, mean), desv_est = map_dbl(est, sd)) |>
-  select(diseno, media, desv_est) |>
-  mutate(sesgo = media - prev_verdadera,
-         efecto_diseno = (desv_est / ee_mas)^2)
+  mutate(media = map_dbl(estimaciones, mean),
+         desv_est = map_dbl(estimaciones, sd),
+         sesgo = media - prev_verdadera,                       # ¿acierta en promedio?
+         efecto_diseno = (desv_est / ee_mas)^2) |>             # varianza relativa a una MAS
+  select(-estimaciones)
 
 resumen |> mutate(across(c(media, desv_est, sesgo), \(x) round(100 * x, 2)),
                   efecto_diseno = round(efecto_diseno, 2))
 ```
 
-En porcentaje (la prevalencia verdadera es `r sprintf("%.2f", 100 * prev_verdadera)` %):
+Las tres primeras columnas están en puntos porcentuales; la prevalencia verdadera es **`r sprintf("%.2f", 100 * prev_verdadera)` %**. Mira también la figura:
 
 ```{r}
 #| label: graf-disenos
 #| fig-width: 9
 #| fig-height: 4
-resultados |>
-  unnest(est) |>
-  mutate(diseno = factor(diseno, levels = resultados$diseno)) |>
-  ggplot(aes(est, diseno)) +
+resumen_largo <- resultados |>
+  unnest(estimaciones) |>
+  mutate(diseno = factor(diseno, levels = rev(resultados$diseno)))
+
+ggplot(resumen_largo, aes(estimaciones, diseno)) +
   geom_boxplot(fill = "#56B4E9", alpha = 0.6, outlier.size = 0.8) +
   geom_vline(xintercept = prev_verdadera, color = "#D55E00", linewidth = 1) +
   scale_x_continuous(labels = scales::percent_format(accuracy = 0.1)) +
-  labs(x = "Prevalencia estimada de ERC (500 muestras por diseño)", y = NULL,
+  labs(x = "Prevalencia estimada de ERC (1 000 muestras por diseño)", y = NULL,
        caption = "Línea naranja = prevalencia verdadera. Datos simulados.") +
   theme_minimal(base_size = 11)
 ```
 
+```{r}
+#| label: deff-estrat
+# Efecto de diseño teórico de estratificar por edad: varianza dentro de los estratos / varianza total
+estratos <- pob |> group_by(gedad) |> summarise(peso_h = n() / N, p_h = mean(erc))
+prev_edad <- estratos$p_h
+deff_estrat <- sum(estratos$peso_h * estratos$p_h * (1 - estratos$p_h)) / (prev_verdadera * (1 - prev_verdadera))
+deff_estrat
+```
+
 Lo que enseña el experimento:
 
--   **Todos los diseños probabilísticos son aproximadamente insesgados**: la media de las estimaciones cae sobre la verdad.
--   **Estratificar** por una variable *relacionada con el desenlace* (aquí la edad: la prevalencia pasa de 3 % a 16 % entre los grupos extremos) **reduce el error** respecto de la MAS (aquí modestamente; la ganancia crece cuanto más difiera el desenlace entre estratos). Si el estrato no se relaciona con el desenlace, no se gana nada.
--   **Los conglomerados aumentan el error**: medir 25 vecinos de la misma comunidad aporta menos información que medir 25 personas distintas. Se hace por **logística y costo**, y se paga con una muestra efectiva menor.
--   El **sistemático** se comporta aquí mejor que la MAS porque el listado está ordenado por conglomerado (equivale a estratificar sin querer). Cuidado: si el listado tiene un **patrón periódico** que coincide con *k* (por ejemplo, una cita cada 7 días con turno fijo), el sistemático puede sesgar.
+-   **Los diseños probabilísticos, bien analizados, aciertan en promedio**: el sesgo de las cuatro primeras filas es de a lo más `r sprintf("%.2f", 100 * max(abs(resumen$sesgo[1:4])))` puntos.
+-   **Ignorar los pesos sesga** el diseño por conglomerados: sin ponderar se queda `r sprintf("%.2f", 100 * resumen$sesgo[5])` puntos por encima de la verdad, porque las comunidades pequeñas (en su mayoría rurales, con más ERC) tienen más probabilidad de ser elegidas y quedan sobrerrepresentadas.
+-   **Los conglomerados aumentan el error**: su efecto de diseño es `r sprintf("%.2f", resumen$efecto_diseno[4])` (la varianza es `r sprintf("%.1f", resumen$efecto_diseno[4])` veces la de una MAS del mismo tamaño). Medir 25 vecinos de la misma comunidad aporta menos información que medir 25 personas distintas. Se hace por **logística y costo**, y se paga con una muestra efectiva menor.
+-   **Estratificar por edad casi no ayuda aquí** (efecto de diseño `r sprintf("%.2f", resumen$efecto_diseno[3])`). La ganancia teórica es solo de un `r sprintf("%.0f", 100 * (1 - deff_estrat))` %, porque aunque la ERC aumenta con la edad (de `r sprintf("%.0f", 100 * prev_edad[1])` % a `r sprintf("%.0f", 100 * prev_edad[3])` %), la mayor parte de la variación está *dentro* de cada grupo: estratificar paga cuando el desenlace **difiere mucho entre estratos**.
+-   El **sistemático** gana (`r sprintf("%.2f", resumen$efecto_diseno[2])`) por una razón accidental: el listado está ordenado por comunidad, y eso equivale a estratificar por comunidad. Cuidado: si el listado tiene un **patrón periódico** que coincide con *k* (por ejemplo, un turno fijo cada 7 días), el sistemático puede sesgar.
 
-## Estratificar: proporcional o desproporcionado
+Cada cifra tiene su propio **error de simulación**: con 1 000 réplicas, un efecto de diseño tiene un margen de unos ±10 %, así que las diferencias pequeñas (el efecto de la MAS debería ser 1) no se interpretan.
 
--   **Proporcional**: cada estrato aporta a la muestra en proporción a su tamaño. Mejora la precisión y no requiere ponderar.
--   **Desproporcionado** (sobremuestreo): se toman **más** personas de un grupo pequeño de interés (zona rural, pacientes en diálisis, personas mayores de 80) para tener precisión *dentro* de ese grupo. El costo es que **las personas ya no tienen la misma probabilidad de selección**, y el análisis **debe usar pesos** (6.3).
+## Paso 4: estratificar, proporcional o desproporcionado
 
-Ejemplo: la zona rural es solo el 29 % de los adultos. Con 1 500 personas en MAS, ¿cuántas rurales esperamos? Unas 430. Si queremos comparar urbano y rural, reservamos 750 y 750:
+-   **Proporcional**: cada estrato aporta a la muestra en proporción a su tamaño. Mejora un poco la precisión y no exige ponderar.
+-   **Desproporcionado** (*sobremuestreo*): se toman **más** personas de un grupo pequeño de interés (zona rural, pacientes en diálisis, mayores de 80 años) para tener precisión *dentro* de ese grupo. El costo es que **las personas ya no tienen la misma probabilidad de selección**, y el análisis **debe usar pesos**.
+
+La zona rural es el `r sprintf("%.0f", 100 * mean(pob$area == "Rural"))` % de los adultos. Con 1 500 personas en MAS esperaríamos unas `r round(n * mean(pob$area == "Rural"))` rurales. Si queremos comparar urbano y rural reservamos 750 y 750:
 
 ```{r}
 #| label: sobremuestreo
-pob |> count(area) |> mutate(proporcion = n / sum(n), esperados_en_1500 = round(1500 * proporcion))
-
-muestra_desprop <- pob |> group_by(area) |> slice_sample(n = 750) |> ungroup()
-count(muestra_desprop, area)
-
-## peso = inversa de la probabilidad de selección = N_estrato / n_estrato
-pob |> count(area, name = "N_h") |> mutate(n_h = 750, peso = N_h / n_h)
+N_h <- pob |> count(area, name = "N_h")
+N_h |> mutate(proporcion = N_h / sum(N_h), esperados_en_1500 = round(1500 * proporcion),
+              n_h = 750, peso = N_h / n_h)          # peso = inversa de la probabilidad = N_h / n_h
 ```
 
-Cada persona rural "representa" a `r round(sum(pob$area == "Rural") / 750)` adultos; cada persona urbana, a `r round(sum(pob$area == "Urbano") / 750)`. Estos son los **pesos de muestreo**.
+Cada persona rural "representa" a `r round(N_h$N_h[N_h$area == "Rural"] / 750)` adultos; cada persona urbana, a `r round(N_h$N_h[N_h$area == "Urbano"] / 750)`. Esos son los **pesos de muestreo**. ¿Qué pasa si los ignoramos? Repetimos el diseño 500 veces:
 
-## Conglomerados: efecto de diseño y correlación intraclase
+```{r}
+#| label: desprop-pesos
+muestra_desprop <- function() {
+  pob |> group_by(area) |> slice_sample(n = 750) |> ungroup() |>
+    left_join(N_h, by = "area") |> mutate(peso = N_h / 750)
+}
 
-Personas de la misma comunidad se parecen entre sí (mismo acceso a salud, dieta, exposiciones). Esa semejanza se mide con el **coeficiente de correlación intraclase** (ICC, $\rho$). Con conglomerados de tamaño promedio $\bar m$, el **efecto de diseño** (*deff*) es:
+set.seed(2)
+est_desprop <- replicate(500, { m <- muestra_desprop(); c(sin_pesos = mean(m$erc), con_pesos = weighted.mean(m$erc, m$peso)) })
+
+tibble(
+  analisis = c("Sin pesos", "Con pesos N_h / n_h"),
+  media_de_500_muestras = round(100 * rowMeans(est_desprop), 2),
+  sesgo = round(100 * (rowMeans(est_desprop) - prev_verdadera), 2)
+)
+```
+
+Sin pesos, la zona rural (la mitad de la muestra, pero solo el `r sprintf("%.0f", 100 * mean(pob$area == "Rural"))` % de la población) pesa demasiado y la prevalencia sale **`r sprintf("%.2f", 100 * (rowMeans(est_desprop)["sin_pesos"] - prev_verdadera))` puntos** por encima de la verdad. Con los pesos, el sesgo desaparece.
+
+## Paso 5: conglomerados, correlación intraclase y efecto de diseño
+
+Personas de la misma comunidad se parecen entre sí (mismo acceso a salud, dieta, exposiciones). Esa semejanza se mide con el **coeficiente de correlación intraclase** (ICC, $\rho$). Con conglomerados de tamaño promedio $\bar m$, el **efecto de diseño** (*deff*) es
 
 $$
 \text{deff} \approx 1 + (\bar m - 1)\,\rho
 $$
 
-Es el factor por el que se **multiplica la varianza** respecto de una MAS del mismo tamaño. El tamaño de muestra **efectivo** es $n_{ef} = n/\text{deff}$.
+Es el factor por el que se **multiplica la varianza** respecto de una MAS del mismo tamaño; el tamaño de muestra **efectivo** es $n_{ef} = n/\text{deff}$.
 
 ```{r}
 #| label: icc
@@ -154,12 +197,9 @@ icc <- (ms[1] - ms[2]) / (ms[1] + (m_prom - 1) * ms[2])
 
 deff_teorico <- 1 + (25 - 1) * icc
 c(icc = icc, deff_con_25_por_comunidad = deff_teorico, n_efectivo = n / deff_teorico)
-
-## efecto de diseño observado en el experimento (con su propio error de simulación)
-resumen |> filter(str_detect(diseno, "Conglomerados")) |> pull(efecto_diseno)
 ```
 
-Un ICC de apenas `r sprintf("%.3f", icc)` parece insignificante, pero con 25 personas por conglomerado el *deff* ronda **`r sprintf("%.1f", deff_teorico)`**: las 1 500 personas valen como unas **`r round(n / deff_teorico)`**. Cuantas **más personas por conglomerado**, mayor el costo estadístico; suele ser mejor **más conglomerados con menos personas cada uno**.
+Un ICC de apenas `r sprintf("%.3f", icc)` parece insignificante, pero con 25 personas por conglomerado el *deff* teórico es **`r sprintf("%.2f", deff_teorico)`**: las 1 500 personas valen como unas **`r round(n / deff_teorico)`**. La simulación del Paso 3 dio `r sprintf("%.2f", resumen$efecto_diseno[4])`: la fórmula es una aproximación, pero acierta el orden de magnitud. Cuantas **más personas por conglomerado**, mayor el costo estadístico; suele ser mejor **más conglomerados con menos personas cada uno**.
 
 ::: {.callout-warning}
 ## ⚠️ Los datos agrupados no son independientes
@@ -171,8 +211,8 @@ Analizar una encuesta por conglomerados con `t.test()` o `glm()` ordinarios **su
 ## 🎯 En resumen
 
 -   Solo el muestreo **probabilístico** permite estimar sin sesgo y cuantificar el error.
--   **Estratifica** por variables relacionadas con el desenlace (más precisión) o para **asegurar subgrupos pequeños** (sobremuestreo, que exige pesos).
--   Los **conglomerados** abaratan el trabajo de campo pero **aumentan la varianza**: *deff* = 1 + (m − 1)ρ.
+-   **Estratifica** por variables muy relacionadas con el desenlace (más precisión) o para **asegurar subgrupos pequeños** (sobremuestreo, que exige pesos).
+-   Los **conglomerados** abaratan el trabajo de campo pero **aumentan la varianza**: *deff* ≈ 1 + (*m* − 1)ρ; sin pesos, además, pueden sesgar.
 -   Un listado ordenado y un sistemático pueden coincidir con un patrón periódico: revisa el orden.
 -   Escribe el diseño como **código reproducible** con semilla.
 :::
@@ -180,5 +220,5 @@ Analizar una encuesta por conglomerados con `t.test()` o `glm()` ordinarios **su
 ## Ejercicio
 
 1.  Calcula el *deff* teórico si se midieran **10** personas por comunidad en lugar de 25 (`1 + (10 − 1) * icc`). Con 150 comunidades (también 1 500 personas), ¿mejora la precisión?
-2.  Haz un diseño estratificado por **área** con 300 urbanos y 1 200 rurales y verifica que, **sin pesos**, la prevalencia estimada está sesgada. Corrígela con los pesos *N_h*/*n_h*.
-3.  Escribe un muestreo sistemático donde el listado esté ordenado por edad. ¿Qué ventaja da ordenar así?
+2.  Repite el diseño estratificado por **área** con 300 urbanos y 1 200 rurales y verifica que, **sin pesos**, la prevalencia está sesgada. Corrígela con los pesos *N_h*/*n_h*.
+3.  Escribe un muestreo sistemático donde el listado esté **ordenado por edad** (`arrange(edad)`). ¿Qué ventaja da ordenar así? (Pista: el efecto de diseño teórico de ordenar por edad ronda 0.9.)

@@ -1,137 +1,225 @@
-# Puntaje de propensión
+# ¿Qué es el puntaje de propensión? Buscar al "gemelo clínico"
 
-## Qué es
+::: {.callout-note}
+## 🩺 Escenario
 
-El **puntaje de propensión** (PS) es la **probabilidad de recibir el tratamiento dado los confusores medidos**:
+Una mujer de 58 años con albuminuria alta, buena TFGe y ECV tiene **muchas** probabilidades de que su nefrólogo le prescriba un iSGLT2. Un varón de 76 años con TFGe de 28 y poca albuminuria, **muy pocas**. Si comparas tratados con no tratados, estás comparando perfiles como estos. Pero si comparas a una paciente tratada con **otra paciente con la misma probabilidad de ser tratada** que *no* lo fue, esa comparación se parece mucho más a un sorteo.
+:::
+
+La probabilidad de recibir el tratamiento, dado el perfil del paciente, se llama **puntaje de propensión** (*propensity score*, PS):
 
 $$
 e(X) = P(A = 1 \mid X)
 $$
 
-Rosenbaum y Rubin (1983) demostraron que, **dentro de pacientes con el mismo PS**, los confusores medidos quedan **balanceados** entre tratados y no tratados: el PS es un **resumen** de todos los confusores en un solo número. Entonces se puede **emparejar, ponderar o estratificar** por el PS en lugar de por muchas variables.
+Piensa en el PS como la **"propensión a ser prescrito"** resumida en **un solo número** entre 0 y 1. Rosenbaum y Rubin (1983) demostraron algo notable: **dentro de pacientes con el mismo PS, los confusores medidos quedan equilibrados** entre tratados y no tratados. Dos pacientes con el mismo PS son **gemelos clínicos** respecto a la decisión de prescribir, aunque difieran en los detalles.
 
-**Importante**: el PS sirve para **diseñar** (equilibrar los grupos) **sin mirar el desenlace**. Es un **análisis en dos etapas**: (1) modelo del tratamiento y verificación del balance; (2) estimación del efecto.
+**Lo que vamos a hacer**
 
-## Paso 1: estimar el PS
-
-Se ajusta una **regresión logística** del tratamiento sobre los confusores (los de tu DAG):
+-   Estimar el PS con una regresión logística.
+-   Comprobar si hay **solapamiento** (¿existen gemelos para todos?).
+-   Verificar el **balance**: la prueba de fuego del PS.
 
 ```{r}
 #| label: setup-123
 library(tidyverse)
 source("R/funciones_epi.R")
+source("R/funciones_extra_cap1213.R")
+source("R/tabla1.R")
 
-oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv") |>
-  mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")), luacr = log(uacr),
-         trat = factor(isglt2, levels = 0:1, labels = c("No inicia", "Inicia iSGLT2")))
-ckd <- oraculo |> select(-fragilidad, -pendiente_0, -pendiente_1, -ite, -starts_with("evento_36m"))
+oraculo <- cargar_oraculo()
+ckd <- observado(oraculo)
+```
 
-formula_ps <- isglt2 ~ I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv
-modelo_ps <- glm(formula_ps, data = ckd, family = binomial)
-ckd$ps <- fitted(modelo_ps)
+El PS se usa en **dos etapas**: primero el **diseño** (modelo del tratamiento y balance, **sin mirar el desenlace**) y después el **análisis** del efecto. Este es el esquema que seguiremos en 12.3-12.5:
+
+```{r}
+#| label: flujo-ps
+#| echo: false
+#| fig-width: 9
+#| fig-height: 1.9
+diagrama_flujo(c("1. Modelo del\ntratamiento\n(el PS)", "2. ¿Solapamiento?\n(¿hay gemelos?)", "3. Emparejar\no ponderar",
+                 "4. Balance:\n¿DEM < 0.10?", "5. Efecto sobre\nel desenlace"), resaltar = 4)
+```
+
+Si el paso 4 falla, **se vuelve al paso 1** (se mejora el modelo del PS) y se repite. El desenlace no se toca hasta el paso 5: así no hay tentación de "ajustar hasta que salga el resultado deseado".
+
+## Paso 1: decide qué variables entran
+
+El PS se construye con los **confusores** que tu DAG indica. Una regla práctica:
+
+-   **Sí**: confusores (causas del tratamiento **y** del desenlace) y causas **solo del desenlace** (mejoran la precisión).
+-   **No**: causas **solo del tratamiento** (*instrumentos*: aumentan la varianza y pueden amplificar el sesgo), **mediadores** y **colisionadores**.
+
+Con el paquete `dagitty` (no está instalado aquí) se puede pedir el conjunto de ajuste mínimo a partir del DAG:
+
+```{r}
+#| label: dagitty-ps
+#| eval: false
+## Con el paquete dagitty (no se ejecuta aquí)
+library(dagitty)
+dag <- dagitty("dag {
+  edad -> isglt2 ; edad -> pendiente ; tfg_basal -> isglt2 ; tfg_basal -> pendiente
+  uacr -> isglt2 ; uacr -> pendiente ; hba1c -> isglt2 ; hba1c -> pendiente
+  ecv -> isglt2 ; ecv -> pendiente ; isglt2 -> pendiente
+  fragilidad [unobserved] ; fragilidad -> isglt2 ; fragilidad -> pendiente
+}")
+adjustmentSets(dag, exposure = "isglt2", outcome = "pendiente")
+## Como la fragilidad no se mide, no habrá un conjunto de ajuste válido con lo observado
+```
+
+## Paso 2: estima el PS
+
+Se ajusta una **regresión logística** del tratamiento sobre los confusores, y la probabilidad que predice para cada paciente **es** su PS:
+
+```{r}
+#| label: ps
+formula_ps <- as.formula(paste("isglt2 ~", confusores_medidos))   # isglt2 ~ edad + sexo + hba1c + ...
+modelo_ps  <- glm(formula_ps, data = ckd, family = binomial)
+ckd$ps <- fitted(modelo_ps)                                         # PS de cada paciente
 
 summary(ckd$ps)
 ```
 
-::: {.callout-tip}
-## 💡 Qué variables incluir en el modelo de PS
+**Qué vemos:** el PS va de `r round(min(ckd$ps), 2)` a `r round(max(ckd$ps), 2)`, con media `r round(mean(ckd$ps), 2)` (igual a la proporción de tratados, `r round(mean(ckd$isglt2), 2)`). No necesitas interpretar los coeficientes de este modelo ni medir su "ajuste": solo importa que **el PS equilibre a los grupos**, como verás en el paso 4.
 
--   **Sí**: **confusores** (causas del tratamiento **y** del desenlace) y **causas solo del desenlace** (mejoran la precisión).
--   **No**: **causas solo del tratamiento** (**instrumentos**: aumentan la varianza y pueden amplificar el sesgo), **mediadores** y **colisionadores**.
--   Para variables continuas, incluye **no linealidad** (*splines*, términos cuadráticos) e **interacciones** plausibles si el balance no es bueno.
--   **No** uses el valor *p* para seleccionar variables ni evalúes el PS con "bondad de ajuste" o el AUC (un AUC alto implica **poca superposición**, no un mejor PS).
-:::
+## Paso 3: ¿hay solapamiento? (positividad)
 
-## Paso 2: ¿hay solapamiento? (positividad)
-
-Un PS útil requiere que **ambos grupos** tengan pacientes con **PS comparables**:
+Un PS útil necesita pacientes **de ambos grupos** en cada zona de PS. Si en una zona no hay tratados (o no hay no tratados), **no existe gemelo** para los que sí hay. Dibujamos los dos grupos "en espejo": tratados hacia arriba y no tratados hacia abajo.
 
 ```{r}
 #| label: solapamiento
 #| fig-width: 8
-#| fig-height: 3.8
-ggplot(ckd, aes(ps, fill = trat)) +
-  geom_histogram(aes(y = after_stat(density)), position = "identity", alpha = 0.55, bins = 40) +
-  scale_fill_manual(values = c("No inicia" = "#999999", "Inicia iSGLT2" = "#0072B2"), name = NULL) +
-  labs(x = "Puntaje de propensión (probabilidad de iniciar iSGLT2)", y = "Densidad",
+#| fig-height: 4
+ggplot(ckd, aes(ps)) +
+  geom_histogram(data = filter(ckd, isglt2 == 1), aes(y = after_stat(count)), bins = 40, fill = "#0072B2", alpha = 0.8) +
+  geom_histogram(data = filter(ckd, isglt2 == 0), aes(y = -after_stat(count)), bins = 40, fill = "#999999", alpha = 0.8) +
+  geom_hline(yintercept = 0) +
+  scale_y_continuous(labels = abs) +
+  annotate("text", x = 0.02, y = c(110, -110), label = c("Inicia iSGLT2", "No inicia"), hjust = 0, size = 3.5) +
+  labs(x = "Puntaje de propensión (probabilidad de iniciar iSGLT2)", y = "Pacientes",
        caption = "Datos simulados.") +
-  theme_minimal(base_size = 11) + theme(legend.position = "bottom")
+  theme_minimal(base_size = 11)
 ```
-
-Hay **buen solapamiento** en la zona central (0.2-0.8), con **colas** en que casi no hay tratados (PS bajo) o casi no hay no tratados (PS alto). Los pacientes en las colas se parecen poco a los del otro grupo: **no hay contrafactual razonable**.
 
 ```{r}
 #| label: rango-ps
-ckd |> group_by(trat) |> summarise(minimo = min(ps), p1 = quantile(ps, 0.01), mediana = median(ps),
-                                  p99 = quantile(ps, 0.99), maximo = max(ps)) |>
-  mutate(across(where(is.numeric), \(x) round(x, 3)))
+rango_ps <- ckd |> group_by(trat) |>
+  summarise(minimo = min(ps), p1 = quantile(ps, 0.01), mediana = median(ps), p99 = quantile(ps, 0.99), maximo = max(ps))
+rango_ps |> mutate(across(where(is.numeric), \(x) round(x, 3)))
 ```
 
-### Recortar o restringir
+**Qué vemos:** los dos grupos se **superponen casi por completo**. Los tratados se acumulan hacia PS altos (mediana `r round(rango_ps$mediana[2], 2)`) y los no tratados hacia PS bajos (mediana `r round(rango_ps$mediana[1], 2)`), pero en casi todo el rango hay pacientes de ambos. Solo las **colas** son delgadas: por debajo de `r round(rango_ps$p1[2], 2)` casi no hay tratados y por encima de `r round(rango_ps$p99[1], 2)` casi no hay no tratados. Esos pacientes **no tienen gemelo** razonable.
 
-Una práctica habitual es **restringir** el análisis a la **región de solapamiento** (por ejemplo, excluir PS < 0.05 o > 0.95, o fuera de los percentiles 2.5-97.5 del grupo tratado). Se define **antes** de ver el resultado y **cambia el estimando** (ahora es el efecto en la población comparable):
+Si hubiera colas largas, se **restringe** el análisis a la región de solapamiento (por ejemplo, PS entre 0.05 y 0.95). Se decide **antes** de ver el desenlace, y **cambia el estimando**: ahora es el efecto en la población comparable.
 
 ```{r}
 #| label: recorte
-ckd_rec <- ckd |> filter(between(ps, 0.05, 0.95))
-c(original = nrow(ckd), tras_recorte = nrow(ckd_rec), excluidos = nrow(ckd) - nrow(ckd_rec))
+fuera <- sum(!between(ckd$ps, 0.05, 0.95))
+c(original = nrow(ckd), excluidos_con_PS_fuera_de_0.05_0.95 = fuera)
 ```
 
-## Paso 3: comprobar el balance
+Aquí solo `r fuera` pacientes quedarían fuera: no hace falta recortar. Con el paquete `cobalt` el mismo gráfico se obtiene así:
 
-La prueba de que el PS funciona **no es su AUC**, sino que, **al usarlo** (emparejar, ponderar), los confusores **queden balanceados**. Antes de usarlo, medimos el desbalance **crudo** con las **diferencias estandarizadas** (DEM):
+```{r}
+#| label: cobalt-solap
+#| eval: false
+## Con el paquete cobalt (no se ejecuta aquí)
+library(cobalt)
+bal.plot(ckd, var.name = "ps", treat = "isglt2", which = "both", data = ckd, type = "histogram", mirror = TRUE)
+```
+
+## Paso 4: comprueba el balance (¿por qué funciona el PS?)
+
+Primero, la idea. Dividimos a los pacientes en **cinco grupos de PS** (quintiles) y comparamos la **edad media** de tratados y no tratados:
+
+```{r}
+#| label: quintiles
+ckd |>
+  mutate(quintil_ps = ntile(ps, 5)) |>
+  group_by(quintil_ps, trat) |>
+  summarise(edad_media = mean(edad), .groups = "drop") |>
+  pivot_wider(names_from = trat, values_from = edad_media) |>
+  mutate(diferencia = `Inicia iSGLT2` - `No inicia`, across(where(is.numeric), \(x) round(x, 1)))
+
+ckd |> group_by(trat) |> summarise(edad_media = round(mean(edad), 1))
+```
+
+**Qué vemos:** en toda la muestra, los tratados son **`r round(mean(ckd$edad[ckd$isglt2 == 0]) - mean(ckd$edad[ckd$isglt2 == 1]), 1)` años más jóvenes**. Pero **dentro de cada quintil de PS** la diferencia es de **1.5 años o menos**. Al comparar pacientes con PS parecido, el desequilibrio de edad casi desaparece: eso es "equilibrar con un solo número".
+
+Ahora lo medimos bien. La **diferencia de medias estandarizada** (DEM, o SMD en inglés) es la diferencia entre grupos medida en **desviaciones estándar**, para poder comparar variables con unidades distintas. La regla habitual es que **|DEM| < 0.10** indica buen balance. Calculamos la DEM **cruda** (sin ajustar) con nuestra función `tabla_dem()`:
 
 ```{r}
 #| label: dem-crudo
 vars <- c("edad", "hba1c", "pas", "tfg_basal", "luacr", "ecv")
-dem_crudo <- tibble(variable = vars, DEM_cruda = map_dbl(vars, \(v) smd(ckd[[v]], ckd$isglt2)))
-dem_crudo |> mutate(DEM_cruda = round(DEM_cruda, 3))
+dem_crudo <- tabla_dem(ckd, vars)
+dem_crudo |> mutate(sin_ajustar = round(sin_ajustar, 3))
 ```
 
-Las DEM crudas de edad (−0.58), TFGe (0.44) y albuminuria (0.43) superan por mucho el umbral de 0.10. En 12.4 y 12.5 veremos cómo **desaparecen** al emparejar o ponderar por el PS.
-
-### El gráfico de balance (*love plot*)
-
-Un *love plot* resume el balance antes y después. 
-
-La función `love_plot()` está en `R/funciones_epi.R` (la cargamos con `source()`); recibe la base, las variables y, opcionalmente, **listas de pesos** para comparar el balance antes y después:
+**Qué vemos:** la edad (**`r round(dem_crudo$sin_ajustar[1], 2)`**), la TFGe (**`r round(dem_crudo$sin_ajustar[4], 2)`**) y la albuminuria (**`r round(dem_crudo$sin_ajustar[5], 2)`**) superan por mucho 0.10. En 12.4 y 12.5 verás cómo **desaparecen** al emparejar o ponderar. El **gráfico de balance** (*love plot*) resume esto en una imagen; la función `love_plot()` está en `R/funciones_epi.R` y más adelante le pasaremos pesos para ver el "después":
 
 ```{r}
 #| label: love-sin
 #| fig-width: 7
-#| fig-height: 3.4
+#| fig-height: 3.2
 love_plot(ckd, vars)
 ```
 
-## Tres usos del PS
+Si prefieres una tabla tipo "Tabla 1" con la DEM al lado (la que se publica), usa `tabla1()`; el equivalente con el paquete `tableone` está debajo:
 
-| Uso | Cómo | Subcapítulo |
-|---|---|---|
-| **Emparejamiento** | Cada tratado se pareja con un no tratado de PS similar | 12.4 |
-| **Ponderación** (IPW) | Cada paciente pesa $1/P(\text{tratamiento recibido})$ | 12.5 |
-| **Estratificación** | Se divide en quintiles de PS y se combinan | 12.4 |
-| **Covariable** | Se incluye el PS en el modelo del desenlace | No recomendado (supone una forma lineal en el PS) |
+```{r}
+#| label: tabla1-dem
+tabla1(ckd, vars = vars, grupo = "trat", binarias = "ecv", valor_p = FALSE,
+       etiquetas = c(edad = "Edad, años", hba1c = "HbA1c, %", pas = "PAS, mmHg", tfg_basal = "TFGe basal",
+                     luacr = "ln(UACR)", ecv = "ECV previa")) |>
+  knitr::kable()
+```
+
+```{r}
+#| label: tableone-ps
+#| eval: false
+## Con el paquete tableone (no se ejecuta aquí)
+library(tableone)
+tab <- CreateTableOne(vars = vars, strata = "isglt2", data = ckd, test = FALSE, smd = TRUE)
+print(tab, smd = TRUE)
+```
+
+::: {.callout-tip}
+## 💡 Reglas para no equivocarte con el PS
+
+-   **El balance importa más que la predicción.** No evalúes el PS con "bondad de ajuste" ni con el AUC: un AUC alto (aquí `r round(as.numeric(pROC::auc(ckd$isglt2, ckd$ps, quiet = TRUE)), 2)`) significa que los grupos se **separan** bien, o sea **menos** superposición, no un mejor PS.
+-   No uses el valor *p* para decidir si hay balance (depende del tamaño de muestra): usa la **DEM**.
+-   Si el balance es malo, añade **no linealidad** (*splines*, términos cuadráticos) o **interacciones plausibles** al modelo del PS y repite.
+-   Vigila la **estabilidad**: demasiadas variables e interacciones con pocos pacientes dan coeficientes enormes y PS cercanos a 0 o 1.
+:::
+
+## Cuatro formas de usar el PS
+
+-   **Emparejamiento**: cada tratado se empareja con un no tratado de PS similar (12.4).
+-   **Ponderación** (IPW): cada paciente pesa $1/P(\text{tratamiento recibido})$ (12.5).
+-   **Estratificación**: se divide en quintiles de PS y se combinan (12.4).
+-   **Covariable**: se incluye el PS en el modelo del desenlace. **No se recomienda** (supone una relación lineal con el PS).
 
 ::: {.callout-warning}
 ## ⚠️ Lo que el PS no puede hacer
 
--   **No resuelve la confusión no medida**: solo equilibra lo **medido**. En nuestro ejemplo, el PS equilibrará perfectamente edad, TFGe y albuminuria, pero **no la fragilidad**.
--   Un PS "excelente" (muy buen balance) **no es** prueba de ausencia de sesgo.
--   La estimación depende de que el modelo de PS esté **razonablemente bien especificado**.
+-   **No resuelve la confusión no medida**: solo equilibra lo **medido**. Aquí equilibrará edad, TFGe y albuminuria, pero **no la fragilidad**.
+-   Un PS con balance excelente **no demuestra** ausencia de sesgo.
+-   Si la población no se superpone, ningún PS inventa gemelos que no existen.
 :::
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
--   El **PS** es $P(\text{tratamiento} \mid \text{confusores})$; **equilibra los confusores medidos** y permite **diseñar** sin mirar el desenlace.
--   Estímalo con una **logística** de los **confusores** (no instrumentos, mediadores ni colisionadores).
--   **Solapamiento** (histogramas) = positividad; **recorta** colas **antes** de ver los resultados.
--   La **prueba del PS** es el **balance** (DEM < 0.10) tras usarlo, **no** el AUC.
--   El PS **no corrige confusión no medida**.
+-   El **PS** es $P(\text{tratamiento} \mid \text{confusores})$: un número que resume el perfil y **equilibra los confusores medidos**.
+-   Se estima con una **logística** de los **confusores** (no instrumentos, mediadores ni colisionadores).
+-   El **solapamiento** (histograma en espejo) es la positividad: recorta las colas **antes** de ver el desenlace.
+-   La prueba del PS es el **balance** (|DEM| < 0.10) después de usarlo, **no** el AUC.
+-   El PS **no corrige** la confusión no medida.
 :::
 
 ## Ejercicio
 
-1.  Agrega `ns(tfg_basal, 3)` y `ns(luacr, 3)` al modelo de PS. ¿Cambia la distribución del PS?
-2.  Excluye pacientes con PS < 0.10 o > 0.90 y recalcula las DEM crudas en la muestra recortada.
-3.  Calcula el **AUC del modelo de PS** (`pROC::auc`). ¿Un AUC alto es bueno o malo para este propósito? ¿Por qué?
+1.  Agrega `ns(tfg_basal, 3)` y `ns(luacr, 3)` (paquete `splines`) al modelo de PS. ¿Cambia la distribución del PS?
+2.  Excluye pacientes con PS < 0.10 o > 0.90 y recalcula las DEM crudas. ¿Mejoran?
+3.  Repite el paso 4 con quintiles de PS, pero comparando el **ln(UACR)** medio de ambos grupos. ¿Se cumple la misma idea?

@@ -5,19 +5,35 @@
 ::: {.callout-note}
 ## 🩺 El problema de todos los días
 
-En tu base de 5 000 pacientes con ERC y diabetes, **la UACR falta en un tercio**, la HbA1c en un 8 % y la presión arterial en un 6 %. El programa que usas hace "análisis de casos completos" y elimina silenciosamente a **2 000 pacientes**. ¿Importa? ¿Quiénes son los que quedan? ¿Qué hacer en su lugar?
+En tu base de 5 000 pacientes con ERC y diabetes (simulados), **la UACR falta en un tercio**, la HbA1c en un 8 % y la presión arterial en un 4 %. El programa que usas hace "análisis de casos completos" y elimina **en silencio** a 2 000 pacientes. ¿Importa? ¿Quiénes son los que quedan? ¿Qué hacer en su lugar?
 :::
+
+Piensa en una historia clínica con **hojas arrancadas**. Antes de seguir leyendo la historia, necesitas saber **por qué** faltan: ¿se mojó el archivo y se perdieron al azar, faltan más las de los pacientes mayores, o faltan justo las de los pacientes más graves? La respuesta decide si puedes ignorarlas, repararlas con otras hojas, o si debes temer que la historia está sesgada.
 
 Este capítulo usa **`ckd_faltantes`**: la base `ckd_isglt2` a la que **se borraron valores** (simulados) con tres mecanismos distintos. Como conocemos los **valores completos**, podemos medir cuánto sesga cada manera de manejar los datos faltantes.
 
 *Al finalizar este capítulo podrás:*
 
--   Distinguir los mecanismos **MCAR, MAR y MNAR**, con DAG.
+-   Distinguir **MCAR, MAR y MNAR**, con ejemplos y con DAG.
 -   **Explorar el patrón** de faltantes y modelar quién tiene datos incompletos.
 -   Saber **cuándo el análisis de casos completos sirve** y cuándo sesga.
--   Aplicar **imputación múltiple con `mice`** y combinar con las reglas de Rubin.
+-   Aplicar **imputación múltiple con `mice`** paso a paso y combinar con las reglas de Rubin.
 -   Imputar en análisis **causales** y de **supervivencia**.
--   Evaluar la **sensibilidad a MNAR** (análisis *delta* / *tipping point*).
+-   Evaluar la **sensibilidad a MNAR** (ajuste *delta* y punto de inflexión).
+
+## La ruta de un análisis con datos faltantes
+
+```{r}
+#| label: ruta-faltantes
+#| echo: false
+#| fig-width: 9
+#| fig-height: 2
+library(tidyverse)
+source("R/funciones_epi.R")
+source("R/funciones_extra_cap1213.R")
+diagrama_flujo(c("1. Describir\nqué falta\n(13.2)", "2. Pensar el\nmecanismo\nMCAR/MAR/MNAR\n(13.1)", "3. ¿Sirven los\ncasos completos?\n(13.3)",
+                 "4. Imputar con\nmice, analizar\ny combinar\n(13.4-13.5)", "5. Sensibilidad\na MNAR\n(13.6)"), resaltar = 4, tam_texto = 3)
+```
 
 ::: {.callout-important}
 ## 🎯 Mapa del capítulo
@@ -29,17 +45,21 @@ Este capítulo usa **`ckd_faltantes`**: la base `ckd_isglt2` a la que **se borra
 | 13.3 Casos completos | 🟡 | Cuándo es válido y cuándo no |
 | 13.4 Imputación múltiple (`mice`) | 🟡 | Imputar, analizar, combinar (Rubin) |
 | 13.5 Imputación en análisis causal y de supervivencia | 🔴 | IPW, Cox y desenlaces con imputación |
-| 13.6 Análisis de sensibilidad | 🔴 | MNAR, *tipping point* |
+| 13.6 Análisis de sensibilidad | 🔴 | MNAR, ajuste delta, punto de inflexión |
 :::
 
 *Prerrequisitos:* Caps. 5, 8, 9, 12. *Prepara:* Caps. 17 y 19.
 
+## Para leer más
+
+-   **van Buuren S.** *Flexible Imputation of Missing Data* (2.ª ed.). CRC Press; 2018. https://stefvanbuuren.name/fimd/. El libro de referencia, escrito por el autor de `mice`; gratuito en línea.
+-   **Austin PC, White IR, Lee DS, van Buuren S.** Missing data in clinical research: a tutorial on multiple imputation. *Can J Cardiol*. 2021;37:1322-1331. Tutorial clínico, breve y claro (del material del autor).
+-   **Sterne JAC, White IR, Carlin JB, et al.** Multiple imputation for missing data in epidemiological and clinical research: potential and pitfalls. *BMJ*. 2009;338:b2393. Cuándo ayuda la imputación y cuándo no.
+-   **White IR, Royston P.** Imputing missing covariate values for the Cox model. *Stat Med*. 2009;28:1982-1998. Base de la imputación con supervivencia (13.5).
+-   **Little RJA, Rubin DB.** *Statistical Analysis with Missing Data* (3.ª ed.). Wiley; 2019. La referencia teórica de los mecanismos MCAR, MAR y MNAR.
+-   **Hernán MA, Robins JM.** *Causal Inference: What If*. Cap. 8 (sesgo de selección y pérdidas de seguimiento).
+
 ## Referencias
 
 -   Rubin DB. *Multiple Imputation for Nonresponse in Surveys*. Wiley; 1987.
--   van Buuren S. *Flexible Imputation of Missing Data* (2e). CRC Press; 2018 (https://stefvanbuuren.name/fimd/).
 -   van Buuren S, Groothuis-Oudshoorn K. mice: Multivariate imputation by chained equations in R. *J Stat Softw*. 2011;45(3).
--   Sterne JAC, et al. Multiple imputation for missing data in epidemiological and clinical research: potential and pitfalls. *BMJ*. 2009;338:b2393.
--   White IR, Royston P. Imputing missing covariate values for the Cox model. *Stat Med*. 2009;28:1982-1998.
--   Little RJA, Rubin DB. *Statistical Analysis with Missing Data* (3e). Wiley; 2019.
--   Hernán MA, Robins JM. *Causal Inference: What If*. Cap. 8 (sesgo de selección y pérdidas).

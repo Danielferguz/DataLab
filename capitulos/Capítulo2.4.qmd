@@ -1,56 +1,45 @@
-# Entonces: ¿qué es la asociación?
+# Entonces, ¿qué es "una asociación"? Describir, explicar o predecir
 
-La palabra **asociación** aparece en casi todos los artículos clínicos, pero su significado cambia según la **pregunta** que se quiere responder. Lo que haces con una asociación (interpretarla, ajustarla, usarla para predecir) depende de si tu estudio es **descriptivo**, **explicativo (causal)** o **predictivo**.
+::: {.callout-note}
+## 🩺 Escenario
 
-::: {.callout-important}
-## 🎯 En resumen
-
-| | **Descriptiva** | **Explicativa (causal)** | **Predictiva** |
-|---|---|---|---|
-| Pregunta | ¿Qué está ocurriendo? | ¿Qué pasaría si interviniéramos? | ¿Qué ocurrirá a este paciente? |
-| Ejemplo en nefrología | Prevalencia de anemia por estadio de ERC | ¿Iniciar un iSGLT2 enlentece la pérdida de TFGe? | Riesgo a 5 años de insuficiencia renal (p. ej., KFRE) |
-| ¿Implica causalidad? | No | Sí (bajo supuestos) | No |
-| ¿Ajusto por confusores? | Solo si lo justifico (estandarización) | **Sí**, guiado por un DAG | No: selecciono predictores por su utilidad |
-| Métricas de éxito | Estimaciones con IC | Estimación no sesgada del efecto | Discriminación (AUC), calibración |
-| Cómo se interpretan los coeficientes | Como patrones | Solo el de la exposición | **No** se interpretan causalmente |
+Ajustas un modelo con edad, sexo, TFGe, albuminuria y HbA1c para anticipar el evento renal a 36 meses. En la discusión alguien dice: *"Entonces, si bajamos la HbA1c, reducimos el evento renal."* ¿Es una conclusión válida? Depende de **para qué** construiste el modelo. La palabra *asociación* aparece en casi todos los artículos, pero significa cosas distintas según la pregunta.
 :::
 
-## Asociación descriptiva
+## Lo que vamos a hacer
+
+-   Usar la misma base **simulada** (`ckd_isglt2`) para tres propósitos: **describir**, **predecir** y **explicar**.
+-   Ver con datos por qué los coeficientes de un modelo no se leen igual en cada caso.
+-   Detectar la **falacia de la Tabla 2**, uno de los errores más comunes.
+
+## Paso 1. Asociación descriptiva: caracterizar
 
 Busca **caracterizar** una población: patrones, frecuencias, diferencias. No pretende explicar ni predecir.
 
-*Ejemplo:* en nuestra clínica de ERC, los pacientes con albuminuria severa (UACR ≥ 300 mg/g) tienen con mayor frecuencia una presión sistólica ≥ 140 mmHg y una HbA1c más alta. Es un hallazgo útil para planificar recursos y generar hipótesis, aunque no sabemos *por qué* ocurre (¿el mal control causa la albuminuria?, ¿la albuminuria empeora el control?, ¿ambos comparten una causa?).
+*Ejemplo:* en nuestra clínica de ERC, ¿cómo difieren los pacientes con albuminuria severa (UACR ≥ 300 mg/g) de los demás en presión arterial y HbA1c?
 
 ```{r}
 #| label: desc-assoc
 library(tidyverse)
+source("R/funciones_extra_a.R")       # pct(), num()
 ckd <- read_csv("Bases/ckd_isglt2.csv", show_col_types = FALSE)
 
-ckd |>
+descriptivo <- ckd |>
   mutate(albuminuria_severa = if_else(uacr >= 300, "UACR >= 300", "UACR < 300")) |>
   group_by(albuminuria_severa) |>
   summarise(n = n(),
-            pas_140_o_mas = scales::percent(mean(pas >= 140), 0.1),
-            hba1c_media   = round(mean(hba1c), 2))
+            pas_140_o_mas = mean(pas >= 140),      # proporción con PAS >= 140 mmHg
+            hba1c_media   = mean(hba1c))
+descriptivo |> mutate(pas_140_o_mas = pct(pas_140_o_mas), hba1c_media = num(hba1c_media))
 ```
 
-::: {.callout-tip}
-## 💡 Tip práctico
+**Qué vemos.** Entre quienes tienen albuminuria severa, `r pct(descriptivo$pas_140_o_mas[2])` tienen PAS ≥ 140 mmHg, frente a `r pct(descriptivo$pas_140_o_mas[1])` en los demás, y su HbA1c media es `r num(descriptivo$hba1c_media[2])` frente a `r num(descriptivo$hba1c_media[1])`. Es un hallazgo útil para planificar recursos y generar hipótesis, aunque no sabemos *por qué* ocurre: ¿el mal control causa la albuminuria?, ¿la albuminuria empeora el control?, ¿ambos comparten una causa? En un estudio descriptivo, presenta primero resultados **sin ajustar**; ajustar o estandarizar cambia la pregunta (Capítulo 1.4).
 
-En un estudio descriptivo, presenta **resultados sin ajustar** como análisis principal. Ajustar o estandarizar (por ejemplo, por edad) puede ser útil para **comparar** poblaciones, pero cambia la pregunta: *"¿qué diferencia habría si ambas tuvieran la misma edad?"*.
-:::
+## Paso 2. Asociación predictiva: anticipar
 
-## Asociación explicativa (causal)
+Busca **anticipar** un desenlace con la mayor exactitud posible. No importa *por qué* una variable predice, sino *cuánto mejora* la predicción. La **KFRE** (Kidney Failure Risk Equation) es el ejemplo clásico: con edad, sexo, TFGe y albuminuria estima el riesgo de insuficiencia renal a 2 y 5 años, sin pretender explicar las causas (Tangri y col., 2011).
 
-Busca **entender qué ocurriría si se interviniera** sobre la exposición. Requiere diseños sólidos (ECA) o análisis observacionales con supuestos explícitos (intercambiabilidad, positividad, consistencia). Aquí el **ajuste por confusores** no es un trámite estadístico: debe ser decidido con un modelo causal (DAG).
-
-*Ejemplo:* ¿el inicio de un iSGLT2 enlentece la pérdida de TFGe? Los pacientes que reciben el fármaco difieren de los que no, de modo que la comparación cruda está sesgada. Esa es la pregunta de la Parte 3.
-
-## Asociación predictiva
-
-Busca **anticipar** un desenlace con la mayor exactitud posible. No importa *por qué* una variable predice, sino *cuánto mejora* la predicción.
-
-*Ejemplo:* la **Kidney Failure Risk Equation (KFRE)** estima el riesgo de insuficiencia renal a 2 y 5 años con pocas variables (edad, sexo, TFGe, albuminuria); sirve para decidir derivación, acceso vascular o educación pre-diálisis, sin pretender explicar la causa.
+Ajustemos un modelo logístico similar con la base simulada y calculemos el **AUC** (la probabilidad de que un paciente que tendrá el evento reciba un riesgo mayor que uno que no lo tendrá; 0.5 es azar y 1, discriminación perfecta):
 
 ```{r}
 #| label: pred-assoc
@@ -63,28 +52,76 @@ auc <- function(y, p) {
 modelo_pred <- glm(evento ~ edad + sexo + tfg_basal + log(uacr),
                    data = ckd, family = binomial)
 
-tibble(AUC = auc(ckd$evento, fitted(modelo_pred)))
+auc_aparente <- auc(ckd$evento, fitted(modelo_pred))
+auc_aparente
+
+# La salida útil de un modelo predictivo: el riesgo de UN paciente
+paciente <- tibble(edad = 68, sexo = "Mujer", tfg_basal = 38, uacr = 450)
+riesgo_paciente <- predict(modelo_pred, newdata = paciente, type = "response")
+riesgo_paciente
 ```
+
+**Qué vemos.** El AUC es `r num(auc_aparente)` (discriminación modesta, y *aparente*: calculada con los mismos datos que se usaron para ajustar el modelo, así que es optimista; la validación honesta se ve en el Capítulo 17). Para una mujer de 68 años con TFGe 38 y UACR 450 mg/g, el modelo estima un riesgo de evento renal a 36 meses de `r pct(riesgo_paciente)`. Esa probabilidad es **el producto** del modelo: no hay "efectos" que interpretar.
+
+## Paso 3. Asociación explicativa: estimar efectos
+
+Busca **entender qué ocurriría si se interviniera** sobre la exposición. Requiere un ensayo, o un análisis observacional con supuestos explícitos (intercambiabilidad, positividad, consistencia; Capítulo 3.2). Aquí el **ajuste por confusores** no es un trámite: se decide con un modelo causal (DAG; Capítulo 3.3).
+
+*Ejemplo:* ¿el inicio de un iSGLT2 enlentece la pérdida de TFGe? Los pacientes que reciben el fármaco difieren de los que no, de modo que la comparación cruda está sesgada (Cap. 1.6). Esa es la pregunta de la Parte 3.
+
+### La falacia de la Tabla 2
+
+En los artículos, la Tabla 1 describe a los pacientes y la Tabla 2 muestra *un* modelo de regresión. La tentación es leer **todos** los coeficientes de la Tabla 2 como efectos. Pero un modelo que se ajustó para estimar el efecto de *una* exposición solo permite interpretar bien *ese* coeficiente (Westreich y Greenland, 2013). Veámoslo con un ejemplo: ¿cuál es el efecto de la **HbA1c** sobre la pendiente de TFGe?
+
+En el guion que simula estos datos (`R/simular_ckd.R`), la HbA1c tiene dos caminos hacia la pérdida de TFGe: un efecto **directo** de −0.25 por cada punto, y un efecto **indirecto** a través de la albuminuria (la HbA1c sube la albuminuria, y la albuminuria acelera la pérdida), de aproximadamente +0.25 × (−0.45) = −0.11. El **efecto total** de la HbA1c es, entonces, cercano a −0.36. Usamos la pendiente "sin tratamiento" (`pendiente_0`, solo disponible en la versión oráculo) para que el fármaco no interfiera:
+
+```{r}
+#| label: tabla2-falacia
+oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv", show_col_types = FALSE)
+
+# Modelo A: solo HbA1c (la HbA1c no tiene confusores en esta simulación, así que recupera el efecto TOTAL)
+m_a <- lm(pendiente_0 ~ hba1c, data = oraculo)
+# Modelo B: "ajustar por todo" (incluye albuminuria, que está en el camino de HbA1c a la pérdida de TFGe)
+m_b <- lm(pendiente_0 ~ hba1c + log(uacr) + pas + tfg_basal + edad + ecv + sexo, data = oraculo)
+
+tibble(
+  modelo = c("A: solo HbA1c", "B: ajustado por todo"),
+  coef_hba1c = c(coef(m_a)[["hba1c"]], coef(m_b)[["hba1c"]]),
+  verdad = c("efecto total (-0.36)", "efecto directo (-0.25)")
+) |> mutate(coef_hba1c = num(coef_hba1c))
+```
+
+**Qué vemos.** El modelo A recupera el efecto total (`r num(coef(m_a)[["hba1c"]])`); el B, "más completo", da otro número (`r num(coef(m_b)[["hba1c"]])`) porque al ajustar por albuminuria **bloquea** parte del efecto. Ninguno es "el" efecto de la HbA1c: depende de qué se ajusta, y eso lo decide el DAG para *cada* exposición. Por eso, en un artículo, solo se interpreta como efecto el coeficiente de la exposición cuyo modelo fue construido para eso.
 
 ::: {.callout-warning}
 ## ⚠️ El error más común: leer causalmente un modelo predictivo
 
-Un buen modelo predictivo **no** dice que cada coeficiente sea un efecto causal. Por ejemplo, en el modelo anterior el coeficiente de `edad` o de `tfg_basal` incluye efectos directos, indirectos y confusión. Si quieres el efecto de **un** tratamiento, debes construir un modelo **para ese efecto** (con su DAG), no reutilizar el modelo de predicción.
+Un buen modelo predictivo no implica que cada coeficiente sea un efecto causal. El coeficiente de `tfg_basal` o `edad` en el modelo del Paso 2 mezcla efectos directos, indirectos y confusión. Y volviendo al escenario: que la HbA1c *prediga* el evento renal no demuestra que **bajarla** lo evite. Si quieres el efecto de **un** tratamiento, construye un modelo **para ese efecto** (con su DAG) en lugar de reutilizar el de predicción.
 :::
 
-## ¿Qué cambia en la práctica?
+## Paso 4. ¿Qué cambia en la práctica?
 
 -   **Elige la pregunta antes que el método.** Escribe en una frase si tu estudio es descriptivo, causal o predictivo.
 -   **Selecciona las variables según la pregunta:** confusores del DAG (causal), predictores útiles (predicción), variables que definan el estrato (descriptivo).
 -   **Reporta según la guía correspondiente:** STROBE (observacionales), CONSORT (ECA), TRIPOD+AI (modelos de predicción).
 
 ::: {.callout-important}
-## 🎯 Para llevarte
+## 🎯 En resumen
 
-1. "Asociación" **no** es sinónimo de "causa".
-2. La misma regresión puede usarse para describir, explicar o predecir: **la pregunta determina cómo se construye e interpreta**.
-3. Los coeficientes de un modelo predictivo no se interpretan causalmente.
+| | **Descriptiva** | **Explicativa (causal)** | **Predictiva** |
+|---|---|---|---|
+| Pregunta | ¿Qué está ocurriendo? | ¿Qué pasaría si interviniéramos? | ¿Qué ocurrirá a este paciente? |
+| Ejemplo en nefrología | Prevalencia de anemia por estadio de ERC | ¿Iniciar un iSGLT2 enlentece la pérdida de TFGe? | Riesgo a 5 años de insuficiencia renal (KFRE) |
+| ¿Implica causalidad? | No | Sí (bajo supuestos) | No |
+| ¿Ajusto por confusores? | Solo si lo justifico | **Sí**, guiado por un DAG | No: elijo predictores por su utilidad |
+| Métricas de éxito | Estimaciones con IC | Estimación no sesgada del efecto | Discriminación (AUC), calibración |
+| Coeficientes | Patrones | Solo el de la exposición | **No** se interpretan como efectos |
+
+-   "Asociación" **no** es sinónimo de "causa".
+-   La misma regresión puede describir, explicar o predecir: **la pregunta determina cómo se construye y se interpreta**.
 :::
+
+**Ejercicio.** (1) Añade `hba1c` al modelo predictivo del Paso 2: ¿mejora el AUC? ¿Eso significa que bajar la HbA1c mejora el pronóstico renal? (2) Para la mujer de 68 años del ejemplo, calcula el riesgo si su UACR fuera 50 mg/g: ¿qué te dice sobre el peso de la albuminuria en la **predicción**? (3) Escribe una pregunta de tu consulta de cada tipo (descriptiva, predictiva, causal) sobre el mismo tema, por ejemplo anemia en ERC.
 
 ## Referencias
 
@@ -96,4 +133,4 @@ Un buen modelo predictivo **no** dice que cada coeficiente sea un efecto causal.
 
 ## Nota editorial
 
--   Esta sección fue editada con asistencia de IA (ChatGPT; revisión editorial con Claude).
+-   Esta sección fue editada con asistencia de IA (ChatGPT; revisión editorial con Claude). Los datos son simulados. La distinción entre descripción, predicción y causalidad sigue el marco de Hernán, Hsu y Healy (2019), que el autor usa en sus cursos.

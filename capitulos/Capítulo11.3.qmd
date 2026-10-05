@@ -1,16 +1,26 @@
 # ANCOVA: ajustar por el valor basal
 
-## Tres maneras de analizar una medición repetida pre-post
+::: {.callout-note}
+## 🩺 Escenario
 
-Para un desenlace continuo medido al inicio (*baseline*) y al final hay tres análisis posibles:
+En tu ensayo de bicarbonato tienes la TFGe al inicio y a los 24 meses. Tres colegas proponen tres análisis: *"compara la TFGe final entre grupos"*, *"compara el cambio (final menos inicial)"* y *"ajusta la TFGe final por la inicial"*. Los tres parecen razonables y dan resultados distintos. ¿Cuál eliges, y por qué? Hay una respuesta clara, y está relacionada con un pequeño desbalance basal que viste en 11.1.
+:::
+
+**Lo que vamos a hacer**
+
+-   Comparar los **tres análisis** en los datos y contra la verdad.
+-   Entender, con una **simulación repetida**, por qué el ANCOVA gana.
+-   Saber **qué ajustar** (y qué no) en un ECA y comprobar los supuestos.
+
+## Paso 1: tres maneras de analizar una medición pre-post
 
 | Análisis | Qué compara | Problema |
 |---|---|---|
-| **Valor final** | TFGe a 24 meses entre grupos | Ignora el valor basal: pierde precisión |
-| **Cambio** (pre-post) | Diferencia (TFGe 24 − TFGe 0) entre grupos | Parte de un supuesto: correlación basal-final = 1 |
-| **ANCOVA** | TFGe a 24 meses **ajustado por la TFGe basal** | Es el **más preciso y no sesgado** en un ECA |
+| **Valor final** | TFGe a 24 meses entre grupos | Ignora el valor basal: pierde precisión y arrastra desbalances por azar |
+| **Cambio** (pre-post) | Diferencia (TFGe 24 − TFGe 0) entre grupos | Supone que el valor basal "pasa íntegro" al final (correlación 1) |
+| **ANCOVA** | TFGe a 24 meses **ajustada por la TFGe basal** | Es el **más preciso y sin sesgo** en un ECA |
 
-El **ANCOVA** es un modelo de regresión del valor final con el grupo y el valor basal como covariables. En un ECA, el valor basal **no es confusor** (la aleatorización ya lo balancea), pero **explica variabilidad** del desenlace: ajustarlo **reduce el error estándar** sin sesgar.
+El **ANCOVA** (análisis de covarianza) es un modelo de regresión del valor final con el grupo **y** el valor basal como covariables. En un ECA el valor basal **no es un confusor** (la aleatorización ya lo balancea en promedio), pero **explica mucha variabilidad** del desenlace: ajustarlo reduce el error estándar sin sesgar.
 
 ```{r}
 #| label: setup-113
@@ -18,6 +28,7 @@ library(tidyverse)
 library(broom)
 library(sandwich)
 library(lmtest)
+theme_set(theme_minimal(base_size = 12))
 
 eca <- read_csv("Bases/eca_bicarbonato.csv") |>
   mutate(brazo = factor(brazo, levels = c("Placebo", "Bicarbonato")),
@@ -26,7 +37,7 @@ eca <- read_csv("Bases/eca_bicarbonato.csv") |>
          dif24 = tfg_24 - tfg0)
 ```
 
-## Comparar los tres análisis
+## Paso 2: los tres análisis, lado a lado
 
 ```{r}
 #| label: tres-analisis
@@ -38,37 +49,77 @@ resumen_modelo <- function(m, nombre) {
   tidy(m, conf.int = TRUE) |> filter(term == "brazoBicarbonato") |>
     transmute(analisis = nombre, diferencia = estimate, ee = std.error, ic_inf = conf.low, ic_sup = conf.high)
 }
-bind_rows(
+tres <- bind_rows(
   resumen_modelo(m_final, "Valor final"),
   resumen_modelo(m_cambio, "Cambio (pre-post)"),
   resumen_modelo(m_ancova, "ANCOVA (ajustado por basal)")
-) |> mutate(across(where(is.numeric), \(x) round(x, 2)))
+)
+tres |> mutate(across(where(is.numeric), \(x) round(x, 2)))
 ```
 
-Observa:
+Recuerda que la verdad ITT a 24 meses es **1.28** mL/min/1.73 m² (11.2). Observa:
 
--   El **valor final** da una diferencia de **2.4** con un error estándar de **0.58**: casi el doble que la verdad (ITT ≈ 1.3) y el doble de ruidoso. Por **azar**, el grupo de bicarbonato **empezó** con una TFGe ~1 mL/min/1.73 m² mayor (30.6 vs. 29.8 en toda la muestra aleatorizada, más en los que tienen dato a los 24 meses) y ese desbalance basal **se arrastra** al valor final.
--   El **cambio** y el **ANCOVA** dan **1.31** con un error estándar de **0.30**: la mitad. Eliminan el desbalance basal y la gran variabilidad entre pacientes (*SD* ≈ 6 al inicio).
--   Entre cambio y ANCOVA, el **ANCOVA** es mejor porque **no supone** que el valor basal "pasa íntegro" al valor final: estima cuánto pasa (aquí ≈ 0.98, casi 1) y por eso coinciden.
+-   El **valor final** da una diferencia de **`r round(tres$diferencia[1], 1)`** con un error estándar de **`r round(tres$ee[1], 2)`**: casi el doble de la verdad y el doble de ruidoso. Por **azar**, el grupo de bicarbonato **empezó** con una TFGe algo mayor (11.1: DEM 0.14), y ese desbalance basal **se arrastra** al valor final.
+-   El **cambio** y el **ANCOVA** dan **`r round(tres$diferencia[2], 2)`** y **`r round(tres$diferencia[3], 2)`**, con un error estándar de **`r round(tres$ee[3], 2)`**: la mitad. Eliminan el desbalance basal y la gran variabilidad entre pacientes (DE ≈ 6 al inicio).
+-   Entre cambio y ANCOVA, el **ANCOVA** es mejor porque **no supone** que el valor basal pasa íntegro al final: **estima** cuánto pasa (aquí `r sprintf("%.2f", coef(m_ancova)["tfg0"])`, casi 1) y por eso coinciden.
 
-::: {.callout-important}
-## 🎯 Regla práctica
-
-En un ECA con una medición basal del desenlace, **el ANCOVA es el análisis de elección**. Es equivalente a ganar muestra: ajustar por una covariable correlacionada con el desenlace (*r*) reduce la varianza en una fracción *r*². Con *r* = 0.86 (como aquí) la varianza baja un **74 %**, lo que equivale a **multiplicar casi por 4 el tamaño de muestra**.
-:::
+Cuánto ayuda el valor basal depende de su correlación con el desenlace:
 
 ```{r}
 #| label: correlacion-basal
-## ¿Cuánta correlación hay entre la TFGe basal y la final?
-cor(eca$tfg0, eca$tfg_24, use = "complete.obs")
+r_basal <- cor(eca$tfg0, eca$tfg_24, use = "complete.obs")
+r_basal
 ```
 
-## Qué ajustar en un ECA
+Ajustar por una covariable con correlación *r* reduce la varianza en una fracción *r*². Con *r* = `r round(r_basal, 2)`, la varianza baja un **`r round(100 * r_basal^2)` %**, lo que equivale a **casi multiplicar por 4 el tamaño de muestra**.
+
+## Paso 3: ¿por qué gana el ANCOVA? Mil ensayos simulados
+
+Una sola muestra puede engañar (el valor final nos dio 2.4 por mala suerte basal). Repetimos el ensayo **1 000 veces** en un mundo donde el efecto verdadero es **1.3** y la TFGe final depende de la basal (*r* ≈ 0.85):
+
+```{r}
+#| label: sim-mil-ensayos
+set.seed(33)
+un_ensayo <- function(n = 300, efecto = 1.3) {
+  trat <- rbinom(n, 1, 0.5)                               # aleatorización simple
+  x <- rnorm(n, 30, 6)                                    # TFGe basal
+  y <- 30 + 0.85 * (x - 30) + efecto * trat + rnorm(n, 0, 3.2)   # TFGe final
+  c(final = unname(coef(lm(y ~ trat))["trat"]),
+    cambio = unname(coef(lm(I(y - x) ~ trat))["trat"]),
+    ancova = unname(coef(lm(y ~ trat + x))["trat"]))
+}
+res_sim <- t(replicate(1000, un_ensayo()))
+
+tibble(analisis = colnames(res_sim),
+       media_de_las_estimaciones = colMeans(res_sim),
+       desviacion_estandar = apply(res_sim, 2, sd)) |>
+  mutate(across(where(is.numeric), \(x) round(x, 2)))
+```
+
+```{r}
+#| label: graf-sim-ancova
+#| fig-width: 7
+#| fig-height: 3.4
+as_tibble(res_sim) |>
+  pivot_longer(everything(), names_to = "analisis", values_to = "estimacion") |>
+  mutate(analisis = factor(analisis, levels = c("final", "cambio", "ancova"),
+                           labels = c("Valor final", "Cambio", "ANCOVA"))) |>
+  ggplot(aes(estimacion, fill = analisis)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(xintercept = 1.3, linetype = "dashed") +
+  scale_fill_manual(values = c("#999999", "#E69F00", "#0072B2"), name = NULL) +
+  labs(x = "Efecto estimado", y = "Densidad", caption = "Línea punteada: efecto verdadero (1.3). 1 000 ensayos simulados.") +
+  theme(legend.position = "bottom")
+```
+
+**Qué vemos.** Los tres métodos son **insesgados**: promedian ≈ 1.3, la verdad. Pero **no son igual de precisos**: el valor final fluctúa mucho más de ensayo en ensayo, el cambio menos, y el ANCOVA es el más concentrado en torno a la verdad. Por eso, **a igual muestra, el ANCOVA te da más potencia**.
+
+## Paso 4: qué ajustar en un ECA
 
 -   **Siempre**: el valor **basal** del desenlace y las **variables de estratificación** de la aleatorización (aquí, el **centro**).
 -   **Covariables preespecificadas** muy pronósticas (edad, diabetes, albuminuria).
 -   **Nunca**: variables **posteriores** a la aleatorización (adherencia, eventos intermedios).
--   **No elijas covariables** por su diferencia entre grupos (*p* en la Tabla 1): el desbalance es producto del azar y **no es motivo de ajuste**.
+-   **No elijas covariables** por su diferencia entre grupos (*p* en la Tabla 1): el desbalance es azar y **no es motivo de ajuste**.
 
 ```{r}
 #| label: ancova-completo
@@ -76,17 +127,17 @@ m_ancova2 <- lm(tfg_24 ~ brazo + tfg0 + centro + edad + dm + log(uacr), data = e
 resumen_modelo(m_ancova2, "ANCOVA + centro + covariables") |> mutate(across(where(is.numeric), \(x) round(x, 2)))
 ```
 
-Agregar covariables pronósticas apenas modifica la estimación y puede reducir un poco el EE. Los centros se incluyen por **estratificación**, no por confusión.
+Agregar covariables pronósticas apenas modifica la estimación y puede reducir un poco el error estándar. Los centros se incluyen por **estratificación**, no por confusión.
 
 ::: {.callout-warning}
-## ⚠️ ANCOVA no es para ajustar por confusión (en ECA)
+## ⚠️ En un ECA, ajustar no corrige sesgo: mejora precisión
 
-En un ECA, ajustar mejora la **precisión**, no corrige sesgo. Si necesitas ajustar para que el efecto "salga", el problema es otro (muestra pequeña, aleatorización mal hecha, pérdida diferencial). La **estimación no ajustada y la ajustada deben ser parecidas**; si no lo son, investiga.
+Si necesitas ajustar para que el efecto "salga", el problema es otro (muestra pequeña, aleatorización mal hecha, pérdida diferencial). Con covariables **preespecificadas**, la estimación ajustada y la no ajustada deben ser parecidas; si difieren mucho, investiga. La excepción es el **valor basal**: aquí el valor final difiere del ANCOVA porque corrige un desbalance basal por azar y mejora la precisión, y para eso se preespecifica.
 :::
 
-## Efecto del centro: estratificación o efecto aleatorio
+## Paso 5: centro, errores robustos, paralelismo y efecto marginal
 
-Si el ensayo estratificó por **centro**, el análisis debe incluirlo (como **efecto fijo** si hay pocos centros grandes; como **efecto aleatorio** con muchos centros pequeños).
+**Centro como efecto aleatorio.** Si el ensayo estratificó por centro, el análisis debe incluirlo: como **efecto fijo** si hay pocos centros grandes; como **efecto aleatorio** con muchos centros pequeños.
 
 ```{r}
 #| label: centro
@@ -95,20 +146,16 @@ m_mixto <- lmer(tfg_24 ~ brazo + tfg0 + (1 | centro), data = eca)
 summary(m_mixto)$coefficients["brazoBicarbonato", ] |> round(3)
 ```
 
-La estimación del efecto del tratamiento prácticamente no cambia: el efecto de centro explica poca variabilidad. Con **pocos pacientes por centro** y **muchos centros**, el efecto aleatorio es más estable.
+La estimación del efecto casi no cambia: el efecto de centro explica poca variabilidad.
 
-## Errores estándar robustos
-
-Si los residuos del ANCOVA no tienen varianza constante o hay agrupación residual, usa errores estándar **robustos** (`vcovHC`):
+**Errores estándar robustos.** Si los residuos no tienen varianza constante, usa errores **robustos** (`vcovHC`):
 
 ```{r}
 #| label: robusto-ancova
 coeftest(m_ancova, vcov = vcovHC(m_ancova, type = "HC3"))["brazoBicarbonato", ] |> round(3)
 ```
 
-## Interacción tratamiento-basal
-
-El ANCOVA estándar supone que el **efecto del valor basal es igual en ambos grupos** (pendientes paralelas). Se comprueba con la interacción `brazo * tfg0`:
+**Paralelismo.** El ANCOVA estándar supone que el efecto del valor basal es **igual en ambos grupos** (pendientes paralelas). Se comprueba con la interacción `brazo * tfg0`:
 
 ```{r}
 #| label: paralelas
@@ -116,15 +163,25 @@ m_inter <- lm(tfg_24 ~ brazo * tfg0, data = eca)
 tidy(m_inter) |> filter(str_detect(term, "tfg0")) |> mutate(across(where(is.numeric), \(x) round(x, 3)))
 ```
 
-No hay evidencia de pendientes distintas (interacción no significativa), de modo que el supuesto de ANCOVA es razonable.
+No hay evidencia de pendientes distintas, de modo que el supuesto es razonable.
+
+**Efecto marginal frente a condicional.** Con interacción en el modelo, el coeficiente de `brazo` ya no es "el efecto": es el efecto **cuando `tfg0 = 0`**, sin sentido clínico. Lo que queremos es el **efecto marginal**, el promedio del efecto en la población del ensayo. El paquete `marginaleffects` lo calcula:
+
+```{r}
+#| label: marginal
+library(marginaleffects)
+avg_comparisons(m_inter, variables = "brazo") |> select(term, contrast, estimate, std.error, conf.low, conf.high)
+```
+
+Es prácticamente la misma cifra del ANCOVA sin interacción: cuando el efecto no varía con el basal, **marginal y condicional coinciden**. Con interacciones importantes (por ejemplo, 11.5), solo el marginal responde "¿cuál es el efecto promedio en esta población?".
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
--   El **ANCOVA** (valor final ~ grupo + valor basal) es el análisis de elección para un desenlace continuo con medición basal: **insesgado y más preciso** que el valor final o el cambio.
--   En un ECA, ajustar mejora la **precisión**, no corrige el sesgo: ajusta por el **valor basal**, las **variables de estratificación** y pocas covariables **preespecificadas**.
--   No ajustes por variables **posteriores** a la aleatorización ni por diferencias basales "significativas".
--   Verifica el **paralelismo** (interacción tratamiento × basal) y usa errores **robustos** si hace falta.
+-   En un ECA con medición basal del desenlace, el **ANCOVA** (valor final ~ grupo + valor basal) es el análisis de elección: **insesgado y más preciso** que el valor final o el cambio.
+-   Es equivalente a **ganar muestra**: con *r* = `r round(r_basal, 2)`, la varianza baja un `r round(100 * r_basal^2)` %.
+-   Ajusta por el **valor basal**, las **variables de estratificación** y pocas covariables **preespecificadas**; nunca por variables posteriores a la aleatorización ni por diferencias basales "significativas".
+-   Verifica el **paralelismo** y usa errores **robustos** si hace falta; con interacciones, reporta el **efecto marginal**.
 :::
 
 ## Ejercicio

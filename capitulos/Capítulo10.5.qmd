@@ -1,29 +1,55 @@
 # Sesgo de supervivencia y de pérdidas
 
-## Quién está presente cuando miras
-
-Las personas que **llegan a ser observadas** en un estudio han tenido que **sobrevivir** (o permanecer en seguimiento) hasta ese momento. Si el tratamiento o la exposición **cambia el riesgo con el tiempo**, quienes están **presentes después** son una **muestra seleccionada**.
-
-## Usuarios prevalentes: el sesgo de la "depleción de susceptibles"
-
-Muchos fármacos tienen **riesgo alto al inicio** (efectos adversos tempranos, cambios hemodinámicos al iniciar un bloqueo del SRAA o un iSGLT2 en ERC avanzada) y **beneficio después**. Quienes toleran el fármaco **siguen tomándolo**; quienes tienen un evento temprano **lo suspenden o mueren**. Si el estudio **recluta a usuarios prevalentes** (los que ya llevan tiempo con el fármaco), solo ve a los **"sobrevivientes"** y el fármaco parece **mejor de lo que es**.
+> **La pregunta de esta herramienta:** *¿quién sigue aquí cuando miro?*
 
 ::: {.callout-note}
-## 🩺 Ejemplo
+## 🩺 Escenario
 
-En una cohorte de pacientes en hemodiálisis se compara la mortalidad de los que **ya llevan 12 meses** con un fármaco con la de los que no lo toman. Los que murieron o suspendieron en los primeros meses **nunca entraron al análisis**.
+En una unidad de hemodiálisis comparas la mortalidad de los pacientes que **ya llevan 12 meses** con un fármaco con la de quienes no lo toman, y el fármaco parece muy protector. Pero los que murieron o lo suspendieron en los primeros meses **nunca entraron a tu análisis**. Estás mirando solo a los **sobrevivientes**.
 :::
 
-### Simulación
+**Lo que vamos a hacer**
+
+-   Entender el sesgo de supervivencia con una historia clásica (los bombarderos de Wald).
+-   Simular el sesgo de los **usuarios prevalentes** y corregirlo con el **diseño de nuevo usuario**.
+-   Ver cómo las **pérdidas de seguimiento** sesgan un efecto y qué corrige (y qué no) la ponderación.
+
+## Paso 1: la historia de los bombarderos
+
+En la Segunda Guerra Mundial se pidió al estadístico Abraham Wald que dijera **dónde blindar** los bombarderos, a partir de los daños de los aviones que **volvían**. La respuesta fue contraintuitiva: **blindar donde no había agujeros**. Los aviones alcanzados en esas zonas **no regresaron**, así que no estaban en la muestra. Quien llega a ser observado ha tenido que **sobrevivir** (o permanecer en seguimiento) hasta ese momento. Si la exposición cambia el riesgo con el tiempo, los presentes después son una **muestra seleccionada**.
+
+## Paso 2: usuarios prevalentes y la "depleción de susceptibles"
+
+Muchos fármacos tienen **riesgo alto al inicio** (efectos adversos tempranos, cambios hemodinámicos al empezar un bloqueo del SRAA o un iSGLT2 en ERC avanzada) y **beneficio después**. Quienes lo toleran **siguen tomándolo**; quienes tienen un evento temprano lo suspenden o mueren. Si el estudio **recluta usuarios prevalentes** (los que ya llevan tiempo con el fármaco), solo ve a los "sobrevivientes" y el fármaco parece **mejor de lo que es**.
+
+En el DAG, **seguir tomando el fármaco** (K) es causado por haberlo iniciado (E) y por la susceptibilidad del paciente (F, no medida), que también causa la muerte. Al seleccionar a quienes siguen tomándolo, se condiciona en un colisionador:
+
+```{r}
+#| label: dag-prevalente
+#| fig-width: 8
+#| fig-height: 3
+library(tidyverse)
+library(survival)
+source("R/funciones_epi.R")
+theme_set(theme_minimal(base_size = 12))
+
+dibujar_dag(
+  tribble(~nombre, ~x, ~y, ~etiqueta, ~rol,
+          "E", 1, 1.0, "Iniciar el\nfármaco", "exposicion",
+          "K", 3, 1.0, "Sigue tomándolo\n(usuario prevalente)", "colisionador",
+          "F", 4, 1.9, "Susceptibilidad\n(no medida)", "no medido",
+          "D", 5, 1.0, "Muerte", "desenlace"),
+  tribble(~de, ~a, "E", "K", "F", "K", "F", "D"),
+  tam_texto = 3.2, encoger = 0.2, expandir = c(0.1, 0.3)
+)
+```
+
+### La simulación
 
 Simulamos 40 000 pacientes con un fármaco cuyo **riesgo instantáneo es el doble los primeros 6 meses** (HR = 2.0) y **protector después** (HR = 0.7):
 
 ```{r}
 #| label: setup-105
-library(tidyverse)
-library(survival)
-source("R/funciones_epi.R")
-
 set.seed(5)
 n <- 40000
 frail <- rnorm(n)
@@ -41,6 +67,8 @@ t_muerte <- sim_tiempo(trat, frail)
 d <- tibble(trat, tiempo = pmin(t_muerte, 60), muerte = as.integer(t_muerte <= 60))
 ```
 
+Comparamos dos formas de armar la cohorte: **(a)** todos desde el inicio ("nuevos usuarios") y **(b)** solo los que siguen vivos a los 12 meses ("usuarios prevalentes").
+
 ```{r}
 #| label: incidente-vs-prevalente
 ## (a) Todos desde el inicio ("nuevos usuarios")
@@ -50,17 +78,18 @@ inc <- coxph(Surv(tiempo, muerte) ~ trat, data = d)
 prev <- d |> filter(tiempo > 12) |> mutate(t2 = tiempo - 12)
 prv <- coxph(Surv(t2, muerte) ~ trat, data = prev)
 
-tibble(
+tab_prev <- tibble(
   analisis = c("Nuevos usuarios (desde el inicio)", "Usuarios prevalentes (vivos a los 12 meses)"),
   n = c(nrow(d), nrow(prev)),
   HR = c(exp(coef(inc)), exp(coef(prv))),
   ic_inf = c(exp(confint(inc))[1], exp(confint(prv))[1]),
   ic_sup = c(exp(confint(inc))[2], exp(confint(prv))[2])
-) |> mutate(across(where(is.numeric), \(x) round(x, 2)))
+)
+tab_prev |> mutate(across(where(is.numeric), \(x) round(x, 2)))
 ```
 
--   Con **nuevos usuarios**, el HR promedio (~0.9) mezcla el daño temprano y el beneficio tardío.
--   Con **usuarios prevalentes**, el HR cae a ~0.73: **el beneficio se sobrestima** porque los pacientes que sufrieron el daño temprano **ya no están**. Un análisis de este tipo no puede ver el riesgo inicial.
+-   Con **nuevos usuarios**, el HR global (`r round(tab_prev$HR[1], 2)`) **mezcla** el daño temprano (HR 2.0) y el beneficio tardío (HR 0.7).
+-   Con **usuarios prevalentes**, el HR cae a **`r round(tab_prev$HR[2], 2)`**: el beneficio tardío aparece solo, y el daño inicial **desaparece**, porque los pacientes que lo sufrieron **ya no están**. Un estudio así no puede ver el riesgo inicial.
 
 ```{r}
 #| label: curvas-prevalentes
@@ -81,23 +110,34 @@ bind_rows(
   facet_wrap(~ analisis) +
   scale_color_manual(values = c(`Sin fármaco` = "#999999", `Con fármaco` = "#0072B2"), name = NULL) +
   labs(x = "Meses de seguimiento", y = "Supervivencia", caption = "Datos simulados.") +
-  theme_minimal(base_size = 11) + theme(legend.position = "bottom")
+  theme(legend.position = "bottom")
 ```
 
-::: {.callout-tip}
-## 💡 Cómo evitarlo: diseño de nuevo usuario
+En los nuevos usuarios, la curva del fármaco **cae antes** y luego **se acerca** a la del grupo sin fármaco. En los prevalentes solo se ve la parte favorable.
 
-1.  Incluye solo a pacientes que **inician** el tratamiento durante el estudio (sin uso previo en una ventana de *lavado*, por ejemplo, 12 meses).
-2.  Fija el **tiempo cero** en el **inicio del tratamiento**; los comparadores inician otro tratamiento.
-3.  Analiza **desde el inicio**: así se capturan los eventos tempranos.
-4.  Si tu base solo tiene prevalentes (muchos registros de diálisis), **declara el sesgo** y evita concluir sobre el efecto del fármaco.
-:::
+**Cómo evitarlo, diseño de nuevo usuario:** incluye solo a pacientes que **inician** el tratamiento durante el estudio (sin uso previo en una ventana de *lavado*, por ejemplo 12 meses); fija el **tiempo cero en el inicio**; los comparadores inician **otro** tratamiento; y analiza **desde el inicio** para capturar los eventos tempranos. Si tu base solo tiene prevalentes (muchos registros de diálisis), **declara el sesgo** y evita concluir sobre el efecto del fármaco.
 
-## Pérdidas durante el seguimiento: cuando los que se van son distintos
+## Paso 3: pérdidas durante el seguimiento
 
-La **pérdida de seguimiento** sesga si **quienes se pierden difieren** de quienes siguen, en el desenlace. En ERC, quienes empeoran a menudo **se trasladan**, **cambian de centro** o **rechazan** controles.
+La **pérdida de seguimiento** sesga si **quienes se pierden difieren** de quienes siguen en el desenlace. En ERC, quienes empeoran suelen **trasladarse**, **cambiar de centro** o **rechazar** controles. En el DAG, el desenlace (la pendiente de TFGe) **causa** que el paciente quede o no observado (S); analizar solo a los observados es condicionar en un descendiente del desenlace:
 
-Simulamos 5 000 pacientes en un estudio de **pendiente de TFGe** a 12 meses. La **verdad**: el tratamiento mejora la pendiente en **+1.0**. Pero quienes **empeoran más** tienen más probabilidad de **perderse**, y se dispone de un **biomarcador basal** que se relaciona con la fragilidad:
+```{r}
+#| label: dag-perdidas
+#| fig-width: 8
+#| fig-height: 3
+dibujar_dag(
+  tribble(~nombre, ~x, ~y, ~etiqueta, ~rol,
+          "T", 1, 1.0, "Tratamiento", "exposicion",
+          "P", 2.5, 1.0, "Pendiente\nde TFGe", "desenlace",
+          "F", 2.5, 1.9, "Fragilidad\n(no medida)", "no medido",
+          "B", 1.2, 1.9, "Biomarcador\nbasal", "otro",
+          "S", 4, 1.0, "Sigue en\nseguimiento", "colisionador"),
+  tribble(~de, ~a, "T", "P", "F", "P", "F", "B", "P", "S"),
+  tam_texto = 3.1, encoger = 0.2, expandir = c(0.1, 0.3)
+)
+```
+
+Simulamos 5 000 pacientes en un estudio de **pendiente de TFGe** a 12 meses. La **verdad**: el tratamiento mejora la pendiente en **+1.0**. Quienes **empeoran más** se pierden más, y hay un biomarcador basal que se relaciona con la fragilidad:
 
 ```{r}
 #| label: perdidas
@@ -126,43 +166,41 @@ cc <- coef(lm(pend ~ trat, data = filter(d_p, visto == 1)))["trat"]
 p_obs <- fitted(glm(visto ~ trat + bio, data = d_p, family = binomial))
 ipcw <- coef(lm(pend ~ trat, data = filter(d_p, visto == 1), weights = 1 / p_obs[d_p$visto == 1]))["trat"]
 
-c(`Verdad (todos)` = 1.0, `Con todos los datos` = unname(completo), `Casos completos` = unname(cc), `Con ponderación (IPCW)` = unname(ipcw)) |> round(2)
+res_perd <- c(`Verdad (todos)` = 1.0, `Con todos los datos` = unname(completo),
+              `Casos completos` = unname(cc), `Con ponderación (IPCW)` = unname(ipcw))
+round(res_perd, 2)
 ```
 
--   **Casos completos**: ~0.72 (vs. ≈ 1.0 con todos los datos; se pierde el 35 % de los pacientes): el efecto se **subestima** (los que más empeoraron en el grupo control se pierden más, y el contraste se achata).
--   **IPCW** con el biomarcador: ~0.82, mejora pero **no corrige todo**, porque el biomarcador es una **medida imperfecta** de la fragilidad que causa la pérdida.
+-   **Casos completos**: **`r round(res_perd[3], 2)`**, frente a `r round(res_perd[2], 2)` con todos los datos (se pierde el `r round(100 * mean(1 - d_p$visto))` % de los pacientes). El efecto se **subestima**: los que más empeoraron en el grupo control se pierden más y el contraste se achata.
+-   **IPCW** (ponderar a cada paciente observado por el inverso de su probabilidad de seguir en el estudio) con el biomarcador: **`r round(res_perd[4], 2)`**. Mejora, pero **no corrige todo**, porque el biomarcador es una **medida imperfecta** de la fragilidad que causa la pérdida.
+
+## Paso 4: muchas "paradojas" de nefrología son este sesgo
+
+| Paradoja | Explicación probable |
+|---|---|
+| Mayor IMC, PA o colesterol → menor mortalidad **en diálisis** | **Causalidad inversa** (10.4) + **selección por supervivencia** |
+| Pacientes con ERC avanzada **no tratados** viven más que los tratados | **Indicación** (10.4) |
+| Los prevalentes en diálisis **parecen** estar mejor que los incidentes | **Depleción de susceptibles** |
+
+## Trampas frecuentes
 
 ::: {.callout-warning}
 ## ⚠️ Lo que ninguna técnica corrige
 
-Si **las pérdidas dependen de causas no medidas** (el paciente se fue "porque se sentía peor" y no se registró), no hay corrección completa. Se previene **reduciendo las pérdidas** (seguimiento activo, confirmación de estado vital en registros), **registrando los motivos** y haciendo **análisis de sensibilidad** (por ejemplo, el "peor caso" para los perdidos).
+Si **las pérdidas dependen de causas no medidas** (el paciente se fue "porque se sentía peor" y no se registró), no hay corrección completa. Se previene **reduciendo las pérdidas** (seguimiento activo, confirmación del estado vital en registros), **registrando los motivos** y haciendo **análisis de sensibilidad** (por ejemplo, el "peor caso" para los perdidos). Cuando la censura es informativa en un análisis de supervivencia, se usan pesos inversos de censura o modelos de riesgos competitivos (Cap. 19).
 :::
-
-### Estimación de supervivencia con censura informativa
-
-Cuando la censura depende de covariables, se usan **pesos inversos por censura** (IPCW) o modelos de **riesgos competitivos** si el abandono es un evento. Se verán en el Cap. 19.
-
-## Sesgo de supervivencia y "paradojas" en nefrología
-
-Muchas "paradojas" son sesgo de supervivencia o de selección:
-
-| Paradoja | Explicación probable |
-|---|---|
-| Mayor IMC, PA o colesterol → menor mortalidad **en diálisis** | **Causalidad inversa** + **selección por supervivencia** |
-| Pacientes con ERC avanzada **no tratados** viven más que los tratados | **Indicación** (ver 10.4) |
-| Los prevalentes en diálisis **parecen** estar mejor que los nuevos | **Depleción de susceptibles** |
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
 -   Quienes están **presentes** al observar han **sobrevivido** o **permanecido**: si el riesgo cambia con el tiempo, ese grupo está seleccionado.
--   Los **usuarios prevalentes** hacen parecer **mejor** un fármaco con riesgo temprano alto. Se evita con **nuevos usuarios** y tiempo cero en el inicio.
--   Las **pérdidas informativas** sesgan el efecto; **IPCW** corrige lo medido, **nada corrige lo que no se mide**.
--   Registra **motivos de pérdida** y haz análisis de sensibilidad.
+-   Los **usuarios prevalentes** hacen parecer **mejor** un fármaco con riesgo temprano alto; se evita con **nuevos usuarios** y tiempo cero en el inicio.
+-   Las **pérdidas informativas** sesgan el efecto: **IPCW** corrige lo medido, **nada corrige lo que no se mide**.
+-   Pregunta: *¿quién sigue aquí cuando miro, y quién ya no está?*
 :::
 
 ## Ejercicio
 
 1.  En la simulación de prevalentes, cambia el corte a **3 meses** y a **24 meses**. ¿Cómo cambia el HR?
-2.  Aumenta la fuerza de la pérdida (`-2.0 * (pend - mean(pend))` → `-3.0 * ...`) y compara casos completos con IPCW.
+2.  Aumenta la fuerza de la pérdida (`-2.0 * (pend - mean(pend))` a `-3.0 * ...`) y compara casos completos con IPCW.
 3.  Lee un estudio de tu especialidad con **usuarios prevalentes**: ¿qué sesgo esperas y en qué dirección?

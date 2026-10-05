@@ -1,56 +1,108 @@
-# Medidas de impacto
+# Medidas de impacto: ¿a cuántos pacientes beneficia?
 
-Las medidas de asociación nos dicen **cuántas veces** más (o menos) frecuente es un desenlace. Las **medidas de impacto** traducen esa asociación a una escala **absoluta y clínica**: *¿a cuántos pacientes beneficia (o daña) una intervención?, ¿qué parte del problema se debe a la exposición?*
+::: {.callout-note}
+## 🩺 Escenario
 
-::: {.callout-important}
-## 🎯 En resumen
-
-| Medida | Abreviatura | Fórmula | Pregunta clínica que responde |
-|---|---|---|---|
-| Diferencia (reducción absoluta) de riesgo | RA / RD | $R_{exp} - R_{no\ exp}$ | ¿Cuántos eventos más/menos por 100 pacientes? |
-| Reducción relativa del riesgo | RRR | $1 - RR$ | ¿Qué fracción del riesgo basal se elimina? |
-| Número necesario a tratar / dañar | NNT / NND | $1 / \lvert RA \rvert$ | ¿A cuántos debo tratar para evitar (o causar) 1 evento? |
-| Fracción atribuible en expuestos | FAE | $(RR-1)/RR$ | ¿Qué % del riesgo **de los expuestos** se debe a la exposición? |
-| Fracción atribuible poblacional | FAP | $\dfrac{p_e (RR-1)}{1 + p_e (RR-1)}$ | ¿Qué % de **todos los casos** de la población se evitaría sin la exposición? |
-
-**Siempre** acompaña la medida de impacto con el **horizonte de tiempo** (p. ej., "a 36 meses").
+El comité de farmacia de tu hospital sabe que los iSGLT2 reducen el riesgo de eventos renales (RR 0.57). Pero te pregunta algo más práctico: *"Si los indicamos a todos los pacientes elegibles, ¿a cuántos tenemos que tratar durante 3 años para evitar **un** evento? ¿Y vale la pena en los de bajo riesgo?"* Una razón como el RR no responde eso. Hace falta una medida **absoluta**.
 :::
 
-::: {.callout-warning}
-## ⚠️ Condición previa: causalidad
+## Lo que vamos a hacer
 
-Las medidas de impacto **asumen que la asociación es causal**. Calcular un NNT con una asociación confundida da una cifra precisa pero engañosa. Por eso se reservan para ensayos clínicos o para análisis observacionales causales bien hechos (Parte 3).
-:::
+-   Pasar de la escala relativa (RR) a la absoluta: **diferencia de riesgos** y **NNT**.
+-   Ver por qué el mismo RR da NNT muy distintos según el riesgo basal.
+-   Comprobar con datos simulados que un NNT calculado con una asociación **cruda** puede ser muy engañoso.
+-   Calcular las **fracciones atribuibles** cuando la exposición daña.
 
-## Diferencia de riesgos (riesgo atribuible, RA)
+## Paso 1. Diferencia de riesgos (RA)
 
-También llamada *reducción absoluta del riesgo* (cuando el tratamiento protege) o *aumento absoluto del riesgo* (cuando daña).
+También se llama *riesgo atribuible*, *reducción absoluta del riesgo* (si el tratamiento protege) o *aumento absoluto* (si daña). Responde: ¿cuántos eventos más o menos **por cada 100 pacientes**?
 
 $$
 \text{RA} = \text{Riesgo}_{\text{expuestos}} - \text{Riesgo}_{\text{no expuestos}} \;=\; R_{\text{no exp}} \times (RR - 1)
 $$
 
-Retomemos la base simulada con iSGLT2 (medidas **crudas**, solo para practicar el cálculo):
+Retomamos la base **simulada** con iSGLT2 (Capítulo 3.2). Los números de este paso son **crudos**, solo para practicar el cálculo:
 
 ```{r}
 #| label: setup-23
 library(tidyverse)
-source("R/funciones_epi.R")
+source("R/funciones_epi.R")          # medidas_2x2(), nnt_desde_rd(), categoria_a()
+source("R/funciones_extra_a.R")      # pct(), num()
 
 ckd <- read_csv("Bases/ckd_isglt2.csv", show_col_types = FALSE)
 
 tabla <- table(isglt2 = ckd$isglt2, evento = ckd$evento)
-res <- medidas_2x2(a = tabla["1", "1"], b = tabla["1", "0"],
-                   c = tabla["0", "1"], d = tabla["0", "0"])
+res <- medidas_2x2(a = tabla["1", "1"], b = tabla["1", "0"],     # con iSGLT2: con y sin evento
+                   c = tabla["0", "1"], d = tabla["0", "0"])     # sin iSGLT2: con y sin evento
 res
 ```
 
-El RA fue **`r round(100 * res$estimado[3], 1)` puntos porcentuales** (IC 95 % `r round(100 * res$ic_inf[3], 1)` a `r round(100 * res$ic_sup[3], 1)`): *"por cada 1000 pacientes que inician iSGLT2 habría unos `r round(abs(res$estimado[3]) * 1000)` eventos renales menos a 36 meses"*.
+**Qué vemos.** El RA fue **`r num(100 * res$estimado[3], 1)` puntos porcentuales** (IC 95 % `r num(100 * res$ic_inf[3], 1)` a `r num(100 * res$ic_sup[3], 1)`): *"por cada 1000 pacientes que inician iSGLT2 habría unos `r round(abs(res$estimado[3]) * 1000)` eventos renales menos a 36 meses"*.
 
-::: {.callout-tip}
-## 💡 Tip: misma RR, distinto impacto
+## Paso 2. Número necesario a tratar (NNT) y a dañar (NND)
 
-Un RR de 0.57 no significa lo mismo en un paciente de bajo riesgo que en uno de alto riesgo. Mira cómo cambia el beneficio absoluto con el riesgo basal:
+Es el número de pacientes que deben recibir la intervención (en lugar del comparador) para **evitar un evento** adicional (NNT) o **causar uno** (NND):
+
+$$
+\text{NNT} = \frac{1}{\lvert \text{RA} \rvert}
+$$
+
+-   Desenlace **desfavorable** (muerte, diálisis) y RA < 0: la intervención lo previene, **NNT**.
+-   Desenlace **desfavorable** y RA > 0: la intervención lo causa, **NND**.
+-   Desenlace **favorable** (remisión) y RA > 0: la intervención lo favorece, **NNT**.
+
+```{r}
+#| label: nnt
+nnt_crudo <- nnt_desde_rd(rd = res$estimado[3], rd_inf = res$ic_inf[3], rd_sup = res$ic_sup[3])
+nnt_crudo
+```
+
+**Qué vemos.** **NNT ≈ `r round(nnt_crudo$nnt)` a 36 meses** (IC 95 % `r num(nnt_crudo$nnt_ic_inf, 1)` a `r num(nnt_crudo$nnt_ic_sup, 1)`): *"es necesario tratar a unos `r round(nnt_crudo$nnt)` pacientes con iSGLT2 durante 3 años para evitar un evento renal"*.
+
+::: {.callout-warning}
+## ⚠️ Cuidado con el NNT
+
+-   **Siempre** indica el horizonte de tiempo: un NNT de 12 a 3 años no es un NNT de 12 a 1 año.
+-   **Redondea hacia arriba** (12.0 → 12; 12.1 → 13): es un número de personas.
+-   Si el IC de la diferencia de riesgos **incluye 0**, el IC del NNT no es un intervalo continuo (va de un valor hasta infinito y vuelve desde el infinito). `nnt_desde_rd()` te avisa con la columna `ic_incluye_cero` (Altman, 1998).
+-   El NNT **no es transferible** entre poblaciones con distinto riesgo basal (Paso 5).
+:::
+
+## Paso 3. Las medidas de impacto presuponen causalidad
+
+Un NNT se interpreta como "si *tratamos* a estos pacientes, evitamos un evento por cada tantos". Eso solo es cierto si la diferencia de riesgos es un **efecto causal**. Con una asociación confundida, el NNT es preciso pero engañoso.
+
+Como los datos están simulados, podemos comprobarlo. La versión "oráculo" de la base tiene, para cada paciente, si habría tenido el evento **con** y **sin** el fármaco (columnas `evento_36m_1` y `evento_36m_0`), algo imposible en la vida real:
+
+```{r}
+#| label: nnt-verdad
+oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv", show_col_types = FALSE)
+
+# Efecto causal verdadero: riesgo si TODOS recibieran el fármaco vs. si NINGUNO lo recibiera
+ra_verdadero  <- mean(oraculo$evento_36m_1) - mean(oraculo$evento_36m_0)
+rr_verdadero  <- mean(oraculo$evento_36m_1) / mean(oraculo$evento_36m_0)
+
+tibble(
+  medida = c("Diferencia de riesgos", "RR", "NNT a 36 meses"),
+  cruda  = c(res$estimado[3], res$estimado[4], 1 / abs(res$estimado[3])),
+  verdad = c(ra_verdadero, rr_verdadero, 1 / abs(ra_verdadero))
+) |>
+  mutate(across(c(cruda, verdad), \(x) round(x, 3)))
+```
+
+**Qué vemos.** La asociación cruda sugiere un NNT de `r round(1 / abs(res$estimado[3]))`, pero el efecto causal verdadero implica un NNT de `r round(1 / abs(ra_verdadero))`: **casi el doble**. Un comité que se guiara por el NNT crudo sobreestimaría el beneficio. Las medidas de impacto se reservan para ensayos clínicos o análisis observacionales causales bien hechos (Capítulos 3 y 12).
+
+## Paso 4. Reducción relativa del riesgo (RRR)
+
+$$
+\text{RRR} = 1 - \text{RR} = \frac{R_{\text{no exp}} - R_{\text{exp}}}{R_{\text{no exp}}}
+$$
+
+Con el RR crudo de `r num(res$estimado[4])`, la **RRR es `r round(100 * (1 - res$estimado[4]))` %**: el iSGLT2 eliminaría esa fracción del riesgo basal. Es la forma más "atractiva" de comunicar un resultado (un `r round(100 * (1 - res$estimado[4]))` % suena a mucho más que `r num(abs(100 * res$estimado[3]), 1)` puntos porcentuales), por lo que **no debe usarse sola**: acompáñala siempre del RA o del NNT.
+
+## Paso 5. Misma reducción relativa, distinto impacto
+
+Un RR de 0.57 no significa lo mismo en un paciente de bajo riesgo que en uno de alto riesgo. Veamos cómo cambia el beneficio absoluto con el riesgo basal (cálculo teórico):
 
 ```{r}
 #| label: riesgo-basal
@@ -58,50 +110,31 @@ tibble(riesgo_basal = c(0.02, 0.10, 0.20, 0.40), rr = 0.57) |>
   mutate(riesgo_tratado = riesgo_basal * rr,
          ra  = riesgo_tratado - riesgo_basal,
          nnt = 1 / abs(ra)) |>
-  mutate(across(c(riesgo_basal, riesgo_tratado, ra), ~ scales::percent(., 0.1)),
+  mutate(across(c(riesgo_basal, riesgo_tratado, ra), \(x) pct(x)),
          nnt = round(nnt))
 ```
 
-Con riesgo basal de 2 %, hay que tratar a ~116 pacientes para evitar un evento; con 40 %, a ~6. **Por eso el NNT sirve para decidir *a quién* tratar.**
-:::
+Con riesgo basal de 2 % hay que tratar a ~116 pacientes para evitar un evento; con 40 %, a ~6. **Por eso el NNT sirve para decidir *a quién* tratar.**
 
-## Número necesario a tratar (NNT) y a dañar (NND)
-
-Número de pacientes que deben recibir la intervención (en lugar del comparador) para **evitar un evento** adicional (NNT) o **causar uno** (NND).
-
-$$
-\text{NNT} = \frac{1}{\lvert \text{RA} \rvert}
-$$
-
--   Desenlace **desfavorable** (muerte, diálisis) y RA < 0 → **NNT** (la intervención lo previene).
--   Desenlace **desfavorable** y RA > 0 → **NND** (la intervención lo causa).
--   Desenlace **favorable** (remisión) y RA > 0 → **NNT** (la intervención lo favorece).
+Esto no es solo teoría: en nuestros datos simulados, el efecto del fármaco **relativo** es casi el mismo en todos los pacientes, pero como el riesgo basal sube con la albuminuria, el beneficio **absoluto** crece. Con el oráculo, por categoría de albuminuria KDIGO (A1 < 30, A2 30-299, A3 ≥ 300 mg/g):
 
 ```{r}
-#| label: nnt
-nnt_desde_rd(rd = res$estimado[3], rd_inf = res$ic_inf[3], rd_sup = res$ic_sup[3])
+#| label: nnt-por-albuminuria
+verdad_estratos <- oraculo |>
+  mutate(albuminuria = categoria_a(uacr)) |>
+  group_by(albuminuria) |>
+  summarise(pacientes   = n(),
+            riesgo_sin  = mean(evento_36m_0),     # riesgo si nadie recibiera el fármaco
+            riesgo_con  = mean(evento_36m_1),     # riesgo si todos lo recibieran
+            rr          = riesgo_con / riesgo_sin,
+            ra          = riesgo_con - riesgo_sin,
+            nnt         = 1 / abs(ra))
+verdad_estratos |> mutate(across(c(riesgo_sin, riesgo_con, ra), \(x) round(x, 3)), rr = round(rr, 2), nnt = round(nnt))
 ```
 
-**NNT ≈ `r round(1 / abs(res$estimado[3]))` a 36 meses** (IC 95 % `r round(1 / abs(res$ic_inf[3]), 1)`–`r round(1 / abs(res$ic_sup[3]), 1)`): *"es necesario tratar a unos `r round(1 / abs(res$estimado[3]))` pacientes con iSGLT2 durante 3 años para evitar un evento renal"*.
+**Qué vemos.** El RR varía poco (de `r num(verdad_estratos$rr[3])` en A3 a `r num(verdad_estratos$rr[1])` en A1), pero el NNT pasa de unos `r round(verdad_estratos$nnt[1])` en A1 a unos `r round(verdad_estratos$nnt[3])` en A3. Este es un ejemplo de **modificación del efecto según la escala**: el efecto es casi homogéneo en la escala relativa (multiplicativa) y claramente heterogéneo en la absoluta (aditiva). Las dos escalas son legítimas y responden preguntas distintas; por eso conviene reportar la modificación del efecto en ambas (Knol y VanderWeele, 2012; Bours, 2021).
 
-::: {.callout-warning}
-## ⚠️ Cuidado con el NNT
-
-- **Siempre** indica el horizonte de tiempo: NNT = 12 a 3 años no es NNT = 12 a 1 año.
-- **Redondea hacia arriba** (12.0 → 12; 12.1 → 13): el NNT es un número de personas.
-- Si el IC de la diferencia de riesgos **incluye 0**, el IC del NNT no es un intervalo continuo (va de un valor a infinito y vuelve desde el infinito). La función `nnt_desde_rd()` te avisa con `ic_incluye_cero`.
-- El NNT **no es transferible** entre poblaciones con distinto riesgo basal (ver la tabla anterior).
-:::
-
-## Reducción relativa del riesgo (RRR)
-
-$$
-\text{RRR} = 1 - \text{RR} = \frac{R_{\text{no exp}} - R_{\text{exp}}}{R_{\text{no exp}}}
-$$
-
-Con RR = `r round(res$estimado[4], 2)`, la **RRR es `r round(100 * (1 - res$estimado[4]))` %**: el iSGLT2 elimina esa fracción del riesgo basal. Es la forma "atractiva" de comunicar un resultado (siempre sale mayor que la RA), por eso **no debe usarse sola**.
-
-## Fracciones atribuibles (FAE y FAP)
+## Paso 6. Fracciones atribuibles (FAE y FAP)
 
 Se usan cuando la exposición **daña** (RR > 1) y queremos saber cuánto del problema se debe a ella.
 
@@ -109,13 +142,7 @@ $$
 \text{FAE} = \frac{RR - 1}{RR} \qquad\qquad \text{FAP} = \frac{p_e\,(RR-1)}{1 + p_e\,(RR-1)}
 $$
 
-donde $p_e$ es la proporción de expuestos en la **población** (no solo en la muestra de enfermos).
-
-::: {.callout-note}
-## 🩺 Ejemplo (hipotético)
-
-Supón que en pacientes con ERC avanzada la **hiperfosfatemia persistente** (fósforo > 5.5 mg/dL) se asocia con mayor mortalidad cardiovascular, con **RR = 1.8**, y que **30 %** de la población tiene hiperfosfatemia.
-:::
+donde $p_e$ es la proporción de expuestos en la **población** (no solo en la muestra de enfermos). *Ejemplo (hipotético):* en pacientes con ERC avanzada, la hiperfosfatemia persistente (fósforo > 5.5 mg/dL) se asocia con mayor mortalidad cardiovascular, con **RR = 1.8**, y **30 %** de la población la tiene.
 
 ```{r}
 #| label: fraccion-atribuible
@@ -124,36 +151,43 @@ p_e <- 0.30
 
 fae <- (rr - 1) / rr
 fap <- p_e * (rr - 1) / (1 + p_e * (rr - 1))
-tibble(FAE = scales::percent(fae, 0.1), FAP = scales::percent(fap, 0.1))
+tibble(FAE = pct(fae), FAP = pct(fap))
 ```
 
--   **FAE = `r scales::percent(fae, 0.1)`**: de la mortalidad cardiovascular de los pacientes con hiperfosfatemia, `r scales::percent(fae, 1)` sería atribuible a ella (**si** la asociación es causal).
--   **FAP = `r scales::percent(fap, 0.1)`**: si se eliminara la hiperfosfatemia en toda la población, se evitaría `r scales::percent(fap, 1)` de **todas** las muertes cardiovasculares. Es menor porque solo 30 % está expuesto.
-
-::: {.callout-tip}
-## 💡 Tip práctico
-
-- **FAE** → útil en la consulta individual ("en este paciente, ¿cuánto de su riesgo es por la exposición?").
-- **FAP** → útil en salud pública ("¿cuánto ganaríamos si controláramos la exposición en el servicio o en el país?").
-- Cuando la intervención **protege**, usa la RRR o el NNT en lugar de la fracción atribuible.
-:::
+-   **FAE = `r pct(fae)`**: de la mortalidad cardiovascular de los pacientes con hiperfosfatemia, `r pct(fae, 0)` sería atribuible a ella (**si** la asociación es causal). Sirve para la consulta individual.
+-   **FAP = `r pct(fap)`**: si se eliminara la hiperfosfatemia en toda la población, se evitaría `r pct(fap, 0)` de **todas** las muertes cardiovasculares. Es menor porque solo 30 % está expuesto. Sirve para salud pública.
+-   Cuando la intervención **protege**, usa la RRR o el NNT en lugar de la fracción atribuible.
 
 ::: {.callout-important}
-## 🎯 Para llevarte
+## 🎯 En resumen
 
-1. Reporta **siempre** una medida relativa (RR/HR) **y** una absoluta (RA o NNT).
-2. El NNT es válido solo para el **riesgo basal, la población y el horizonte de tiempo** en que se calculó.
-3. Las medidas de impacto presuponen **causalidad**: una asociación confundida produce un NNT atractivo pero falso.
-4. Ninguna depende de "p < 0.05": mira el **IC** de la medida absoluta.
+| Medida | Fórmula | Pregunta clínica que responde |
+|---|---|---|
+| Diferencia de riesgos (RA) | $R_{exp} - R_{no\ exp}$ | ¿Cuántos eventos más o menos por 100 pacientes? |
+| RRR | $1 - RR$ | ¿Qué fracción del riesgo basal se elimina? |
+| NNT / NND | $1 / \lvert RA \rvert$ | ¿A cuántos debo tratar para evitar (o causar) 1 evento? |
+| FAE | $(RR-1)/RR$ | ¿Qué % del riesgo **de los expuestos** se debe a la exposición? |
+| FAP | $\dfrac{p_e (RR-1)}{1 + p_e (RR-1)}$ | ¿Qué % de **todos los casos** se evitaría sin la exposición? |
+
+1.  Reporta **siempre** una medida relativa (RR/HR) **y** una absoluta (RA o NNT), con el **horizonte de tiempo** ("a 36 meses").
+2.  El NNT vale solo para el **riesgo basal, la población y el horizonte** en que se calculó.
+3.  Presuponen **causalidad**: con una asociación confundida, el NNT es atractivo pero falso (aquí, 12 vs. 22).
+4.  Mira el **IC** de la medida absoluta, no solo el valor *p*.
 :::
+
+**Ejercicio.** (1) Un fármaco reduce el riesgo de diálisis a 5 años de 8 % a 6 %: calcula RA, RRR y NNT. ¿Y si el riesgo basal fuera 30 % con el mismo RR? (2) Un estudio dice "reduce el riesgo en 50 %" sin dar más datos: ¿qué te falta para decidir si lo prescribes? (3) Reproduce el cálculo de FAE y FAP con RR = 2.5 y 10 % de expuestos: ¿cuál de las dos cambia más?
 
 ## Referencias
 
-1.  Zafra-Tanaka JH, Taype-Rondan A, Fernandez-Guzman D. Cómo entender las medidas de efecto en la investigación clínica: Interpretación práctica y aplicación. Revista del Cuerpo Médico Hospital Nacional Almanzor Aguinaga Asenjo. 2023;16. <https://cmhnaaa.org.pe/ojs/index.php/rcmhnaaa/article/view/1935>
+1.  Zafra-Tanaka JH, Taype-Rondan A, Fernandez-Guzman D. Cómo entender las medidas de efecto en la investigación clínica: interpretación práctica y aplicación. *Rev Cuerpo Méd Hosp Nac Almanzor Aguinaga Asenjo*. 2023;16. <https://cmhnaaa.org.pe/ojs/index.php/rcmhnaaa/article/view/1935>
 
 2.  Altman DG. Confidence intervals for the number needed to treat. *BMJ*. 1998;317:1309-1312.
 
-3.  Rothman KJ, Greenland S, Lash TL. *Modern Epidemiology*. 3.ª ed. Lippincott Williams & Wilkins; 2008.
+3.  Knol MJ, VanderWeele TJ. Recommendations for presenting analyses of effect modification and interaction. *Int J Epidemiol*. 2012;41:514-520.
+
+4.  Bours MJL. Tutorial: a nontechnical explanation of the counterfactual definition of effect modification and interaction. *J Clin Epidemiol*. 2021;134:113-124.
+
+5.  Rothman KJ, Greenland S, Lash TL. *Modern Epidemiology*. 3.ª ed. Lippincott Williams & Wilkins; 2008.
 
 ## Nota editorial
 
