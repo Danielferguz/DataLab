@@ -1,0 +1,1966 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="es" xml:lang="es"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.10.18">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Daniel Fernandez">
+
+<title>Diagramas causales (DAG): qué ajustar y qué no – DataLab for causal inference</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<link href="../capitulos/Capítulo3.4.html" rel="next">
+<link href="../capitulos/Capítulo3.2.html" rel="prev">
+<link href="../cover.png" rel="icon" type="image/png">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-64a204ab8560d761af7679ceaba22944.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-7aae4c44033a76e9a4abd926a4c61ba3.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No se han encontrado resultados",
+    "search-matching-documents-text": "documentos encontrados",
+    "search-copy-link-title": "Copiar el enlace en la búsqueda",
+    "search-hide-matches-text": "Ocultar resultados adicionales",
+    "search-more-match-text": "resultado adicional en este documento",
+    "search-more-matches-text": "resultados adicionales en este documento",
+    "search-clear-button-title": "Borrar",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancelar",
+    "search-submit-button-title": "Enviar",
+    "search-label": "Buscar"
+  }
+}</script>
+<script>
+  if (window.location.hostname === "danielferguz.github.io") {
+    window.location.replace("https://datalabperu.cloudflareaccess.com/");
+  }
+</script>
+
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script defer="" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+<link rel="stylesheet" href="../css/libro.css">
+</head>
+
+<body class="nav-sidebar floating quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Alternar barra lateral" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../capitulos/Capítulo3.html">Capítulo 3: Casualidad vs.&nbsp;causalidad</a></li><li class="breadcrumb-item"><a href="../capitulos/Capítulo3.3.html"><span class="chapter-title">Diagramas causales (DAG): qué ajustar y qué no</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Alternar barra lateral" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+      <button type="button" class="btn quarto-search-button" aria-label="Buscar" onclick="window.quartoOpenSearch();">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
+    <div class="pt-lg-2 mt-2 text-left sidebar-header">
+    <div class="sidebar-title mb-0 py-0">
+      <a href="../">DataLab for causal inference</a> 
+        <div class="sidebar-tools-main">
+  <a href="" class="quarto-reader-toggle quarto-navigation-tool px-1" onclick="window.quartoToggleReader(); return false;" title="Alternar modo lector">
+  <div class="quarto-reader-toggle-btn">
+  <i class="bi"></i>
+  </div>
+</a>
+</div>
+    </div>
+      </div>
+        <div class="mt-2 flex-shrink-0 align-items-center">
+        <div class="sidebar-search">
+        <div id="quarto-search" class="" title="Buscar"></div>
+        </div>
+        </div>
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Prefacio</span></a>
+  </div>
+</li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/intro.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Introducción</span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo1.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 1: Pregunta de investigación</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tipos de estudio: ¿generan datos nuevos o resumen lo que ya existe?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diseños de investigación: qué responde cada uno</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tareas científicas: describir, predecir o explicar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tareas descriptivas: contar bien y no prometer causas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tareas predictivas: anticipar, no explicar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tareas explicativas: la pregunta causal</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo2.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 2: Medidas en epidemiología</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo2.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Medidas de frecuencia: ¿cuántos tienen, cuántos se enferman y a qué velocidad?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo2.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Medidas de asociación: ¿cuántas veces más (o menos) frecuente?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo2.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Medidas de impacto: ¿a cuántos pacientes beneficia?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo2.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Entonces, ¿qué es “una asociación”? Describir, explicar o predecir</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo3.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 3: Casualidad vs. causalidad</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ensayos aleatorizados: por qué el azar permite hablar de causas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Resultados potenciales y estimandos: ¿qué es un efecto causal?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.3.html" class="sidebar-item-text sidebar-link active"><span class="chapter-title">Diagramas causales (DAG): qué ajustar y qué no</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">El análisis causal completo, paso a paso</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo4.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 4: R y Quarto para el clínico</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Primeros pasos: instalar R y orientarte en RStudio</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Objetos, funciones y paquetes: tus primeras líneas de código</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo importar datos y revisar lo que llegó</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Quarto: tu análisis como un informe reproducible</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Errores, avisos y cómo pedir ayuda</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo5.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 5: Limpieza y manejo de datos</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-5" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Datos ordenados: la forma que R espera</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Manipular datos con <code>dplyr</code> y unificar categorías</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Fechas y tiempos</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Variables nefrológicas: unidades, TFGe y categorías KDIGO</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Control de calidad: duplicados, faltantes disfrazados y valores imposibles</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Unir tablas y construir la base final</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo6.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 6: Muestreo</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-6" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Población, marco y muestra</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diseños de muestreo: simple, estratificado y por conglomerados</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Muestras complejas con <code>survey</code>: del diseño al análisis</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de selección y no respuesta</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Caso integrado: prevalencia de ERC en la región y tamaño de muestra</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo7.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 7: Análisis descriptivo</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-7" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Cómo son mis pacientes? Variables y su distribución</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">La Tabla 1: ¿quiénes son y son comparables?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Gráficos que comunican</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Intervalos de confianza y <em>bootstrap</em></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Estandarización por edad: comparar tasas con justicia</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo8.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 8: Asociación y regresión</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-8" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Dos variables: pruebas de hipótesis y correlación</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Regresión lineal: cuánto cambia el desenlace, en promedio</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Regresión logística y de Poisson: del OR al RR</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Interacción y modificación del efecto: ¿a quién beneficia más?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Supuestos, diagnóstico y no linealidad: ¿puedo creer mi modelo?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo reportar una regresión (y la <em>Table 2 fallacy</em>)</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo9.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 9: Análisis de supervivencia</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-9" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-9" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tiempo hasta evento y censura</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Kaplan-Meier y log-rank</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Regresión de Cox</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Riesgos proporcionales: cómo verificar y qué hacer</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Riesgos competitivos</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Supervivencia media restringida (RMST)</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo10.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 10: ¡¡¡No todo es confusión!!!</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-10" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-10" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de selección y colisionadores</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de tiempo inmortal</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de información y error de medición</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Causalidad inversa y sesgo de indicación</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de supervivencia y de pérdidas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo cuantificar un sesgo</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo11.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 11: Análisis inferencial en ensayos aleatorizados</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-11" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-11" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diseño del análisis: preespecificar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Comparación de dos grupos: intención de tratar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">ANCOVA: ajustar por el valor basal</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Mediciones repetidas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Subgrupos y heterogeneidad</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">No adherencia: por protocolo, <em>as-treated</em> y CACE</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Desenlaces compuestos y <em>win ratio</em></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo12.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 12: Análisis inferencial en estudios observacionales</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-12" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-12" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Primero el protocolo: emular un ensayo objetivo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ajustar “a la antigua”: estratificación y regresión</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Qué es el puntaje de propensión? Buscar al “gemelo clínico”</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Emparejamiento: formar parejas de pacientes comparables</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ponderación (IPW): dar más voz a los pacientes “raros”</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Fórmula g y estimadores doblemente robustos: predecir y promediar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Supervivencia: curvas ponderadas y riesgos a un tiempo fijo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.8.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Y si me falta algo? Análisis de sensibilidad</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.9.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diseñar para reducir la confusión: comparador activo y nuevo usuario</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo13.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 13: Datos faltantes</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-13" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-13" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Por qué faltan los datos? Los mecanismos MCAR, MAR y MNAR</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Mirar antes de imputar: ¿qué falta y en quiénes?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Casos completos: la opción por defecto (y cuándo es peligrosa)</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Imputación múltiple con <code>mice</code>: paso a paso</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Imputación en análisis causales y de supervivencia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Y si los que faltan son distintos? Sensibilidad a MNAR</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-14" role="navigation" aria-expanded="true">
+ <span class="menu-text">Apéndices</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-14" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-14" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Apéndice-resumen.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Apéndice: cuadros de resumen y plantillas</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">En esta página</h2>
+   
+  <ul>
+  <li><a href="#lo-que-vamos-a-hacer" id="toc-lo-que-vamos-a-hacer" class="nav-link active" data-scroll-target="#lo-que-vamos-a-hacer">Lo que vamos a hacer</a></li>
+  <li><a href="#paso-1.-qué-es-un-dag" id="toc-paso-1.-qué-es-un-dag" class="nav-link" data-scroll-target="#paso-1.-qué-es-un-dag">Paso 1. ¿Qué es un DAG?</a></li>
+  <li><a href="#paso-2.-tres-estructuras-básicas" id="toc-paso-2.-tres-estructuras-básicas" class="nav-link" data-scroll-target="#paso-2.-tres-estructuras-básicas">Paso 2. Tres estructuras básicas</a>
+  <ul class="collapse">
+  <li><a href="#confusor-ajustar-elimina-la-asociación-espuria" id="toc-confusor-ajustar-elimina-la-asociación-espuria" class="nav-link" data-scroll-target="#confusor-ajustar-elimina-la-asociación-espuria">Confusor: ajustar elimina la asociación espuria</a></li>
+  <li><a href="#mediador-ajustar-elimina-parte-del-efecto-que-queríamos-medir" id="toc-mediador-ajustar-elimina-parte-del-efecto-que-queríamos-medir" class="nav-link" data-scroll-target="#mediador-ajustar-elimina-parte-del-efecto-que-queríamos-medir">Mediador: ajustar elimina parte del efecto que queríamos medir</a></li>
+  <li><a href="#colisionador-ajustar-crea-una-asociación-que-no-existe" id="toc-colisionador-ajustar-crea-una-asociación-que-no-existe" class="nav-link" data-scroll-target="#colisionador-ajustar-crea-una-asociación-que-no-existe">Colisionador: ajustar <em>crea</em> una asociación que no existe</a></li>
+  </ul></li>
+  <li><a href="#paso-3.-el-cuarteto-causal-los-mismos-datos-distinto-dag" id="toc-paso-3.-el-cuarteto-causal-los-mismos-datos-distinto-dag" class="nav-link" data-scroll-target="#paso-3.-el-cuarteto-causal-los-mismos-datos-distinto-dag">Paso 3. El cuarteto causal: los mismos datos, distinto DAG</a></li>
+  <li><a href="#paso-4.-un-colisionador-en-la-consulta-proteinuria-sodio-y-presión-arterial" id="toc-paso-4.-un-colisionador-en-la-consulta-proteinuria-sodio-y-presión-arterial" class="nav-link" data-scroll-target="#paso-4.-un-colisionador-en-la-consulta-proteinuria-sodio-y-presión-arterial">Paso 4. Un colisionador en la consulta: proteinuria, sodio y presión arterial</a></li>
+  <li><a href="#paso-5.-caminos-abiertos-caminos-cerrados-y-la-puerta-trasera" id="toc-paso-5.-caminos-abiertos-caminos-cerrados-y-la-puerta-trasera" class="nav-link" data-scroll-target="#paso-5.-caminos-abiertos-caminos-cerrados-y-la-puerta-trasera">Paso 5. Caminos abiertos, caminos cerrados y la puerta trasera</a></li>
+  <li><a href="#paso-6.-nuestro-dag-isglt2-y-pendiente-de-tfge" id="toc-paso-6.-nuestro-dag-isglt2-y-pendiente-de-tfge" class="nav-link" data-scroll-target="#paso-6.-nuestro-dag-isglt2-y-pendiente-de-tfge">Paso 6. Nuestro DAG: iSGLT2 y pendiente de TFGe</a>
+  <ul class="collapse">
+  <li><a href="#leer-el-dag-con-código-caminos-y-conjuntos-de-ajuste" id="toc-leer-el-dag-con-código-caminos-y-conjuntos-de-ajuste" class="nav-link" data-scroll-target="#leer-el-dag-con-código-caminos-y-conjuntos-de-ajuste">Leer el DAG con código: caminos y conjuntos de ajuste</a></li>
+  <li><a href="#verificar-el-dag-con-los-datos" id="toc-verificar-el-dag-con-los-datos" class="nav-link" data-scroll-target="#verificar-el-dag-con-los-datos">Verificar el DAG con los datos</a></li>
+  </ul></li>
+  <li><a href="#paso-7.-cómo-ajustar-regresión-emparejamiento-y-ponderación" id="toc-paso-7.-cómo-ajustar-regresión-emparejamiento-y-ponderación" class="nav-link" data-scroll-target="#paso-7.-cómo-ajustar-regresión-emparejamiento-y-ponderación">Paso 7. Cómo ajustar: regresión, emparejamiento y ponderación</a>
+  <ul class="collapse">
+  <li><a href="#a.-regresión-múltiple" id="toc-a.-regresión-múltiple" class="nav-link" data-scroll-target="#a.-regresión-múltiple">7a. Regresión múltiple</a></li>
+  <li><a href="#b.-emparejamiento-matching" id="toc-b.-emparejamiento-matching" class="nav-link" data-scroll-target="#b.-emparejamiento-matching">7b. Emparejamiento (<em>matching</em>)</a></li>
+  <li><a href="#c.-ponderación-por-probabilidad-inversa-ipw" id="toc-c.-ponderación-por-probabilidad-inversa-ipw" class="nav-link" data-scroll-target="#c.-ponderación-por-probabilidad-inversa-ipw">7c. Ponderación por probabilidad inversa (IPW)</a></li>
+  <li><a href="#funcionaron-el-balance" id="toc-funcionaron-el-balance" class="nav-link" data-scroll-target="#funcionaron-el-balance">¿Funcionaron? El balance</a></li>
+  <li><a href="#comparación-de-los-tres-métodos" id="toc-comparación-de-los-tres-métodos" class="nav-link" data-scroll-target="#comparación-de-los-tres-métodos">Comparación de los tres métodos</a></li>
+  </ul></li>
+  <li><a href="#advertencias-finales" id="toc-advertencias-finales" class="nav-link" data-scroll-target="#advertencias-finales">Advertencias finales</a></li>
+  <li><a href="#taller-practica-con-tres-dag" id="toc-taller-practica-con-tres-dag" class="nav-link" data-scroll-target="#taller-practica-con-tres-dag">Taller: practica con tres DAG</a></li>
+  <li><a href="#referencias" id="toc-referencias" class="nav-link" data-scroll-target="#referencias">Referencias</a></li>
+  <li><a href="#nota-editorial" id="toc-nota-editorial" class="nav-link" data-scroll-target="#nota-editorial">Nota editorial</a></li>
+  </ul>
+</nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../capitulos/Capítulo3.html">Capítulo 3: Casualidad vs.&nbsp;causalidad</a></li><li class="breadcrumb-item"><a href="../capitulos/Capítulo3.3.html"><span class="chapter-title">Diagramas causales (DAG): qué ajustar y qué no</span></a></li></ol></nav>
+<div class="quarto-title">
+<h1 class="title"><span class="chapter-title">Diagramas causales (DAG): qué ajustar y qué no</span></h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Nota</span>🩺 Escenario
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Los servicios con más nefrólogos por habitante reportan más casos de ERC. ¿Más nefrólogos <em>causan</em> más ERC? Más bien, donde hay más nefrólogos se <strong>detecta</strong> y se <strong>registra</strong> más ERC (sesgo de vigilancia). Una asociación puede ser real y, aun así, no ser la causa que imaginamos. Los <strong>grafos acíclicos dirigidos</strong> (DAG) te obligan a dibujar qué esperas que cause qué y, a partir de ahí, a decidir <strong>qué variables ajustar y cuáles no</strong>. “Correlación no implica causalidad” es cierto, pero insuficiente: como nefrólogos sí necesitamos decidir si un fármaco, una dieta o un procedimiento <em>causa</em> un mejor desenlace.</p>
+</div>
+</div>
+<section id="lo-que-vamos-a-hacer" class="level2">
+<h2 class="anchored" data-anchor-id="lo-que-vamos-a-hacer">Lo que vamos a hacer</h2>
+<ul>
+<li>Leer y dibujar un DAG, y reconocer las tres estructuras básicas: <strong>confusor</strong>, <strong>mediador</strong> y <strong>colisionador</strong>.</li>
+<li>Ver con simulaciones que <strong>los datos solos no dicen qué ajustar</strong>: lo dice el DAG.</li>
+<li>Aplicar el <strong>criterio de la puerta trasera</strong> para elegir el conjunto de ajuste.</li>
+<li>Comparar tres formas de ajustar: <strong>regresión, emparejamiento y ponderación</strong>.</li>
+</ul>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(tidyverse)</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(MatchIt)</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"R/funciones_epi.R"</span>)          <span class="co"># dibujar_dag(), smd()</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"R/funciones_extra_a.R"</span>)      <span class="co"># caminos_dag(), conjuntos_ajuste(), num()</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="fu">theme_set</span>(<span class="fu">theme_minimal</span>(<span class="at">base_size =</span> <span class="dv">13</span>) <span class="sc">+</span> <span class="fu">theme</span>(<span class="at">panel.grid.minor =</span> <span class="fu">element_blank</span>()))</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</section>
+<section id="paso-1.-qué-es-un-dag" class="level2">
+<h2 class="anchored" data-anchor-id="paso-1.-qué-es-un-dag">Paso 1. ¿Qué es un DAG?</h2>
+<p>Un DAG tiene tres elementos:</p>
+<ul>
+<li><strong>Nodos:</strong> variables, medidas o no medidas.</li>
+<li><strong>Flechas:</strong> <span class="math inline">\(A \rightarrow B\)</span> afirma que <em>A es causa directa de B</em>. <strong>Si no hay flecha, estás afirmando que no hay efecto directo</strong>: las ausencias de flechas son suposiciones fuertes.</li>
+<li><strong>Acíclico:</strong> no hay ciclos. Si hay retroalimentación (TFGe → anemia → TFGe), se representa con variables en distintos momentos (<span class="math inline">\(TFGe_{t-1} \rightarrow Hb_t \rightarrow TFGe_t\)</span>).</li>
+</ul>
+<p><strong>Cómo dibujar tu primer DAG:</strong> (1) escribe la <strong>exposición</strong> y el <strong>desenlace</strong>; (2) pregúntate qué variables causan (o podrían causar) la exposición y cuáles el desenlace; las que causan <strong>ambas</strong> son <strong>confusores</strong>; (3) añade lo que está <em>entre</em> exposición y desenlace (<strong>mediadores</strong>) y lo que <em>ambos causan</em> (<strong>colisionadores</strong>); (4) incluye también lo que <strong>no mediste</strong>; (5) pide a un colega nefrólogo que lo critique: ahí está el valor del DAG.</p>
+</section>
+<section id="paso-2.-tres-estructuras-básicas" class="level2">
+<h2 class="anchored" data-anchor-id="paso-2.-tres-estructuras-básicas">Paso 2. Tres estructuras básicas</h2>
+<p>Cualquier DAG complejo se construye con tres piezas. Entenderlas basta para saber <strong>qué ajustar</strong>.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>panel <span class="ot">&lt;-</span> <span class="cf">function</span>(nodos, aristas, titulo) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">dibujar_dag</span>(nodos, aristas, <span class="at">tam_texto =</span> <span class="fl">3.3</span>, <span class="at">expandir =</span> <span class="fu">c</span>(<span class="fl">0.45</span>, <span class="fl">0.25</span>)) <span class="sc">+</span> <span class="fu">labs</span>(<span class="at">title =</span> titulo) <span class="sc">+</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="fu">theme</span>(<span class="at">legend.position =</span> <span class="st">"none"</span>, <span class="at">plot.title =</span> <span class="fu">element_text</span>(<span class="at">face =</span> <span class="st">"bold"</span>, <span class="at">size =</span> <span class="dv">11</span>))</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>pA <span class="ot">&lt;-</span> <span class="fu">panel</span>(</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tribble</span>(<span class="sc">~</span>nombre,<span class="sc">~</span>x,<span class="sc">~</span>y,<span class="sc">~</span>etiqueta,<span class="sc">~</span>rol,</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>          <span class="st">"X"</span>,<span class="dv">1</span>,<span class="dv">1</span>,<span class="st">"iSGLT2"</span>,<span class="st">"exposicion"</span>, <span class="st">"M"</span>,<span class="dv">2</span>,<span class="fl">1.6</span>,<span class="st">"↓ Albuminuria"</span>,<span class="st">"mediador"</span>,</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>          <span class="st">"Y"</span>,<span class="dv">3</span>,<span class="dv">1</span>,<span class="st">"Pendiente</span><span class="sc">\n</span><span class="st">TFGe"</span>,<span class="st">"desenlace"</span>),</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tribble</span>(<span class="sc">~</span>de,<span class="sc">~</span>a, <span class="st">"X"</span>,<span class="st">"M"</span>, <span class="st">"M"</span>,<span class="st">"Y"</span>), <span class="st">"A. Mediador (cadena)"</span>)</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>pB <span class="ot">&lt;-</span> <span class="fu">panel</span>(</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tribble</span>(<span class="sc">~</span>nombre,<span class="sc">~</span>x,<span class="sc">~</span>y,<span class="sc">~</span>etiqueta,<span class="sc">~</span>rol,</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>          <span class="st">"X"</span>,<span class="dv">1</span>,<span class="dv">1</span>,<span class="st">"iSGLT2"</span>,<span class="st">"exposicion"</span>, <span class="st">"C"</span>,<span class="dv">2</span>,<span class="fl">1.6</span>,<span class="st">"Fragilidad"</span>,<span class="st">"confusor"</span>,</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>          <span class="st">"Y"</span>,<span class="dv">3</span>,<span class="dv">1</span>,<span class="st">"Pendiente</span><span class="sc">\n</span><span class="st">TFGe"</span>,<span class="st">"desenlace"</span>),</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tribble</span>(<span class="sc">~</span>de,<span class="sc">~</span>a, <span class="st">"C"</span>,<span class="st">"X"</span>, <span class="st">"C"</span>,<span class="st">"Y"</span>), <span class="st">"B. Confusor (bifurcación)"</span>)</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>pC <span class="ot">&lt;-</span> <span class="fu">panel</span>(</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tribble</span>(<span class="sc">~</span>nombre,<span class="sc">~</span>x,<span class="sc">~</span>y,<span class="sc">~</span>etiqueta,<span class="sc">~</span>rol,</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>          <span class="st">"X"</span>,<span class="dv">1</span>,<span class="dv">1</span>,<span class="st">"Uso de AINE"</span>,<span class="st">"exposicion"</span>, <span class="st">"K"</span>,<span class="dv">2</span>,<span class="fl">1.6</span>,<span class="st">"Hospitalización"</span>,<span class="st">"colisionador"</span>,</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>          <span class="st">"Y"</span>,<span class="dv">3</span>,<span class="dv">1</span>,<span class="st">"ICC</span><span class="sc">\n</span><span class="st">descompensada"</span>,<span class="st">"desenlace"</span>),</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tribble</span>(<span class="sc">~</span>de,<span class="sc">~</span>a, <span class="st">"X"</span>,<span class="st">"K"</span>, <span class="st">"Y"</span>,<span class="st">"K"</span>), <span class="st">"C. Colisionador"</span>)</span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>patchwork<span class="sc">::</span><span class="fu">wrap_plots</span>(pA, pB, pC, <span class="at">nrow =</span> <span class="dv">1</span>)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div id="fig-estructuras" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-estructuras-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="Capítulo3.3_files/figure-html/fig-estructuras-1.png" class="img-fluid figure-img" width="1056">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-estructuras-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figura&nbsp;1: Tres estructuras básicas: (A) mediador, (B) confusor, (C) colisionador.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Estructura</th>
+<th>¿Transmite asociación entre X e Y?</th>
+<th>¿Qué hago?</th>
+<th>Ejemplo</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Mediador</strong> (<span class="math inline">\(X \to M \to Y\)</span>)</td>
+<td>Sí: es <em>parte del efecto</em> que queremos medir</td>
+<td><strong>No ajustar</strong> si quiero el efecto <strong>total</strong></td>
+<td>Albuminuria entre iSGLT2 y TFGe</td>
+</tr>
+<tr class="even">
+<td><strong>Confusor</strong> (<span class="math inline">\(X \leftarrow C \to Y\)</span>)</td>
+<td>Sí: crea una asociación <strong>espuria</strong></td>
+<td><strong>Ajustar</strong> (cierra el camino)</td>
+<td>Fragilidad</td>
+</tr>
+<tr class="odd">
+<td><strong>Colisionador</strong> (<span class="math inline">\(X \to K \leftarrow Y\)</span>)</td>
+<td><strong>No</strong> (el camino está cerrado)</td>
+<td><strong>No ajustar</strong> ni restringir por <span class="math inline">\(K\)</span>: abriría el camino y crearía una asociación falsa</td>
+<td>Hospitalización</td>
+</tr>
+</tbody>
+</table>
+<p>Comprobémoslo con <strong>simulaciones sencillas</strong> (así verás por qué ocurre y no solo que ocurre).</p>
+<section id="confusor-ajustar-elimina-la-asociación-espuria" class="level3">
+<h3 class="anchored" data-anchor-id="confusor-ajustar-elimina-la-asociación-espuria">Confusor: ajustar elimina la asociación espuria</h3>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">1</span>)</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>n <span class="ot">&lt;-</span> <span class="dv">5000</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>fragil   <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(n, <span class="dv">1</span>, <span class="fl">0.3</span>)                                <span class="co"># confusor</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>tratado  <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(n, <span class="dv">1</span>, <span class="fu">plogis</span>(<span class="sc">-</span><span class="fl">0.5</span> <span class="sc">-</span> <span class="fl">1.5</span> <span class="sc">*</span> fragil))        <span class="co"># los frágiles reciben menos el fármaco</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>pendiente <span class="ot">&lt;-</span> <span class="sc">-</span><span class="dv">2</span> <span class="sc">-</span> <span class="fl">1.0</span> <span class="sc">*</span> fragil <span class="sc">+</span> <span class="dv">0</span> <span class="sc">*</span> tratado <span class="sc">+</span> <span class="fu">rnorm</span>(n)      <span class="co"># el fármaco NO tiene efecto en esta simulación</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>d_conf <span class="ot">&lt;-</span> <span class="fu">tibble</span>(fragil, tratado, pendiente)</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="fu">coef</span>(<span class="fu">lm</span>(pendiente <span class="sc">~</span> tratado, d_conf))[<span class="st">"tratado"</span>]               <span class="co"># sin ajustar: asociación espuria</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>  tratado 
+0.2266726 </code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">coef</span>(<span class="fu">lm</span>(pendiente <span class="sc">~</span> tratado <span class="sc">+</span> fragil, d_conf))[<span class="st">"tratado"</span>]      <span class="co"># ajustando: ≈ 0</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>    tratado 
+-0.01058657 </code></pre>
+</div>
+</div>
+</section>
+<section id="mediador-ajustar-elimina-parte-del-efecto-que-queríamos-medir" class="level3">
+<h3 class="anchored" data-anchor-id="mediador-ajustar-elimina-parte-del-efecto-que-queríamos-medir">Mediador: ajustar elimina parte del efecto que queríamos medir</h3>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">2</span>)</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>tratado  <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(n, <span class="dv">1</span>, <span class="fl">0.5</span>)                                <span class="co"># aleatorizado: sin confusión</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>albumin  <span class="ot">&lt;-</span> <span class="dv">5</span> <span class="sc">-</span> <span class="fl">1.0</span> <span class="sc">*</span> tratado <span class="sc">+</span> <span class="fu">rnorm</span>(n)                     <span class="co"># el fármaco reduce la albuminuria</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>pendiente <span class="ot">&lt;-</span> <span class="sc">-</span><span class="dv">1</span> <span class="sc">-</span> <span class="fl">0.6</span> <span class="sc">*</span> albumin <span class="sc">+</span> <span class="fu">rnorm</span>(n)                    <span class="co"># menos albuminuria =&gt; mejor pendiente</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>d_med <span class="ot">&lt;-</span> <span class="fu">tibble</span>(tratado, albumin, pendiente)</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a><span class="fu">coef</span>(<span class="fu">lm</span>(pendiente <span class="sc">~</span> tratado, d_med))[<span class="st">"tratado"</span>]                <span class="co"># efecto TOTAL (≈ 0.6)</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>  tratado 
+0.6796223 </code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">coef</span>(<span class="fu">lm</span>(pendiente <span class="sc">~</span> tratado <span class="sc">+</span> albumin, d_med))[<span class="st">"tratado"</span>]      <span class="co"># efecto directo (≈ 0): ¡"desapareció"!</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>   tratado 
+0.05622981 </code></pre>
+</div>
+</div>
+<p>Al ajustar por albuminuria “eliminamos” el efecto porque el fármaco actúa <strong>a través</strong> de ella. Eso puede ser lo que queremos (efecto directo, análisis de mediación), pero <strong>no</strong> si queremos el efecto total.</p>
+</section>
+<section id="colisionador-ajustar-crea-una-asociación-que-no-existe" class="level3">
+<h3 class="anchored" data-anchor-id="colisionador-ajustar-crea-una-asociación-que-no-existe">Colisionador: ajustar <em>crea</em> una asociación que no existe</h3>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">3</span>)</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>aine <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(n, <span class="dv">1</span>, <span class="fl">0.30</span>)</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>icc  <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(n, <span class="dv">1</span>, <span class="fl">0.20</span>)                                   <span class="co"># independientes entre sí</span></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>hosp <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(n, <span class="dv">1</span>, <span class="fu">plogis</span>(<span class="sc">-</span><span class="dv">3</span> <span class="sc">+</span> <span class="fl">2.5</span> <span class="sc">*</span> aine <span class="sc">+</span> <span class="fl">2.5</span> <span class="sc">*</span> icc))    <span class="co"># ambos causan hospitalización</span></span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>d_col <span class="ot">&lt;-</span> <span class="fu">tibble</span>(aine, icc, hosp)</span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a><span class="co"># En toda la población: sin asociación</span></span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a><span class="fu">coef</span>(<span class="fu">glm</span>(icc <span class="sc">~</span> aine, binomial, d_col))[<span class="st">"aine"</span>]</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>       aine 
+0.009518216 </code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Restringiendo a hospitalizados (o ajustando por hospitalización): ¡asociación negativa falsa!</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="fu">coef</span>(<span class="fu">glm</span>(icc <span class="sc">~</span> aine, binomial, <span class="fu">filter</span>(d_col, hosp <span class="sc">==</span> <span class="dv">1</span>)))[<span class="st">"aine"</span>]</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>     aine 
+-1.170867 </code></pre>
+</div>
+</div>
+<p>La lógica: entre los hospitalizados, si un paciente <em>no</em> usó AINE, “tuvo que haber” otra razón para estar ahí, como la ICC. Por eso AINE e ICC parecen asociarse negativamente aunque sean independientes.</p>
+</section>
+</section>
+<section id="paso-3.-el-cuarteto-causal-los-mismos-datos-distinto-dag" class="level2">
+<h2 class="anchored" data-anchor-id="paso-3.-el-cuarteto-causal-los-mismos-datos-distinto-dag">Paso 3. El cuarteto causal: los mismos datos, distinto DAG</h2>
+<p>La pregunta que más se hacen los residentes es: <em>“¿meto esta variable al modelo o no?”</em> Un experimento mental lo responde. Generamos <strong>cuatro</strong> conjuntos de datos (simulados), cada uno con una exposición <span class="math inline">\(X\)</span>, un desenlace <span class="math inline">\(Y\)</span> y una tercera variable <span class="math inline">\(Z\)</span> medida. En los cuatro, el efecto total real de <span class="math inline">\(X\)</span> sobre <span class="math inline">\(Y\)</span> es <strong>1</strong>, y <span class="math inline">\(Z\)</span> se asocia fuertemente con <span class="math inline">\(X\)</span> e <span class="math inline">\(Y\)</span>. La diferencia está solo en el DAG:</p>
+<ol type="1">
+<li><strong>Confusor:</strong> <span class="math inline">\(Z\)</span> causa <span class="math inline">\(X\)</span> e <span class="math inline">\(Y\)</span> (p.&nbsp;ej., <span class="math inline">\(Z\)</span> = fragilidad).</li>
+<li><strong>Colisionador:</strong> <span class="math inline">\(X\)</span> e <span class="math inline">\(Y\)</span> causan <span class="math inline">\(Z\)</span> (p.&nbsp;ej., <span class="math inline">\(Z\)</span> = hospitalización).</li>
+<li><strong>Mediador:</strong> <span class="math inline">\(X\)</span> causa <span class="math inline">\(Z\)</span> y <span class="math inline">\(Z\)</span> causa <span class="math inline">\(Y\)</span> (p.&nbsp;ej., <span class="math inline">\(Z\)</span> = albuminuria tras iniciar el fármaco).</li>
+<li><strong>M-bias:</strong> <span class="math inline">\(Z\)</span> es causada por dos variables no medidas, una que causa <span class="math inline">\(X\)</span> y otra que causa <span class="math inline">\(Y\)</span> (p.&nbsp;ej., <span class="math inline">\(Z\)</span> = asistir a control regular, causado por la motivación del paciente y por sus síntomas).</li>
+</ol>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">2025</span>)</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>n <span class="ot">&lt;-</span> <span class="dv">1000</span></span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a><span class="co"># 1. Confusor</span></span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>z1 <span class="ot">&lt;-</span> <span class="fu">rnorm</span>(n);  x1 <span class="ot">&lt;-</span> <span class="fl">0.7</span> <span class="sc">*</span> z1 <span class="sc">+</span> <span class="fu">rnorm</span>(n, <span class="at">sd =</span> <span class="fl">0.7</span>);  y1 <span class="ot">&lt;-</span> <span class="dv">1</span> <span class="sc">*</span> x1 <span class="sc">+</span> <span class="fl">0.7</span> <span class="sc">*</span> z1 <span class="sc">+</span> <span class="fu">rnorm</span>(n)</span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a><span class="co"># 2. Colisionador</span></span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a>x2 <span class="ot">&lt;-</span> <span class="fu">rnorm</span>(n);  y2 <span class="ot">&lt;-</span> <span class="dv">1</span> <span class="sc">*</span> x2 <span class="sc">+</span> <span class="fu">rnorm</span>(n);  z2 <span class="ot">&lt;-</span> <span class="fl">0.8</span> <span class="sc">*</span> x2 <span class="sc">+</span> <span class="fl">0.8</span> <span class="sc">*</span> y2 <span class="sc">+</span> <span class="fu">rnorm</span>(n)</span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a><span class="co"># 3. Mediador (efecto total = 0.5 directo + 0.6 * 0.8 indirecto, aprox. 1)</span></span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a>x3 <span class="ot">&lt;-</span> <span class="fu">rnorm</span>(n);  z3 <span class="ot">&lt;-</span> <span class="fl">0.8</span> <span class="sc">*</span> x3 <span class="sc">+</span> <span class="fu">rnorm</span>(n);  y3 <span class="ot">&lt;-</span> <span class="fl">0.5</span> <span class="sc">*</span> x3 <span class="sc">+</span> <span class="fl">0.6</span> <span class="sc">*</span> z3 <span class="sc">+</span> <span class="fu">rnorm</span>(n)</span>
+<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a><span class="co"># 4. M-bias: u1 -&gt; X, u2 -&gt; Y, y ambos -&gt; Z (u1 y u2 no se miden)</span></span>
+<span id="cb15-10"><a href="#cb15-10" aria-hidden="true" tabindex="-1"></a>u1 <span class="ot">&lt;-</span> <span class="fu">rnorm</span>(n);  u2 <span class="ot">&lt;-</span> <span class="fu">rnorm</span>(n)</span>
+<span id="cb15-11"><a href="#cb15-11" aria-hidden="true" tabindex="-1"></a>x4 <span class="ot">&lt;-</span> <span class="fl">0.9</span> <span class="sc">*</span> u1 <span class="sc">+</span> <span class="fu">rnorm</span>(n);  z4 <span class="ot">&lt;-</span> <span class="fl">0.9</span> <span class="sc">*</span> u1 <span class="sc">+</span> <span class="fl">0.9</span> <span class="sc">*</span> u2 <span class="sc">+</span> <span class="fu">rnorm</span>(n);  y4 <span class="ot">&lt;-</span> <span class="dv">1</span> <span class="sc">*</span> x4 <span class="sc">+</span> <span class="fl">0.9</span> <span class="sc">*</span> u2 <span class="sc">+</span> <span class="fu">rnorm</span>(n)</span>
+<span id="cb15-12"><a href="#cb15-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-13"><a href="#cb15-13" aria-hidden="true" tabindex="-1"></a>cuarteto <span class="ot">&lt;-</span> <span class="fu">bind_rows</span>(</span>
+<span id="cb15-14"><a href="#cb15-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tibble</span>(<span class="at">escenario =</span> <span class="st">"1. Confusor"</span>,     <span class="at">x =</span> x1, <span class="at">y =</span> y1, <span class="at">z =</span> z1),</span>
+<span id="cb15-15"><a href="#cb15-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tibble</span>(<span class="at">escenario =</span> <span class="st">"2. Colisionador"</span>, <span class="at">x =</span> x2, <span class="at">y =</span> y2, <span class="at">z =</span> z2),</span>
+<span id="cb15-16"><a href="#cb15-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tibble</span>(<span class="at">escenario =</span> <span class="st">"3. Mediador"</span>,     <span class="at">x =</span> x3, <span class="at">y =</span> y3, <span class="at">z =</span> z3),</span>
+<span id="cb15-17"><a href="#cb15-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tibble</span>(<span class="at">escenario =</span> <span class="st">"4. M-bias"</span>,       <span class="at">x =</span> x4, <span class="at">y =</span> y4, <span class="at">z =</span> z4)</span>
+<span id="cb15-18"><a href="#cb15-18" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb15-19"><a href="#cb15-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-20"><a href="#cb15-20" aria-hidden="true" tabindex="-1"></a>tabla_cuarteto <span class="ot">&lt;-</span> cuarteto <span class="sc">|&gt;</span></span>
+<span id="cb15-21"><a href="#cb15-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">group_by</span>(escenario) <span class="sc">|&gt;</span></span>
+<span id="cb15-22"><a href="#cb15-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarise</span>(<span class="at">cor_xy   =</span> <span class="fu">cor</span>(x, y),</span>
+<span id="cb15-23"><a href="#cb15-23" aria-hidden="true" tabindex="-1"></a>            <span class="at">cor_xz   =</span> <span class="fu">cor</span>(x, z),</span>
+<span id="cb15-24"><a href="#cb15-24" aria-hidden="true" tabindex="-1"></a>            <span class="at">sin_ajustar     =</span> <span class="fu">coef</span>(<span class="fu">lm</span>(y <span class="sc">~</span> x))[[<span class="st">"x"</span>]],</span>
+<span id="cb15-25"><a href="#cb15-25" aria-hidden="true" tabindex="-1"></a>            <span class="at">ajustando_por_z =</span> <span class="fu">coef</span>(<span class="fu">lm</span>(y <span class="sc">~</span> x <span class="sc">+</span> z))[[<span class="st">"x"</span>]]) <span class="sc">|&gt;</span></span>
+<span id="cb15-26"><a href="#cb15-26" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">verdad =</span> <span class="dv">1</span>, <span class="st">`</span><span class="at">¿ajustar por Z?</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">c</span>(<span class="st">"Sí"</span>, <span class="st">"No"</span>, <span class="st">"No"</span>, <span class="st">"No"</span>))</span>
+<span id="cb15-27"><a href="#cb15-27" aria-hidden="true" tabindex="-1"></a>tabla_cuarteto <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="fu">across</span>(<span class="fu">where</span>(is.numeric), \(x) <span class="fu">round</span>(x, <span class="dv">2</span>)))</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 4 × 7
+  escenario   cor_xy cor_xz sin_ajustar ajustando_por_z verdad `¿ajustar por Z?`
+  &lt;chr&gt;        &lt;dbl&gt;  &lt;dbl&gt;       &lt;dbl&gt;           &lt;dbl&gt;  &lt;dbl&gt; &lt;chr&gt;            
+1 1. Confusor   0.8    0.68        1.49            1.05      1 Sí               
+2 2. Colisio…   0.71   0.8         1.04            0.18      1 No               
+3 3. Mediador   0.65   0.63        0.99            0.48      1 No               
+4 4. M-bias     0.69   0.35        1               0.82      1 No               </code></pre>
+</div>
+</div>
+<p><strong>Qué vemos.</strong> En los cuatro escenarios, <span class="math inline">\(Z\)</span> está fuertemente correlacionada con <span class="math inline">\(X\)</span> (entre 0.4 y 0.8) y con <span class="math inline">\(Y\)</span>: <strong>mirando solo los datos, los cuatro se parecen</strong>. Pero la respuesta correcta cambia: en el confusor, el ajuste acerca el estimado a la verdad (de 1.49 a 1.05); en el colisionador, lo destruye (de 1.04, casi la verdad, a 0.18); en el mediador, solo deja el efecto directo (0.48); en el M-bias, introduce sesgo (0.82). Una variable correlacionada con la exposición <strong>no</strong> es necesariamente un confusor: eso lo decide el DAG, no la correlación.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(cuarteto, <span class="fu">aes</span>(x, y)) <span class="sc">+</span></span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">alpha =</span> <span class="fl">0.2</span>, <span class="at">size =</span> <span class="fl">0.8</span>) <span class="sc">+</span></span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_smooth</span>(<span class="at">method =</span> <span class="st">"lm"</span>, <span class="at">formula =</span> y <span class="sc">~</span> x, <span class="at">se =</span> <span class="cn">FALSE</span>, <span class="at">color =</span> <span class="st">"#0072B2"</span>) <span class="sc">+</span></span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span>escenario, <span class="at">nrow =</span> <span class="dv">2</span>)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div id="fig-cuarteto" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-cuarteto-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="Capítulo3.3_files/figure-html/fig-cuarteto-1.png" class="img-fluid figure-img" width="768">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-cuarteto-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figura&nbsp;2: Cuarteto causal (datos simulados): la relación X-Y se ve parecida en los cuatro escenarios, pero la decisión de ajustar por Z es distinta en cada uno.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="paso-4.-un-colisionador-en-la-consulta-proteinuria-sodio-y-presión-arterial" class="level2">
+<h2 class="anchored" data-anchor-id="paso-4.-un-colisionador-en-la-consulta-proteinuria-sodio-y-presión-arterial">Paso 4. Un colisionador en la consulta: proteinuria, sodio y presión arterial</h2>
+<p>Un ejemplo médico concreto, basado en el que describen Luque-Fernández y colaboradores (2019). La pregunta: <em>¿cuál es el efecto de la <strong>ingesta de sodio</strong> sobre la <strong>presión arterial sistólica (PAS)</strong>?</em> Medimos además la <strong>proteinuria</strong>. Pero la proteinuria es causada <strong>tanto</strong> por el sodio como por la PAS elevada: es un <strong>colisionador</strong>. Simulamos (datos ficticios, variables estandarizadas) con efecto verdadero de <strong>1</strong> DE de PAS por cada DE de sodio:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">2025</span>)</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>n_s <span class="ot">&lt;-</span> <span class="dv">500</span></span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>sodio_0 <span class="ot">&lt;-</span> <span class="fu">rnorm</span>(n_s)                                  <span class="co"># ingesta de sodio (basal)</span></span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>pas_1   <span class="ot">&lt;-</span> <span class="fl">1.0</span> <span class="sc">*</span> sodio_0 <span class="sc">+</span> <span class="fu">rnorm</span>(n_s)                  <span class="co"># PAS en el seguimiento (efecto verdadero = 1)</span></span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>prot_0  <span class="ot">&lt;-</span> <span class="fl">0.7</span> <span class="sc">*</span> sodio_0 <span class="sc">+</span> <span class="fu">rnorm</span>(n_s)                  <span class="co"># proteinuria BASAL (medida antes del desenlace)</span></span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>prot_1  <span class="ot">&lt;-</span> <span class="fl">0.8</span> <span class="sc">*</span> sodio_0 <span class="sc">+</span> <span class="fl">0.8</span> <span class="sc">*</span> pas_1 <span class="sc">+</span> <span class="fu">rnorm</span>(n_s)    <span class="co"># proteinuria en el SEGUIMIENTO (colisionador)</span></span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a>d_sodio <span class="ot">&lt;-</span> <span class="fu">tibble</span>(sodio_0, pas_1, prot_0, prot_1)</span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a>res_sodio <span class="ot">&lt;-</span> <span class="fu">tibble</span>(</span>
+<span id="cb18-11"><a href="#cb18-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">modelo =</span> <span class="fu">c</span>(<span class="st">"Sin ajustar"</span>, <span class="st">"Ajustando por proteinuria del seguimiento"</span>, <span class="st">"Ajustando por proteinuria basal"</span>),</span>
+<span id="cb18-12"><a href="#cb18-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">efecto_sodio =</span> <span class="fu">c</span>(<span class="fu">coef</span>(<span class="fu">lm</span>(pas_1 <span class="sc">~</span> sodio_0, d_sodio))[[<span class="st">"sodio_0"</span>]],</span>
+<span id="cb18-13"><a href="#cb18-13" aria-hidden="true" tabindex="-1"></a>                   <span class="fu">coef</span>(<span class="fu">lm</span>(pas_1 <span class="sc">~</span> sodio_0 <span class="sc">+</span> prot_1, d_sodio))[[<span class="st">"sodio_0"</span>]],</span>
+<span id="cb18-14"><a href="#cb18-14" aria-hidden="true" tabindex="-1"></a>                   <span class="fu">coef</span>(<span class="fu">lm</span>(pas_1 <span class="sc">~</span> sodio_0 <span class="sc">+</span> prot_0, d_sodio))[[<span class="st">"sodio_0"</span>]]),</span>
+<span id="cb18-15"><a href="#cb18-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">verdad =</span> <span class="dv">1</span></span>
+<span id="cb18-16"><a href="#cb18-16" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">efecto_sodio =</span> <span class="fu">round</span>(efecto_sodio, <span class="dv">2</span>))</span>
+<span id="cb18-17"><a href="#cb18-17" aria-hidden="true" tabindex="-1"></a>res_sodio</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 3 × 3
+  modelo                                    efecto_sodio verdad
+  &lt;chr&gt;                                            &lt;dbl&gt;  &lt;dbl&gt;
+1 Sin ajustar                                       1.05      1
+2 Ajustando por proteinuria del seguimiento         0.27      1
+3 Ajustando por proteinuria basal                   1         1</code></pre>
+</div>
+</div>
+<p><strong>Qué vemos.</strong> La proteinuria del seguimiento (<code>prot_1</code>) se correlaciona fuertemente con el sodio (r = 0.8): ¡parece un confusor perfecto, que “hay que ajustar”! Pero al hacerlo el efecto estimado cae a 0.27 (la verdad es 1) y subestimamos el efecto real. En cambio, la proteinuria <strong>basal</strong> (medida antes del desenlace) no es consecuencia de la PAS futura y no sesga. La regla práctica: <strong>ajusta por variables medidas antes de la exposición</strong>; las medidas después pueden ser consecuencias de la exposición o del desenlace.</p>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Advertencia</span>⚠️ El error más frecuente: “ajustar por todo”
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Ajustar por una variable que es <strong>consecuencia</strong> de la exposición (mediador) o <strong>consecuencia común</strong> (colisionador) <em>introduce</em> sesgo. Meter “todas las variables disponibles” es un mal hábito: <strong>ajusta por las que dice el DAG</strong>, no por las que tienes a mano. Es especialmente común cuando se restringe el análisis a pacientes hospitalizados o ya en diálisis (restringir también es condicionar).</p>
+</div>
+</div>
+</section>
+<section id="paso-5.-caminos-abiertos-caminos-cerrados-y-la-puerta-trasera" class="level2">
+<h2 class="anchored" data-anchor-id="paso-5.-caminos-abiertos-caminos-cerrados-y-la-puerta-trasera">Paso 5. Caminos abiertos, caminos cerrados y la puerta trasera</h2>
+<p>Un <strong>camino</strong> es cualquier secuencia de flechas que conecta dos variables, sin importar su dirección. Está <strong>abierto</strong> si transmite asociación y <strong>cerrado</strong> (bloqueado) si no. Las reglas (<em>d-separación</em>):</p>
+<ol type="1">
+<li>Un camino con un <strong>mediador o un confusor</strong> está abierto; <strong>al ajustar</strong> por esa variable, se cierra.</li>
+<li>Un camino con un <strong>colisionador</strong> está cerrado; <strong>al ajustar</strong> por el colisionador (o por un descendiente suyo), se abre.</li>
+</ol>
+<p>El efecto causal de <span class="math inline">\(X\)</span> sobre <span class="math inline">\(Y\)</span> se identifica si bloqueamos <strong>todos los caminos de puerta trasera</strong> (los que empiezan con una flecha <em>hacia</em> <span class="math inline">\(X\)</span>) sin tocar los caminos causales ni abrir colisionadores. A ese conjunto se le llama <strong>conjunto de ajuste</strong>. <strong>Criterio de la puerta trasera, paso a paso:</strong> (1) lista todos los caminos entre exposición y desenlace; (2) identifica los de puerta trasera; (3) elige variables que los <strong>bloqueen</strong> todos; (4) verifica que <strong>no incluyes</strong> mediadores, colisionadores ni descendientes de ellos.</p>
+</section>
+<section id="paso-6.-nuestro-dag-isglt2-y-pendiente-de-tfge" class="level2">
+<h2 class="anchored" data-anchor-id="paso-6.-nuestro-dag-isglt2-y-pendiente-de-tfge">Paso 6. Nuestro DAG: iSGLT2 y pendiente de TFGe</h2>
+<p>Retomamos la pregunta del Capítulo 3.2. Representamos las suposiciones de la simulación (la <strong>fragilidad</strong> existe pero <strong>no se mide</strong> en el registro). Incluimos además dos variables posteriores al tratamiento para mostrar qué <strong>no</strong> hay que ajustar: la <strong>reducción de albuminuria</strong> (mediador) y la <strong>hospitalización por insuficiencia cardiaca</strong> (colisionador).</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Relaciones causales completas (las usan las funciones de caminos y de conjuntos de ajuste)</span></span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>aristas <span class="ot">&lt;-</span> <span class="fu">tribble</span>(</span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>  <span class="sc">~</span>de,     <span class="sc">~</span>a,</span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a>  <span class="st">"X"</span>,     <span class="st">"Y"</span>,</span>
+<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a>  <span class="st">"X"</span>,     <span class="st">"med"</span>,  <span class="st">"med"</span>,  <span class="st">"Y"</span>,            <span class="co"># mediador: iSGLT2 -&gt; menos albuminuria -&gt; mejor TFGe</span></span>
+<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a>  <span class="st">"X"</span>,     <span class="st">"col"</span>,  <span class="st">"Y"</span>,    <span class="st">"col"</span>,          <span class="co"># colisionador: hospitalización por IC (causada por ambos)</span></span>
+<span id="cb20-7"><a href="#cb20-7" aria-hidden="true" tabindex="-1"></a>  <span class="st">"edad"</span>,  <span class="st">"X"</span>,    <span class="st">"edad"</span>, <span class="st">"Y"</span>,   <span class="st">"edad"</span>, <span class="st">"tfg"</span>, <span class="st">"edad"</span>, <span class="st">"pas"</span>, <span class="st">"edad"</span>, <span class="st">"ecv"</span>, <span class="st">"edad"</span>, <span class="st">"frag"</span>,</span>
+<span id="cb20-8"><a href="#cb20-8" aria-hidden="true" tabindex="-1"></a>  <span class="st">"sexo"</span>,  <span class="st">"ecv"</span>,</span>
+<span id="cb20-9"><a href="#cb20-9" aria-hidden="true" tabindex="-1"></a>  <span class="st">"frag"</span>,  <span class="st">"X"</span>,    <span class="st">"frag"</span>, <span class="st">"Y"</span>,</span>
+<span id="cb20-10"><a href="#cb20-10" aria-hidden="true" tabindex="-1"></a>  <span class="st">"tfg"</span>,   <span class="st">"X"</span>,    <span class="st">"tfg"</span>,  <span class="st">"Y"</span>,   <span class="st">"tfg"</span>,  <span class="st">"uacr"</span>,</span>
+<span id="cb20-11"><a href="#cb20-11" aria-hidden="true" tabindex="-1"></a>  <span class="st">"ecv"</span>,   <span class="st">"X"</span>,    <span class="st">"ecv"</span>,  <span class="st">"Y"</span>,</span>
+<span id="cb20-12"><a href="#cb20-12" aria-hidden="true" tabindex="-1"></a>  <span class="st">"uacr"</span>,  <span class="st">"X"</span>,    <span class="st">"uacr"</span>, <span class="st">"Y"</span>,</span>
+<span id="cb20-13"><a href="#cb20-13" aria-hidden="true" tabindex="-1"></a>  <span class="st">"hba1c"</span>, <span class="st">"X"</span>,    <span class="st">"hba1c"</span>,<span class="st">"Y"</span>,   <span class="st">"hba1c"</span>,<span class="st">"uacr"</span>,</span>
+<span id="cb20-14"><a href="#cb20-14" aria-hidden="true" tabindex="-1"></a>  <span class="st">"pas"</span>,   <span class="st">"Y"</span>,    <span class="st">"pas"</span>,  <span class="st">"uacr"</span></span>
+<span id="cb20-15"><a href="#cb20-15" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>Para <strong>dibujarlo</strong> sin enredar las flechas, agrupamos los confusores medidos en un solo nodo (las relaciones entre ellos, como <em>edad → TFGe</em> o <em>HbA1c → albuminuria</em>, están en el código de arriba):</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>nodos <span class="ot">&lt;-</span> <span class="fu">tribble</span>(</span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>  <span class="sc">~</span>nombre, <span class="sc">~</span>x, <span class="sc">~</span>y,  <span class="sc">~</span>etiqueta,                                                          <span class="sc">~</span>rol,</span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a>  <span class="st">"X"</span>,     <span class="dv">1</span>,  <span class="dv">2</span>,   <span class="st">"Inicio</span><span class="sc">\n</span><span class="st">iSGLT2"</span>,                                                   <span class="st">"exposicion"</span>,</span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Y"</span>,     <span class="dv">7</span>,  <span class="dv">2</span>,   <span class="st">"Pendiente</span><span class="sc">\n</span><span class="st">de TFGe"</span>,                                               <span class="st">"desenlace"</span>,</span>
+<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a>  <span class="st">"C"</span>,     <span class="dv">4</span>,  <span class="fl">4.4</span>, <span class="st">"Confusores medidos</span><span class="sc">\n</span><span class="st">(edad, TFGe basal, albuminuria,</span><span class="sc">\n</span><span class="st">PAS, HbA1c, ECV)"</span>, <span class="st">"confusor"</span>,</span>
+<span id="cb21-6"><a href="#cb21-6" aria-hidden="true" tabindex="-1"></a>  <span class="st">"frag"</span>,  <span class="dv">4</span>,  <span class="sc">-</span><span class="fl">0.4</span>, <span class="st">"Fragilidad</span><span class="sc">\n</span><span class="st">(no medida)"</span>,                                         <span class="st">"no medido"</span>,</span>
+<span id="cb21-7"><a href="#cb21-7" aria-hidden="true" tabindex="-1"></a>  <span class="st">"med"</span>,   <span class="dv">4</span>,  <span class="fl">3.0</span>, <span class="st">"↓ Albuminuria</span><span class="sc">\n</span><span class="st">(después de iniciar)"</span>,                              <span class="st">"mediador"</span>,</span>
+<span id="cb21-8"><a href="#cb21-8" aria-hidden="true" tabindex="-1"></a>  <span class="st">"col"</span>,   <span class="dv">4</span>,  <span class="fl">1.0</span>, <span class="st">"Hospitalización</span><span class="sc">\n</span><span class="st">por IC"</span>,                                           <span class="st">"colisionador"</span></span>
+<span id="cb21-9"><a href="#cb21-9" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb21-10"><a href="#cb21-10" aria-hidden="true" tabindex="-1"></a>aristas_dibujo <span class="ot">&lt;-</span> <span class="fu">tribble</span>(</span>
+<span id="cb21-11"><a href="#cb21-11" aria-hidden="true" tabindex="-1"></a>  <span class="sc">~</span>de,    <span class="sc">~</span>a,</span>
+<span id="cb21-12"><a href="#cb21-12" aria-hidden="true" tabindex="-1"></a>  <span class="st">"X"</span>,    <span class="st">"Y"</span>,</span>
+<span id="cb21-13"><a href="#cb21-13" aria-hidden="true" tabindex="-1"></a>  <span class="st">"X"</span>,    <span class="st">"med"</span>,  <span class="st">"med"</span>,  <span class="st">"Y"</span>,</span>
+<span id="cb21-14"><a href="#cb21-14" aria-hidden="true" tabindex="-1"></a>  <span class="st">"X"</span>,    <span class="st">"col"</span>,  <span class="st">"Y"</span>,    <span class="st">"col"</span>,</span>
+<span id="cb21-15"><a href="#cb21-15" aria-hidden="true" tabindex="-1"></a>  <span class="st">"C"</span>,    <span class="st">"X"</span>,    <span class="st">"C"</span>,    <span class="st">"Y"</span>,</span>
+<span id="cb21-16"><a href="#cb21-16" aria-hidden="true" tabindex="-1"></a>  <span class="st">"frag"</span>, <span class="st">"X"</span>,    <span class="st">"frag"</span>, <span class="st">"Y"</span></span>
+<span id="cb21-17"><a href="#cb21-17" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb21-18"><a href="#cb21-18" aria-hidden="true" tabindex="-1"></a><span class="fu">dibujar_dag</span>(nodos, aristas_dibujo, <span class="at">encoger =</span> <span class="fl">0.16</span>, <span class="at">tam_texto =</span> <span class="fl">3.4</span>, <span class="at">expandir =</span> <span class="fu">c</span>(<span class="fl">0.10</span>, <span class="fl">0.12</span>))</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div id="fig-dag-ckd-completo" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-dag-ckd-completo-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="Capítulo3.3_files/figure-html/fig-dag-ckd-completo-1.png" class="img-fluid figure-img" width="864">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-dag-ckd-completo-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figura&nbsp;3: Esquema del DAG del ejemplo. Naranja: confusores medidos. Gris: no medido. Verde: mediador. Rosa: colisionador.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<section id="leer-el-dag-con-código-caminos-y-conjuntos-de-ajuste" class="level3">
+<h3 class="anchored" data-anchor-id="leer-el-dag-con-código-caminos-y-conjuntos-de-ajuste">Leer el DAG con código: caminos y conjuntos de ajuste</h3>
+<p>Las funciones <code>caminos_dag()</code> y <code>conjuntos_ajuste()</code> (en <code>R/funciones_extra_a.R</code>) hacen por nosotros lo que haríamos a mano con las reglas del Paso 5. Primero, <strong>sin ajustar nada</strong>, ¿cuántos caminos hay entre <span class="math inline">\(X\)</span> y <span class="math inline">\(Y\)</span> y cuáles están abiertos?</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>caminos <span class="ot">&lt;-</span> <span class="fu">caminos_dag</span>(aristas, <span class="at">exposicion =</span> <span class="st">"X"</span>, <span class="at">desenlace =</span> <span class="st">"Y"</span>)</span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>caminos <span class="sc">|&gt;</span> <span class="fu">count</span>(tipo, abierto)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 4 × 3
+  tipo           abierto     n
+  &lt;chr&gt;          &lt;lgl&gt;   &lt;int&gt;
+1 causal         TRUE        2
+2 otro           FALSE       1
+3 puerta trasera FALSE      28
+4 puerta trasera TRUE       42</code></pre>
+</div>
+</div>
+<p>De los 73 caminos, solo <strong>2</strong> son causales (el directo y el que pasa por la albuminuria: el efecto total) y hay 42 caminos de <strong>puerta trasera abiertos</strong> que distorsionan la comparación cruda. Ahora buscamos los <strong>conjuntos mínimos de ajuste</strong>:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="fu">conjuntos_ajuste</span>(aristas, <span class="at">exposicion =</span> <span class="st">"X"</span>, <span class="at">desenlace =</span> <span class="st">"Y"</span>)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>[[1]]
+[1] "edad"  "frag"  "tfg"   "ecv"   "uacr"  "hba1c"</code></pre>
+</div>
+</div>
+<p>Con todo lo medible, el conjunto mínimo es <strong>edad, fragilidad, TFGe, ECV, albuminuria y HbA1c</strong>. Fíjate en lo que <strong>no</strong> aparece: el mediador (↓ albuminuria posterior) y el colisionador (hospitalización) nunca forman parte del ajuste; la PAS no hace falta (su camino a <span class="math inline">\(Y\)</span> pasa por la albuminuria, que ya se ajusta), y tampoco el sexo (solo actúa a través de la ECV). Comprobemos qué pasa si “ajustamos por todo”:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb26"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a>ajuste_correcto <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"edad"</span>, <span class="st">"frag"</span>, <span class="st">"tfg"</span>, <span class="st">"ecv"</span>, <span class="st">"uacr"</span>, <span class="st">"hba1c"</span>)</span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a><span class="fu">bind_rows</span>(</span>
+<span id="cb26-4"><a href="#cb26-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">caminos_dag</span>(aristas, <span class="at">ajuste =</span> ajuste_correcto)                   <span class="sc">|&gt;</span> <span class="fu">count</span>(tipo, abierto) <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">ajuste =</span> <span class="st">"Conjunto correcto"</span>),</span>
+<span id="cb26-5"><a href="#cb26-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">caminos_dag</span>(aristas, <span class="at">ajuste =</span> <span class="fu">c</span>(ajuste_correcto, <span class="st">"med"</span>))         <span class="sc">|&gt;</span> <span class="fu">count</span>(tipo, abierto) <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">ajuste =</span> <span class="st">"+ mediador"</span>),</span>
+<span id="cb26-6"><a href="#cb26-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">caminos_dag</span>(aristas, <span class="at">ajuste =</span> <span class="fu">c</span>(ajuste_correcto, <span class="st">"col"</span>))         <span class="sc">|&gt;</span> <span class="fu">count</span>(tipo, abierto) <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">ajuste =</span> <span class="st">"+ colisionador"</span>)</span>
+<span id="cb26-7"><a href="#cb26-7" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span> <span class="fu">select</span>(ajuste, tipo, abierto, n)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 10 × 4
+   ajuste            tipo           abierto     n
+   &lt;chr&gt;             &lt;chr&gt;          &lt;lgl&gt;   &lt;int&gt;
+ 1 Conjunto correcto causal         TRUE        2
+ 2 Conjunto correcto otro           FALSE       1
+ 3 Conjunto correcto puerta trasera FALSE      70
+ 4 + mediador        causal         FALSE       1
+ 5 + mediador        causal         TRUE        1
+ 6 + mediador        otro           FALSE       1
+ 7 + mediador        puerta trasera FALSE      70
+ 8 + colisionador    causal         TRUE        2
+ 9 + colisionador    otro           TRUE        1
+10 + colisionador    puerta trasera FALSE      70</code></pre>
+</div>
+</div>
+<p>Con el conjunto correcto quedan abiertos solo los 2 caminos causales y ningún camino de puerta trasera. Añadir el mediador <strong>cierra uno de los caminos causales</strong> (se pierde parte del efecto total) y añadir el colisionador <strong>abre un camino no causal</strong> (<span class="math inline">\(X \to\)</span> hospitalización <span class="math inline">\(\leftarrow Y\)</span>). Ahora declaramos que la <strong>fragilidad no se midió</strong>:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb28"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="fu">conjuntos_ajuste</span>(aristas, <span class="at">exposicion =</span> <span class="st">"X"</span>, <span class="at">desenlace =</span> <span class="st">"Y"</span>, <span class="at">no_medidos =</span> <span class="st">"frag"</span>)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>list()</code></pre>
+</div>
+</div>
+<p>La lista está <strong>vacía</strong>: cuando la fragilidad no se mide, <strong>no queda ningún conjunto de ajuste válido</strong> con lo que tenemos, y el camino <span class="math inline">\(X \leftarrow\)</span> fragilidad <span class="math inline">\(\rightarrow Y\)</span> queda abierto. Con estos datos, ajustar por todo lo medido no identifica el efecto. Esa será la tensión del Capítulo 3.4: haremos el mejor análisis posible y luego cuantificaremos <em>cuánto</em> podría cambiar el resultado por esta confusión no medida.</p>
+<p><strong>Con el paquete dagitty (no se ejecuta aquí).</strong> El paquete <code>{dagitty}</code> hace lo mismo, con muchas más opciones, y <code>{ggdag}</code> dibuja los grafos con sus caminos. Aquí no están instalados, por eso el libro usa las funciones anteriores:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb30"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(dagitty); <span class="fu">library</span>(ggdag)</span>
+<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb30-3"><a href="#cb30-3" aria-hidden="true" tabindex="-1"></a>dag_ckd <span class="ot">&lt;-</span> <span class="fu">dagitty</span>(<span class="fu">paste0</span>(<span class="st">"dag { "</span>, <span class="fu">paste</span>(aristas<span class="sc">$</span>de, <span class="st">"-&gt;"</span>, aristas<span class="sc">$</span>a, <span class="at">collapse =</span> <span class="st">"; "</span>), <span class="st">" }"</span>))</span>
+<span id="cb30-4"><a href="#cb30-4" aria-hidden="true" tabindex="-1"></a><span class="fu">exposures</span>(dag_ckd) <span class="ot">&lt;-</span> <span class="st">"X"</span></span>
+<span id="cb30-5"><a href="#cb30-5" aria-hidden="true" tabindex="-1"></a><span class="fu">outcomes</span>(dag_ckd)  <span class="ot">&lt;-</span> <span class="st">"Y"</span></span>
+<span id="cb30-6"><a href="#cb30-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb30-7"><a href="#cb30-7" aria-hidden="true" tabindex="-1"></a><span class="fu">paths</span>(dag_ckd)<span class="sc">$</span>paths <span class="sc">|&gt;</span> <span class="fu">head</span>(<span class="dv">8</span>)               <span class="co"># caminos entre exposición y desenlace</span></span>
+<span id="cb30-8"><a href="#cb30-8" aria-hidden="true" tabindex="-1"></a><span class="fu">adjustmentSets</span>(dag_ckd, <span class="at">effect =</span> <span class="st">"total"</span>)     <span class="co"># conjuntos mínimos de ajuste</span></span>
+<span id="cb30-9"><a href="#cb30-9" aria-hidden="true" tabindex="-1"></a><span class="fu">latents</span>(dag_ckd) <span class="ot">&lt;-</span> <span class="st">"frag"</span>                    <span class="co"># declarar la fragilidad como no medida</span></span>
+<span id="cb30-10"><a href="#cb30-10" aria-hidden="true" tabindex="-1"></a><span class="fu">adjustmentSets</span>(dag_ckd, <span class="at">effect =</span> <span class="st">"total"</span>)     <span class="co"># vacío: no hay conjunto válido</span></span>
+<span id="cb30-11"><a href="#cb30-11" aria-hidden="true" tabindex="-1"></a><span class="fu">ggdag_status</span>(dag_ckd) <span class="sc">+</span> <span class="fu">theme_dag</span>()           <span class="co"># dibujo con el rol de cada nodo</span></span>
+<span id="cb30-12"><a href="#cb30-12" aria-hidden="true" tabindex="-1"></a><span class="fu">ggdag_paths</span>(dag_ckd) <span class="sc">+</span> <span class="fu">theme_dag</span>()            <span class="co"># caminos abiertos</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>Alternativa sin programar: <strong><a href="https://www.dagitty.net" class="uri">https://www.dagitty.net</a></strong> permite dibujar el DAG con el ratón, marcar nodos no medidos y ver los conjuntos de ajuste.</p>
+</section>
+<section id="verificar-el-dag-con-los-datos" class="level3">
+<h3 class="anchored" data-anchor-id="verificar-el-dag-con-los-datos">Verificar el DAG con los datos</h3>
+<p>Un DAG no se “demuestra”, se <strong>argumenta</strong> y se <strong>critica</strong>. Pero también implica <strong>independencias</strong> que se pueden contrastar: si lo que afirma el DAG no se observa en los datos, hay que revisarlo. Probamos cuatro (con variables estandarizadas, el coeficiente esperado es ≈ 0):</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb31"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a>ckd <span class="ot">&lt;-</span> <span class="fu">read_csv</span>(<span class="st">"Bases/ckd_isglt2.csv"</span>, <span class="at">show_col_types =</span> <span class="cn">FALSE</span>) <span class="sc">|&gt;</span></span>
+<span id="cb31-2"><a href="#cb31-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">sexo_f =</span> <span class="fu">as.numeric</span>(sexo <span class="sc">==</span> <span class="st">"Mujer"</span>), <span class="at">log_uacr =</span> <span class="fu">log</span>(uacr))</span>
+<span id="cb31-3"><a href="#cb31-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-4"><a href="#cb31-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Coeficiente de `termino` (variables estandarizadas) con su IC 95 %</span></span>
+<span id="cb31-5"><a href="#cb31-5" aria-hidden="true" tabindex="-1"></a>prueba <span class="ot">&lt;-</span> <span class="cf">function</span>(formula, termino) {</span>
+<span id="cb31-6"><a href="#cb31-6" aria-hidden="true" tabindex="-1"></a>  m  <span class="ot">&lt;-</span> <span class="fu">lm</span>(formula, <span class="at">data =</span> <span class="fu">mutate</span>(ckd, <span class="fu">across</span>(<span class="fu">c</span>(edad, hba1c, pas, tfg_basal, log_uacr, ecv), \(x) <span class="fu">as.numeric</span>(<span class="fu">scale</span>(x)))))</span>
+<span id="cb31-7"><a href="#cb31-7" aria-hidden="true" tabindex="-1"></a>  ic <span class="ot">&lt;-</span> <span class="fu">confint</span>(m)[termino, ]</span>
+<span id="cb31-8"><a href="#cb31-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tibble</span>(<span class="at">estimado =</span> <span class="fu">coef</span>(m)[[termino]], <span class="at">ic_inf =</span> ic[[<span class="dv">1</span>]], <span class="at">ic_sup =</span> ic[[<span class="dv">2</span>]])</span>
+<span id="cb31-9"><a href="#cb31-9" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb31-10"><a href="#cb31-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-11"><a href="#cb31-11" aria-hidden="true" tabindex="-1"></a><span class="fu">bind_rows</span>(</span>
+<span id="cb31-12"><a href="#cb31-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">prueba</span>(hba1c <span class="sc">~</span> edad, <span class="st">"edad"</span>)                          <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">implicacion =</span> <span class="st">"HbA1c independiente de la edad"</span>),</span>
+<span id="cb31-13"><a href="#cb31-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">prueba</span>(pas <span class="sc">~</span> hba1c, <span class="st">"hba1c"</span>)                          <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">implicacion =</span> <span class="st">"PAS independiente de la HbA1c"</span>),</span>
+<span id="cb31-14"><a href="#cb31-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">prueba</span>(pas <span class="sc">~</span> tfg_basal <span class="sc">+</span> edad, <span class="st">"tfg_basal"</span>)           <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">implicacion =</span> <span class="st">"PAS independiente de la TFGe, dada la edad"</span>),</span>
+<span id="cb31-15"><a href="#cb31-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">prueba</span>(log_uacr <span class="sc">~</span> ecv <span class="sc">+</span> edad <span class="sc">+</span> sexo_f, <span class="st">"ecv"</span>)         <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">implicacion =</span> <span class="st">"Albuminuria independiente de ECV, dadas edad y sexo"</span>)</span>
+<span id="cb31-16"><a href="#cb31-16" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span></span>
+<span id="cb31-17"><a href="#cb31-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(implicacion, <span class="fu">everything</span>()) <span class="sc">|&gt;</span></span>
+<span id="cb31-18"><a href="#cb31-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="fu">across</span>(<span class="fu">where</span>(is.numeric), \(x) <span class="fu">round</span>(x, <span class="dv">3</span>)))</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 4 × 4
+  implicacion                                         estimado ic_inf ic_sup
+  &lt;chr&gt;                                                  &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;
+1 HbA1c independiente de la edad                         0.032  0.004  0.059
+2 PAS independiente de la HbA1c                         -0.007 -0.035  0.02 
+3 PAS independiente de la TFGe, dada la edad            -0.029 -0.058 -0.001
+4 Albuminuria independiente de ECV, dadas edad y sexo   -0.016 -0.044  0.012</code></pre>
+</div>
+</div>
+<p>Los coeficientes son cercanos a cero (todos menores de 0.04 DE), como el DAG predice. Con cuatro pruebas y IC al 95 %, es esperable que alguno roce el 0 solo por azar: lo que buscaríamos como señal de alarma es un coeficiente <strong>grande</strong>, no uno “significativo” de 0.03. Si, por ejemplo, la ECV predijera fuertemente la albuminuria <strong>aun después de condicionar por edad y sexo</strong>, deberíamos <em>añadir una flecha</em> al DAG.</p>
+</section>
+</section>
+<section id="paso-7.-cómo-ajustar-regresión-emparejamiento-y-ponderación" class="level2">
+<h2 class="anchored" data-anchor-id="paso-7.-cómo-ajustar-regresión-emparejamiento-y-ponderación">Paso 7. Cómo ajustar: regresión, emparejamiento y ponderación</h2>
+<p>Sabemos <strong>qué</strong> ajustar. Ahora, <strong>cómo</strong>. Con los datos del registro (sin fragilidad) comparamos tres estrategias. Primero, la estimación <strong>ingenua</strong>:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb33"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a>ingenuo <span class="ot">&lt;-</span> <span class="fu">coef</span>(<span class="fu">lm</span>(pendiente_tfg <span class="sc">~</span> isglt2, <span class="at">data =</span> ckd))[[<span class="st">"isglt2"</span>]]</span>
+<span id="cb33-2"><a href="#cb33-2" aria-hidden="true" tabindex="-1"></a>ingenuo</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>[1] 1.501697</code></pre>
+</div>
+</div>
+<section id="a.-regresión-múltiple" class="level3">
+<h3 class="anchored" data-anchor-id="a.-regresión-múltiple">7a. Regresión múltiple</h3>
+<p>Incluir los confusores como covariables:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb35"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a>formula_ajuste <span class="ot">&lt;-</span> pendiente_tfg <span class="sc">~</span> isglt2 <span class="sc">+</span> edad <span class="sc">+</span> sexo <span class="sc">+</span> hba1c <span class="sc">+</span> pas <span class="sc">+</span> tfg_basal <span class="sc">+</span> <span class="fu">log</span>(uacr) <span class="sc">+</span> ecv</span>
+<span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a>modelo_reg <span class="ot">&lt;-</span> <span class="fu">lm</span>(formula_ajuste, <span class="at">data =</span> ckd)</span>
+<span id="cb35-3"><a href="#cb35-3" aria-hidden="true" tabindex="-1"></a><span class="fu">coef</span>(modelo_reg)[[<span class="st">"isglt2"</span>]]</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>[1] 1.335595</code></pre>
+</div>
+</div>
+<p>La regresión ajusta bien <strong>solo si</strong> el modelo está bien especificado (relaciones lineales, sin interacciones omitidas). Además, el “coeficiente del tratamiento” en un modelo con interacciones no es el ATE (para eso, la estandarización del Capítulo 3.2).</p>
+</section>
+<section id="b.-emparejamiento-matching" class="level3">
+<h3 class="anchored" data-anchor-id="b.-emparejamiento-matching">7b. Emparejamiento (<em>matching</em>)</h3>
+<p>Para cada paciente tratado se busca uno o más <strong>no tratados con características similares</strong> y se compara <strong>solo</strong> entre ellos; los no tratados sin pareja se descartan. Con <code>{MatchIt}</code>:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb37"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a>f_ps <span class="ot">&lt;-</span> isglt2 <span class="sc">~</span> edad <span class="sc">+</span> sexo <span class="sc">+</span> hba1c <span class="sc">+</span> pas <span class="sc">+</span> tfg_basal <span class="sc">+</span> <span class="fu">log</span>(uacr) <span class="sc">+</span> ecv</span>
+<span id="cb37-2"><a href="#cb37-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb37-3"><a href="#cb37-3" aria-hidden="true" tabindex="-1"></a>emparejado <span class="ot">&lt;-</span> <span class="fu">matchit</span>(</span>
+<span id="cb37-4"><a href="#cb37-4" aria-hidden="true" tabindex="-1"></a>  f_ps, <span class="at">data =</span> ckd,</span>
+<span id="cb37-5"><a href="#cb37-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">method =</span> <span class="st">"nearest"</span>,     <span class="co"># vecino más cercano</span></span>
+<span id="cb37-6"><a href="#cb37-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">distance =</span> <span class="st">"glm"</span>,       <span class="co"># puntaje de propensión (regresión logística)</span></span>
+<span id="cb37-7"><a href="#cb37-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">estimand =</span> <span class="st">"ATT"</span>,       <span class="co"># parejas para cada tratado</span></span>
+<span id="cb37-8"><a href="#cb37-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">replace =</span> <span class="cn">TRUE</span>          <span class="co"># un control puede emparejarse con varios tratados</span></span>
+<span id="cb37-9"><a href="#cb37-9" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb37-10"><a href="#cb37-10" aria-hidden="true" tabindex="-1"></a>emparejado</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>A matchit object
+ - method: 1:1 nearest neighbor matching with replacement
+ - distance: Propensity score
+             - estimated with logistic regression
+ - number of obs.: 5000 (original), 3501 (matched)
+ - target estimand: ATT
+ - covariates: edad, sexo, hba1c, pas, tfg_basal, log(uacr), ecv</code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb39"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a>datos_emp <span class="ot">&lt;-</span> <span class="fu">match.data</span>(emparejado)</span>
+<span id="cb39-2"><a href="#cb39-2" aria-hidden="true" tabindex="-1"></a>est_matching <span class="ot">&lt;-</span> <span class="fu">coef</span>(<span class="fu">lm</span>(pendiente_tfg <span class="sc">~</span> isglt2, <span class="at">data =</span> datos_emp, <span class="at">weights =</span> weights))[[<span class="st">"isglt2"</span>]]</span>
+<span id="cb39-3"><a href="#cb39-3" aria-hidden="true" tabindex="-1"></a>est_matching</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>[1] 1.51603</code></pre>
+</div>
+</div>
+<p>El emparejamiento estima por definición el <strong>ATT</strong> (el efecto en los tratados). Con <code>replace = FALSE</code> cada control se usa una sola vez (si hay pocos controles, el emparejamiento queda de mala calidad); con <code>replace = TRUE</code> se usan más controles buenos, pero los errores estándar deben calcularse con <em>bootstrap</em> o errores robustos por conglomerado. Mira siempre el <strong>balance</strong> después de emparejar.</p>
+</section>
+<section id="c.-ponderación-por-probabilidad-inversa-ipw" class="level3">
+<h3 class="anchored" data-anchor-id="c.-ponderación-por-probabilidad-inversa-ipw">7c. Ponderación por probabilidad inversa (IPW)</h3>
+<p>En lugar de descartar pacientes, <strong>ponderamos</strong> a todos (Capítulo 3.2):</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb41"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a>ps  <span class="ot">&lt;-</span> <span class="fu">fitted</span>(<span class="fu">glm</span>(f_ps, <span class="at">data =</span> ckd, <span class="at">family =</span> <span class="fu">binomial</span>()))</span>
+<span id="cb41-2"><a href="#cb41-2" aria-hidden="true" tabindex="-1"></a>ckd <span class="ot">&lt;-</span> ckd <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">ps =</span> ps, <span class="at">w_ate =</span> isglt2 <span class="sc">/</span> ps <span class="sc">+</span> (<span class="dv">1</span> <span class="sc">-</span> isglt2) <span class="sc">/</span> (<span class="dv">1</span> <span class="sc">-</span> ps))</span>
+<span id="cb41-3"><a href="#cb41-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb41-4"><a href="#cb41-4" aria-hidden="true" tabindex="-1"></a>est_ipw <span class="ot">&lt;-</span> <span class="fu">coef</span>(<span class="fu">lm</span>(pendiente_tfg <span class="sc">~</span> isglt2, <span class="at">data =</span> ckd, <span class="at">weights =</span> w_ate))[[<span class="st">"isglt2"</span>]]</span>
+<span id="cb41-5"><a href="#cb41-5" aria-hidden="true" tabindex="-1"></a>est_ipw</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>[1] 1.341753</code></pre>
+</div>
+</div>
+</section>
+<section id="funcionaron-el-balance" class="level3">
+<h3 class="anchored" data-anchor-id="funcionaron-el-balance">¿Funcionaron? El balance</h3>
+<p>Después de ponderar o emparejar, los confusores medidos deberían estar <strong>equilibrados</strong>. El indicador estándar es la <strong>diferencia de medias estandarizada (DEM o SMD)</strong>; por convención, |DEM| &lt; 0.1 indica buen balance.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb43"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb43-1"><a href="#cb43-1" aria-hidden="true" tabindex="-1"></a>vars <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"edad"</span>, <span class="st">"hba1c"</span>, <span class="st">"pas"</span>, <span class="st">"tfg_basal"</span>, <span class="st">"uacr"</span>, <span class="st">"ecv"</span>)</span>
+<span id="cb43-2"><a href="#cb43-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb43-3"><a href="#cb43-3" aria-hidden="true" tabindex="-1"></a>balance <span class="ot">&lt;-</span> <span class="fu">tibble</span>(</span>
+<span id="cb43-4"><a href="#cb43-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">variable   =</span> vars,</span>
+<span id="cb43-5"><a href="#cb43-5" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">Sin ajustar</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">map_dbl</span>(vars, \(v) <span class="fu">smd</span>(ckd[[v]], ckd<span class="sc">$</span>isglt2)),</span>
+<span id="cb43-6"><a href="#cb43-6" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">IPW (ATE)</span><span class="st">`</span>   <span class="ot">=</span> <span class="fu">map_dbl</span>(vars, \(v) <span class="fu">smd</span>(ckd[[v]], ckd<span class="sc">$</span>isglt2, ckd<span class="sc">$</span>w_ate)),</span>
+<span id="cb43-7"><a href="#cb43-7" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">Matching (ATT)</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">map_dbl</span>(vars, \(v) <span class="fu">smd</span>(datos_emp[[v]], datos_emp<span class="sc">$</span>isglt2, datos_emp<span class="sc">$</span>weights))</span>
+<span id="cb43-8"><a href="#cb43-8" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span></span>
+<span id="cb43-9"><a href="#cb43-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">pivot_longer</span>(<span class="sc">-</span>variable, <span class="at">names_to =</span> <span class="st">"método"</span>, <span class="at">values_to =</span> <span class="st">"smd"</span>)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb44"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb44-1"><a href="#cb44-1" aria-hidden="true" tabindex="-1"></a>balance <span class="sc">|&gt;</span></span>
+<span id="cb44-2"><a href="#cb44-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="st">`</span><span class="at">método</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">factor</span>(<span class="st">`</span><span class="at">método</span><span class="st">`</span>, <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"Sin ajustar"</span>, <span class="st">"Matching (ATT)"</span>, <span class="st">"IPW (ATE)"</span>))) <span class="sc">|&gt;</span></span>
+<span id="cb44-3"><a href="#cb44-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(<span class="at">x =</span> <span class="fu">abs</span>(smd), <span class="at">y =</span> variable, <span class="at">color =</span> <span class="st">`</span><span class="at">método</span><span class="st">`</span>, <span class="at">shape =</span> <span class="st">`</span><span class="at">método</span><span class="st">`</span>)) <span class="sc">+</span></span>
+<span id="cb44-4"><a href="#cb44-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_vline</span>(<span class="at">xintercept =</span> <span class="fl">0.1</span>, <span class="at">linetype =</span> <span class="st">"dashed"</span>) <span class="sc">+</span></span>
+<span id="cb44-5"><a href="#cb44-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">size =</span> <span class="dv">3</span>) <span class="sc">+</span></span>
+<span id="cb44-6"><a href="#cb44-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_color_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="st">"#D55E00"</span>, <span class="st">"#009E73"</span>, <span class="st">"#0072B2"</span>)) <span class="sc">+</span></span>
+<span id="cb44-7"><a href="#cb44-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"|Diferencia de medias estandarizada|"</span>, <span class="at">y =</span> <span class="cn">NULL</span>, <span class="at">color =</span> <span class="cn">NULL</span>, <span class="at">shape =</span> <span class="cn">NULL</span>)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div id="fig-love" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-love-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="Capítulo3.3_files/figure-html/fig-love-1.png" class="img-fluid figure-img" width="672">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-love-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figura&nbsp;4: Gráfico de Love: |DEM| de cada confusor antes y después del ajuste. La línea punteada marca 0.1.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p><strong>Con el paquete cobalt (no se ejecuta aquí).</strong> <code>{cobalt}</code> calcula las DEM y dibuja el gráfico de Love directamente desde el objeto de <code>{MatchIt}</code> o <code>{WeightIt}</code>:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb45"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb45-1"><a href="#cb45-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(cobalt)</span>
+<span id="cb45-2"><a href="#cb45-2" aria-hidden="true" tabindex="-1"></a><span class="fu">bal.tab</span>(emparejado, <span class="at">un =</span> <span class="cn">TRUE</span>, <span class="at">thresholds =</span> <span class="fu">c</span>(<span class="at">m =</span> <span class="fl">0.1</span>))    <span class="co"># tabla de balance (antes y después)</span></span>
+<span id="cb45-3"><a href="#cb45-3" aria-hidden="true" tabindex="-1"></a><span class="fu">love.plot</span>(emparejado, <span class="at">abs =</span> <span class="cn">TRUE</span>, <span class="at">thresholds =</span> <span class="fu">c</span>(<span class="at">m =</span> <span class="fl">0.1</span>)) <span class="co"># gráfico de Love</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</section>
+<section id="comparación-de-los-tres-métodos" class="level3">
+<h3 class="anchored" data-anchor-id="comparación-de-los-tres-métodos">Comparación de los tres métodos</h3>
+<p>Como simulamos los datos, conocemos los efectos verdaderos. Cada método estima un estimando distinto (ATE o ATT), así que se compara contra su verdad correspondiente:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb46"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb46-1"><a href="#cb46-1" aria-hidden="true" tabindex="-1"></a>oraculo <span class="ot">&lt;-</span> <span class="fu">read_csv</span>(<span class="st">"Bases/ckd_isglt2_oraculo.csv"</span>, <span class="at">show_col_types =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb46-2"><a href="#cb46-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb46-3"><a href="#cb46-3" aria-hidden="true" tabindex="-1"></a>comparacion <span class="ot">&lt;-</span> <span class="fu">tibble</span>(</span>
+<span id="cb46-4"><a href="#cb46-4" aria-hidden="true" tabindex="-1"></a>  método    <span class="ot">=</span> <span class="fu">c</span>(<span class="st">"Ingenuo (sin ajustar)"</span>, <span class="st">"Regresión"</span>, <span class="st">"Matching"</span>, <span class="st">"IPW"</span>),</span>
+<span id="cb46-5"><a href="#cb46-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">estimando =</span> <span class="fu">c</span>(<span class="st">"—"</span>, <span class="st">"ATE"</span>, <span class="st">"ATT"</span>, <span class="st">"ATE"</span>),</span>
+<span id="cb46-6"><a href="#cb46-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">estimado  =</span> <span class="fu">c</span>(ingenuo, <span class="fu">coef</span>(modelo_reg)[[<span class="st">"isglt2"</span>]], est_matching, est_ipw),</span>
+<span id="cb46-7"><a href="#cb46-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">verdad    =</span> <span class="fu">c</span>(<span class="cn">NA</span>, <span class="fu">mean</span>(oraculo<span class="sc">$</span>ite), <span class="fu">mean</span>(oraculo<span class="sc">$</span>ite[oraculo<span class="sc">$</span>isglt2 <span class="sc">==</span> <span class="dv">1</span>]), <span class="fu">mean</span>(oraculo<span class="sc">$</span>ite))</span>
+<span id="cb46-8"><a href="#cb46-8" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span></span>
+<span id="cb46-9"><a href="#cb46-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">sobreestimacion =</span> estimado <span class="sc">/</span> verdad <span class="sc">-</span> <span class="dv">1</span>,                  <span class="co"># cuánto se pasa de la verdad</span></span>
+<span id="cb46-10"><a href="#cb46-10" aria-hidden="true" tabindex="-1"></a>         <span class="fu">across</span>(<span class="fu">c</span>(estimado, verdad), \(x) <span class="fu">round</span>(x, <span class="dv">2</span>)))</span>
+<span id="cb46-11"><a href="#cb46-11" aria-hidden="true" tabindex="-1"></a>comparacion <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">sobreestimacion =</span> <span class="fu">if_else</span>(<span class="fu">is.na</span>(sobreestimacion), <span class="st">"—"</span>, <span class="fu">pct</span>(sobreestimacion, <span class="dv">0</span>)))</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 4 × 5
+  método                estimando estimado verdad sobreestimacion
+  &lt;chr&gt;                 &lt;chr&gt;        &lt;dbl&gt;  &lt;dbl&gt; &lt;chr&gt;          
+1 Ingenuo (sin ajustar) —             1.5   NA    —              
+2 Regresión             ATE           1.34   0.93 44 %           
+3 Matching              ATT           1.52   1.06 43 %           
+4 IPW                   ATE           1.34   0.93 45 %           </code></pre>
+</div>
+</div>
+<p><strong>Qué vemos.</strong> Los tres métodos logran buen balance de lo medido (figura anterior), pero <strong>siguen sobrestimando</strong> el efecto verdadero: regresión 44 %, emparejamiento 43 % (frente a su ATT) e IPW 45 %. Casi no mejoran al ingenuo. ¿Por qué? Porque <strong>falta la fragilidad</strong>, un confusor no medido: el balance solo garantiza comparabilidad en lo que <strong>medimos</strong>. Con la fragilidad medida, los métodos recuperan el valor verdadero (Capítulo 3.2).</p>
+<div class="callout callout-style-default callout-important callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Importante</span>🎯 En resumen: ¿qué método uso?
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<table class="caption-top table">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Método</th>
+<th>Ventajas</th>
+<th>Limitaciones</th>
+<th>Estima</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Regresión</strong></td>
+<td>Simple, conocida</td>
+<td>Depende de un modelo bien especificado</td>
+<td>ATE (sin interacciones)</td>
+</tr>
+<tr class="even">
+<td><strong>Emparejamiento</strong></td>
+<td>Intuitivo, comparaciones “justas”</td>
+<td>Descarta datos; errores estándar delicados</td>
+<td>ATT (por defecto)</td>
+</tr>
+<tr class="odd">
+<td><strong>IPW</strong></td>
+<td>Usa a todos; crea una pseudo-población</td>
+<td>Sensible a pesos extremos (positividad)</td>
+<td>ATE, ATT, ATU</td>
+</tr>
+<tr class="even">
+<td><strong>Estandarización (fórmula g)</strong></td>
+<td>Muy flexible; marco de resultados potenciales</td>
+<td>Requiere modelar bien el desenlace</td>
+<td>ATE, ATT, ATU</td>
+</tr>
+<tr class="odd">
+<td><strong>Doblemente robustos</strong></td>
+<td>Consistentes si <em>al menos uno</em> de los dos modelos es correcto</td>
+<td>Más complejos</td>
+<td>ATE, ATT</td>
+</tr>
+</tbody>
+</table>
+<p>En cualquier caso: (1) <strong>dibuja el DAG</strong>, (2) <strong>elige el conjunto de ajuste</strong> (sin mediadores ni colisionadores), (3) <strong>verifica el balance</strong>, (4) <strong>cuantifica la incertidumbre</strong> con <em>bootstrap</em> o errores robustos, (5) <strong>haz análisis de sensibilidad</strong> (Capítulo 3.4). El buen balance de lo medido no garantiza una estimación válida: aquí los tres métodos siguen sobrestimando el efecto porque falta la fragilidad.</p>
+</div>
+</div>
+</section>
+</section>
+<section id="advertencias-finales" class="level2">
+<h2 class="anchored" data-anchor-id="advertencias-finales">Advertencias finales</h2>
+<ul>
+<li>Un DAG <strong>no resuelve</strong> el problema fundamental: depende de suposiciones que no se pueden probar. Si falta un confusor importante y no lo mediste, ningún método lo corrige.</li>
+<li>Un DAG es una <strong>suposición explícita</strong>, no una verdad. Muéstralo: los lectores pueden criticarlo.</li>
+<li>Que el DAG sea “razonable” no implica que tengas <strong>todos</strong> los nodos: usa análisis de sensibilidad.</li>
+<li><strong>Medir bien</strong> las variables (misma definición en todos los pacientes) importa tanto como ajustar.</li>
+</ul>
+</section>
+<section id="taller-practica-con-tres-dag" class="level2">
+<h2 class="anchored" data-anchor-id="taller-practica-con-tres-dag">Taller: practica con tres DAG</h2>
+<p>Basado en el taller de causalidad y DAG del autor. En cada caso la <strong>exposición</strong> es el <strong>uso de AINE</strong> y el <strong>desenlace</strong> la <strong>lesión renal aguda (LRA)</strong>. Para cada DAG responde: (a) ¿qué caminos hay entre exposición y desenlace? ¿cuáles son de puerta trasera? (b) ¿hay confusores, mediadores o colisionadores? (c) ¿qué conjunto de variables hay que ajustar (o dejar de ajustar) para identificar el efecto total?</p>
+<ul>
+<li><strong>DAG 1.</strong> AINE → LRA; <strong>hospitalización</strong> es causada por AINE y por LRA (el estudio incluye solo pacientes hospitalizados).</li>
+<li><strong>DAG 2.</strong> AINE → LRA; <strong>edad</strong> causa AINE (se indican más en mayores) y causa LRA; <strong>diabetes</strong> causa LRA y es causada por la edad.</li>
+<li><strong>DAG 3.</strong> AINE → <strong>retención hidrosalina</strong> → LRA; además, AINE → LRA directo; <strong>hipertensión previa</strong> causa AINE y LRA.</li>
+</ul>
+<p>Comprueba tus respuestas con el código (las ejecuta el libro, pero primero intenta resolverlo a mano):</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb48"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb48-1"><a href="#cb48-1" aria-hidden="true" tabindex="-1"></a>dag1 <span class="ot">&lt;-</span> <span class="fu">tribble</span>(<span class="sc">~</span>de,<span class="sc">~</span>a, <span class="st">"X"</span>,<span class="st">"Y"</span>, <span class="st">"X"</span>,<span class="st">"hosp"</span>, <span class="st">"Y"</span>,<span class="st">"hosp"</span>)</span>
+<span id="cb48-2"><a href="#cb48-2" aria-hidden="true" tabindex="-1"></a>dag2 <span class="ot">&lt;-</span> <span class="fu">tribble</span>(<span class="sc">~</span>de,<span class="sc">~</span>a, <span class="st">"X"</span>,<span class="st">"Y"</span>, <span class="st">"edad"</span>,<span class="st">"X"</span>, <span class="st">"edad"</span>,<span class="st">"Y"</span>, <span class="st">"edad"</span>,<span class="st">"dm"</span>, <span class="st">"dm"</span>,<span class="st">"Y"</span>)</span>
+<span id="cb48-3"><a href="#cb48-3" aria-hidden="true" tabindex="-1"></a>dag3 <span class="ot">&lt;-</span> <span class="fu">tribble</span>(<span class="sc">~</span>de,<span class="sc">~</span>a, <span class="st">"X"</span>,<span class="st">"Y"</span>, <span class="st">"X"</span>,<span class="st">"ret"</span>, <span class="st">"ret"</span>,<span class="st">"Y"</span>, <span class="st">"hta"</span>,<span class="st">"X"</span>, <span class="st">"hta"</span>,<span class="st">"Y"</span>)</span>
+<span id="cb48-4"><a href="#cb48-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb48-5"><a href="#cb48-5" aria-hidden="true" tabindex="-1"></a><span class="fu">list</span>(<span class="st">`</span><span class="at">DAG 1</span><span class="st">`</span> <span class="ot">=</span> dag1, <span class="st">`</span><span class="at">DAG 2</span><span class="st">`</span> <span class="ot">=</span> dag2, <span class="st">`</span><span class="at">DAG 3</span><span class="st">`</span> <span class="ot">=</span> dag3) <span class="sc">|&gt;</span></span>
+<span id="cb48-6"><a href="#cb48-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">map</span>(\(d) <span class="fu">conjuntos_ajuste</span>(d, <span class="st">"X"</span>, <span class="st">"Y"</span>) <span class="sc">|&gt;</span> <span class="fu">map_chr</span>(\(s) <span class="cf">if</span> (<span class="fu">length</span>(s) <span class="sc">==</span> <span class="dv">0</span>) <span class="st">"ninguna (no ajustar)"</span> <span class="cf">else</span> <span class="fu">paste</span>(s, <span class="at">collapse =</span> <span class="st">" + "</span>)))</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>$`DAG 1`
+[1] "ninguna (no ajustar)"
+
+$`DAG 2`
+[1] "edad"
+
+$`DAG 3`
+[1] "hta"</code></pre>
+</div>
+</div>
+</section>
+<section id="referencias" class="level2">
+<h2 class="anchored" data-anchor-id="referencias">Referencias</h2>
+<ul>
+<li>Hernán MA, Robins JM. <em>Causal Inference: What If</em>. Chapman &amp; Hall/CRC; 2020. (Caps. 6-7)</li>
+<li>Barrett M, D’Agostino McGowan L, Gerke T. <em>Causal Inference in R</em>. 2025. <a href="https://www.r-causal.org/" class="uri">https://www.r-causal.org/</a></li>
+<li>Pearl J, Glymour M, Jewell NP. <em>Causal Inference in Statistics: A Primer</em>. Wiley; 2016.</li>
+<li>Rohrer JM. Thinking clearly about correlations and causation: graphical causal models for observational data. <em>Adv Methods Pract Psychol Sci</em>. 2018;1(1):27-42.</li>
+<li>Textor J, van der Zander B, Gilthorpe MS, Liśkiewicz M, Ellison GT. Robust causal inference using directed acyclic graphs: the R package ‘dagitty’. <em>Int J Epidemiol</em>. 2016;45(6):1887-1894.</li>
+<li>Luque-Fernández MA, Schomaker M, Redondo-Sanchez D, et al.&nbsp;Educational note: paradoxical collider effect in the analysis of non-communicable disease epidemiological data: a reproducible illustration and web application. <em>Int J Epidemiol</em>. 2019;48(2):640-653.</li>
+<li>D’Agostino McGowan L, Gerke T, Barrett M. Causal inference is not just a statistics problem. <em>J Stat Data Sci Educ</em>. 2024;32(2):150-155. <a href="https://doi.org/10.1080/26939169.2023.2276446" class="uri">https://doi.org/10.1080/26939169.2023.2276446</a> (el “cuarteto causal”)</li>
+<li>Greifer N. <em>MatchIt</em>: guía de uso. <a href="https://kosukeimai.github.io/MatchIt/" class="uri">https://kosukeimai.github.io/MatchIt/</a></li>
+</ul>
+</section>
+<section id="nota-editorial" class="level2">
+<h2 class="anchored" data-anchor-id="nota-editorial">Nota editorial</h2>
+<ul>
+<li>Esta sección fue editada con asistencia de IA (ChatGPT; revisión editorial con Claude). Los datos son simulados. El cuarteto causal y el ejemplo del colisionador (sodio, PAS y proteinuria) se rehicieron con datos propios a partir de las ideas del material del autor; el taller adapta el taller de causalidad y DAG del autor a un ejemplo nefrológico.</li>
+</ul>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copiado");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copiado");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+<nav class="page-navigation">
+  <div class="nav-page nav-page-previous">
+      <a href="../capitulos/Capítulo3.2.html" class="pagination-link" aria-label="Resultados potenciales y estimandos: ¿qué es un efecto causal?">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-title">Resultados potenciales y estimandos: ¿qué es un efecto causal?</span></span>
+      </a>          
+  </div>
+  <div class="nav-page nav-page-next">
+      <a href="../capitulos/Capítulo3.4.html" class="pagination-link" aria-label="El análisis causal completo, paso a paso">
+        <span class="nav-page-text"><span class="chapter-title">El análisis causal completo, paso a paso</span></span> <i class="bi bi-arrow-right-short"></i>
+      </a>
+  </div>
+</nav>
+</div> <!-- /content -->
+<footer class="footer">
+  <div class="nav-footer">
+    <div class="nav-footer-left">
+<p>This book was built with 💕 and <a href="https://quarto.org/">Quarto</a>.</p>
+</div>   
+    <div class="nav-footer-center">
+      &nbsp;
+    </div>
+    <div class="nav-footer-right">
+<p>DataLab for causal inference</p>
+</div>
+  </div>
+</footer>
+
+
+
+
+</body></html>
