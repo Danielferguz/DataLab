@@ -1,0 +1,1959 @@
+---
+title: "Matching"
+format: 
+  html:
+    toc: true
+    toc_float: 
+      collapsed: true
+    embed-resources: true
+    self-contained-math: true
+    tabsets: true
+editor: visual
+author: Daniel F
+---
+
+```{r echo = FALSE}
+
+setwd("C:/Users/danfe/Dropbox/Proyectos Daniel/Cursos - diplomados - Maestrias/Programa de autoformación en investigación y análisis de datos/Talleres/Taller 6 Matching y propensity score")
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+```
+
+# **Coincidencia exacta**
+
+En el siguiente fragmento de código, cargamos las bibliotecas R necesarias para nuestro análisis. `MatchIt`se utiliza para hacer coincidir métodos para encontrar unidades de control comparables, `tableone`para crear la Tabla 1 para describir las características de referencia, `Publish`para generar una salida legible del análisis de regresión y `survey`para analizar muestras de encuestas complejas.
+
+```{r}
+# Load required packages
+library(MatchIt)
+require(tableone)
+require(Publish)
+require(survey)
+```
+
+```{r}
+library(gtsummary)
+
+# tema para redondear porcentajes a un decimal
+set_gtsummary_theme(list(
+  `tbl_summary-fn:percent_fun` = function(x) sprintf("%.1f", x * 100)
+))
+
+theme_gtsummary_compact() 
+
+# formato de digitos
+library(magrittr)
+ 
+style_percent_1digits <- purrr::partial(gtsummary::style_percent, digits = 1)
+style_number_2digits <- purrr::partial(gtsummary::style_number, digits = 2)
+```
+
+### **Cargar datos**
+
+En el siguiente fragmento de código, cargamos el conjunto de datos CCHS relacionado con la Encuesta de salud comunitaria canadiense (CCHS). Luego, usamos [`ls()`](https://rdrr.io/r/base/ls.html)para enumerar todos los objetos en el espacio de trabajo y `str`para mostrar la estructura del marco de datos, lo que proporciona una descripción general rápida de los datos y verifica las variables de caracteres.
+
+```{r}
+load("cchs123b.RData")
+
+str(analytic.miss) # is there any character variable?
+```
+
+### **Preprocesamiento de datos**
+
+En el siguiente fragmento de código, definimos un vector que contiene los nombres de las variables de interés que se deben convertir en variables factoriales. Luego, convertimos estas variables en factores, asegurándonos de que se las trate como categóricas en los análisis posteriores. También convertimos `recode`la variable de osteoartritis (OA) en un formato binario numérico y mostramos la tabla de frecuencia de OA antes y después de la transformación.
+
+```{r}
+var.names <- c("age", "sex", "stress", "married", "income", "race", 
+               "bmi", "phyact", "smoke", "doctor", "drink", "bp", "province",
+               "immigrate", "fruit", "diab", "edu", "CVD", "OA")
+analytic.miss[var.names] <- lapply(analytic.miss[var.names] , factor)
+table(analytic.miss$OA)
+
+analytic.miss$OA <- as.numeric(analytic.miss$OA=="OA") 
+table(analytic.miss$OA)
+```
+
+### **Identificar sujetos con faltantes**
+
+En el siguiente fragmento de código, creamos una nueva variable `miss`y, en un principio, asignamos todos sus valores a 1 en el conjunto de datos completo (que contiene algunas observaciones faltantes). Luego, ajustamos esta asignación estableciendo miss en 0 para las observaciones que también están presentes en otro conjunto de datos de caso completo. Esto significa que cualquier fila con `miss`un valor igual a 0 significa que esa fila no tiene observaciones faltantes. Por último, mostramos la tabla de frecuencias de la variable miss para verificar la cantidad de observaciones faltantes y no faltantes.
+
+```{r}
+analytic.miss$miss <- 1
+head(analytic.miss$ID) # full data
+
+head(analytic2$ID) # complete case
+
+head(analytic.miss$ID[analytic.miss$ID %in% analytic2$ID])
+
+# if associated with complete case, assign miss <- 0
+analytic.miss$miss[analytic.miss$ID %in% analytic2$ID] <- 0
+table(analytic.miss$miss)
+```
+
+### **Diseño de escenarios**
+
+#### Diseño incondicional
+
+En el siguiente fragmento de código, exploramos el resumen de la variable de ponderación y establecemos un objeto de diseño de encuesta incondicional `w.design0`mediante la `svydesign`función, que se utilizará para los análisis ponderados de la encuesta posteriores. Luego, exploramos el resumen, la desviación estándar y la suma de las ponderaciones dentro de nuestro objeto de diseño.
+
+```{r}
+summary(analytic.miss$weight)
+
+w.design0 <- svydesign(id=~1, weights=~weight, 
+                      data=analytic.miss)
+summary(weights(w.design0))
+
+sd(weights(w.design0))
+
+sum(weights(w.design0))
+```
+
+#### Condicionando el diseño
+
+En el siguiente fragmento de código, creamos un nuevo objeto de diseño de encuesta `w.design`mediante la creación de subconjuntos `w.design0`para incluir solo observaciones sin datos faltantes `(miss == 0)`. Luego, exploramos el resumen, la desviación estándar y la suma de los pesos dentro de este nuevo objeto de diseño
+
+```{r}
+w.design <- subset(w.design0, miss == 0)
+summary(weights(w.design))
+
+sd(weights(w.design))
+
+sum(weights(w.design))
+```
+
+#### Datos del subconjunto (¡más!)
+
+Creamos subconjuntos de los datos para obtener resultados rápidos (menos cálculos). Solo trabajaremos con el ciclo 1.1 y con las personas de las provincias del norte de Canadá.
+
+```{r}
+w.design1 <- subset(w.design, cycle == 11 & province == "North")
+sum(weights(w.design1))
+```
+
+### **Análisis preliminar**
+
+#### Tabla 1
+
+En el siguiente fragmento de código, definimos un nuevo vector de variables `var.names`y creamos una tabla categórica `svyCreateCatTable`para explorar la distribución de `age`y `sex`entre los estratos de `OA`dentro de nuestro objeto de diseño subdividido `w.design1`. Luego, imprimimos la tabla con diferencias de medias estandarizadas (SMD) para evaluar el equilibrio de estas variables entre los estratos.
+
+```{r}
+
+var.names <- c("age", "sex")
+tab0 <- svyCreateCatTable(var = var.names, strata= "OA", data=w.design1,test=FALSE)
+print(tab0, smd = TRUE)
+
+tbl_svysummary(w.design1, include = var.names, by = OA) %>% 
+    add_difference(everything() ~ "smd")
+
+```
+
+#### Efecto del tratamiento
+
+En el siguiente fragmento de código, ajustamos un modelo de regresión logística utilizando `svyglm`para estimar el efecto de `OA`y otras covariables en el resultado binario `CVD`(enfermedad cardiovascular). Luego, utilizamos `publish`para mostrar los resultados en un formato legible.
+
+```{r}
+fit.outcome <- svyglm(I(CVD=="event") ~ OA + age + sex + stress + married + 
+                         income + race + bmi + phyact + smoke +
+                         immigrate + fruit + diab + edu,
+                   design = w.design1,
+                   family = binomial(logit))
+
+#publish(fit.outcome)
+tbl_regression(fit.outcome, exp =T, estimate_fun = style_number_2digits,
+               pvalue_fun = function(x) style_pvalue(x, digits = 3))
+```
+
+### **Coincidencia: estimación del efecto del tratamiento**
+
+Volviendo a los datos ( **no estamos trabajando en el diseño aquí mientras hacemos la correspondencia** )
+
+En el siguiente fragmento de código, creamos un nuevo conjunto de datos omitiendo `NA`valores de `analytic.miss`y convirtiéndolo en un marco de datos. Luego, creamos un subconjunto `analytic11n`que incluye solo observaciones del ciclo 1.1 y las provincias del norte. Mostramos las dimensiones de este subconjunto, así como tablas de frecuencia `OA`y una tabulación cruzada de `OA`y `age`para comprender la distribución de nuestra variable objetivo y una covariable clave.
+
+```{r}
+# Create the dataset without design features
+analytic2 <- as.data.frame(na.omit(analytic.miss))
+analytic11n <- subset(analytic2, cycle == 11 & province == "North")
+dim(analytic11n)
+
+table(analytic11n$OA)
+
+table(analytic11n$OA, analytic11n$age)
+```
+
+#### Coincidencia por 1 variable coincidente
+
+En el siguiente fragmento de código, realizamos una coincidencia exacta utilizando una única variable, `age`. Definimos la fórmula de coincidencia y aplicamos la `matchit`función para crear conjuntos coincidentes de unidades tratadas y de control. El `matching.obj`objeto resultante se muestra para resumir los resultados de la coincidencia.
+
+```{r}
+match.formula <- as.formula("OA ~ age")
+matching.obj <- matchit(match.formula,
+                        data = analytic11n,
+                        method = "exact")
+matching.obj
+```
+
+#### Coincidencia de 2 variables coincidentes
+
+En el siguiente fragmento de código, ampliamos la coincidencia para incluir dos variables `age`y `sex`. Creamos una nueva variable `var.comb`que concatena estas dos variables y mostramos su tabla de frecuencias y la cantidad de combinaciones únicas. Luego, realizamos una coincidencia exacta utilizando ambas variables y mostramos el objeto resultante.
+
+```{r}
+var.comb <- do.call('paste0', 
+                    analytic11n[, c('age', 'sex')])
+table(var.comb)
+
+length(table(var.comb))
+
+match.formula <- as.formula("OA ~ age + sex")
+matching.obj <- matchit(match.formula,
+                        data = analytic11n,
+                        method = "exact")
+matching.obj
+```
+
+#### Coincidencia de 3 variables coincidentes
+
+En el siguiente fragmento de código, ampliamos aún más la coincidencia para incluir tres variables: `age`, `sex`y `stress`. Exploramos las combinaciones únicas de estas variables y su distribución en los niveles de `OA`. Luego, realizamos una coincidencia exacta utilizando estas tres variables y mostramos el objeto resultante.
+
+```{r}
+var.comb <- do.call('paste0', 
+                    analytic11n[, c('age', 'sex', 'stress')])
+table(var.comb)
+
+length(table(var.comb))
+
+table(var.comb,analytic11n$OA)
+
+match.formula <- as.formula("OA ~ age + sex + stress")
+matching.obj <- matchit(match.formula,
+                        data = analytic11n,
+                        method = "exact")
+matching.obj
+```
+
+#### Coincidencia de 4 variables coincidentes
+
+El proceso de emparejamiento por 4 variables implica crear combinaciones de las 4 variables, explorar sus distribuciones y realizar un emparejamiento exacto.
+
+```{r}
+var.comb <- do.call('paste0', 
+                    analytic11n[, c('age', 'sex',
+                                    'stress','income')])
+#table(var.comb)
+length(table(var.comb))
+
+match.formula <- as.formula("OA ~ age + sex + stress + income")
+matching.obj <- matchit(match.formula,
+                        data = analytic11n,
+                        method = "exact")
+matching.obj
+```
+
+#### Coincidencia de 6 variables coincidentes
+
+```{r}
+var.comb <- do.call('paste0', 
+                    analytic11n[, c('age', 'sex',
+                                    'stress','income','race','edu')])
+length(table(var.comb))
+
+match.formula <- as.formula("OA ~ age + sex + stress + income + race + edu")
+matching.obj <- matchit(match.formula,
+                        data = analytic11n,
+                        method = "exact")
+matching.obj
+
+# Nueva base matcheada
+OACVD.match.11n <- match.data(matching.obj)
+
+# Analisis
+var.names <- c("age", "sex", "stress", "income", "race", "edu")
+tab1 <- CreateCatTable(var = var.names, strata= "OA", data=OACVD.match.11n,test=FALSE)
+print(tab1, smd = TRUE)
+```
+
+### **Efecto del tratamiento**
+
+#### Convertir datos en diseño
+
+En el siguiente fragmento de código, creamos una nueva variable que coincide con el `analytic.miss`conjunto de datos para indicar si se incluyó una observación en el conjunto de datos coincidentes `OACVD.match.11n`. Luego, creamos un nuevo objeto de diseño de encuesta `w.design.m`que incluye solo las observaciones coincidentes para los análisis posteriores.
+
+```{r}
+analytic.miss$matched <- 0
+length(analytic.miss$ID) # full data
+
+length(OACVD.match.11n$ID) # matched data
+
+length(analytic.miss$ID[analytic.miss$ID %in% OACVD.match.11n$ID])
+
+analytic.miss$matched[analytic.miss$ID %in% OACVD.match.11n$ID] <- 1
+table(analytic.miss$matched)
+
+w.design0 <- svydesign(id=~1, weights=~weight, 
+                      data=analytic.miss)
+w.design.m <- subset(w.design0, matched == 1)
+```
+
+#### Análisis de resultados
+
+Los fragmentos de código subsiguientes implican el ajuste de modelos de regresión logística para estimar el efecto del tratamiento, tanto de manera cruda como ajustada, respectivamente. Los modelos se ajustan utilizando el objeto de diseño de encuesta emparejado y los resultados se muestran en un formato legible.
+
+##### Crudo
+
+```{r}
+fit.outcome <- svyglm(I(CVD=="event") ~ OA,
+                   design = w.design.m,
+                   family = binomial(logit))
+
+publish(fit.outcome)
+```
+
+##### Ajustado
+
+```{r}
+fit.outcome <- svyglm(I(CVD=="event") ~ OA + 
+                        age + sex + stress + income + race + edu,
+                   design = w.design.m,
+                   family = binomial(logit))
+
+publish(fit.outcome)
+
+tbl_regression(fit.outcome, exp = T, estimate_fun = style_number_2digits,
+               pvalue_fun = function(x) style_pvalue(x, digits = 3))
+```
+
+### **Coincidencia de muchas variables**
+
+Los fragmentos de código implican la realización de comparaciones utilizando una gran cantidad de variables y la estimación del efecto del tratamiento utilizando los datos emparejados. El proceso implica la creación de conjuntos de datos emparejados, su conversión en objetos de diseño de encuestas y el ajuste de modelos de regresión logística.
+
+#### Parte coincidente en los datos
+
+```{r}
+match.formula <- as.formula("OA ~ age + sex + stress + married + 
+                         income + race + bmi + phyact + smoke +
+                         immigrate + fruit + diab + edu")
+matching.obj2 <- matchit(match.formula,
+                        data = analytic11n,
+                        method = "exact")
+matching.obj2
+```
+
+```{r}
+OACVD.match.11n2 <- match.data(matching.obj2)
+var.names <- c("age", "sex", "stress", "married", "income", "race", 
+               "bmi", "phyact", "smoke", "immigrate", "fruit", "diab", "edu")
+tab2 <- CreateCatTable(var = var.names, strata= "OA", data=OACVD.match.11n2,test=FALSE)
+print(tab2, smd = TRUE)
+```
+
+# **PSM en OA-CVD (CCHS)**
+
+Este tutorial es una guía completa sobre la implementación del método Propensity Score Matching (PSM) con R, centrándose particularmente en un estudio de salud de OA - ECV de la Encuesta de Salud Comunitaria Canadiense (CCHS). Este método PSM se utiliza para reducir el sesgo debido a las variables de confusión en los estudios observacionales al emparejar unidades tratadas y de control con puntajes de propensión similares. El tutorial ilustra que el método PSM es un proceso iterativo, en el que los investigadores pueden necesitar refinar su estrategia de emparejamiento para lograr un equilibrio satisfactorio en la muestra emparejada. Se exploran diferentes estrategias para estimar el efecto del tratamiento en la muestra emparejada, cada una con sus propios supuestos e implicaciones.
+
+### **Cargar paquetes**
+
+Primero, se cargan varios paquetes R para utilizar sus funciones para la manipulación de datos, el análisis estadístico y la visualización.
+
+```{r}
+# Load required packages
+library(MatchIt)
+require(tableone)
+require(survey)
+require(cobalt)
+require(Publish)
+require(optmatch)
+```
+
+### **Cargar datos**
+
+El conjunto de datos se carga en el entorno R. Las variables se renombran para evitar conflictos en análisis posteriores.
+
+```{r}
+dim(analytic11n)
+head(analytic11n,20)
+```
+
+```{r}
+# later we will create another variable called weights
+# hence to avoid any conflict/ambiguity,
+# renaming weight variable to survey.weight
+analytic.miss$survey.weight <- analytic.miss$weight
+analytic11n$survey.weight <- analytic11n$weight
+analytic.miss$weight <- analytic11n$weight <- NULL
+```
+
+### **Análisis**
+
+Vamos a aplicar el análisis de puntaje de propensión (Matching) en nuestro problema OA - CVD de CCHS. Por consideraciones de cálculo, solo trabajaremos con el ciclo 1.1 y las personas de las provincias del norte de Canadá ( `analytic11n`datos).
+
+### **Paso 1**
+
+#### Especificar PS
+
+Se especifica una fórmula de modelo de regresión logística para calcular los puntajes de propensión (PS), que es la probabilidad de recibir el tratamiento dadas las covariables observadas.
+
+```{r}
+ps.formula <- as.formula("OA ~ age + sex + stress + married + 
+                         income + race + bmi + phyact + smoke +
+                        doctor + drink + bp + 
+                         immigrate + fruit + diab + edu")
+var.names <- c("age", "sex", "stress", "married", 
+               "income", "race", "bmi", "phyact", "smoke", 
+               "doctor", "drink", "bp", 
+               "immigrate", "fruit", "diab", "edu")
+```
+
+#### Modelo de ajuste
+
+El software se ajusta al modelo PS mediante una regresión logística de forma predeterminada. Este paquete, en realidad, realiza los pasos 1 y 2 con un solo comando `matchit`.
+
+Consulte el sitio web para conocer los argumentos de matchit ( [RDocumentation 2023](https://ehsanx.github.io/EpiMethods/propensityscore2.html#ref-Matchit) ) . Parece que esto
+
+```{r eval= FALSE}
+matchit(formula, data, model="logit", 
+        discard=0, 
+        reestimate=FALSE, 
+        nearest=TRUE,
+        replace=FALSE, 
+        m.order=2, 
+        ratio=1, 
+        caliper=0, 
+        calclosest=FALSE,
+        subclass=0, 
+        sub.by="treat", 
+        mahvars=NULL, 
+        exact=FALSE, 
+        counter=TRUE, 
+        full=FALSE, 
+        full.options=list(),...)
+```
+
+::: callout-caution
+### Consejo
+
+**Coincidencia de vecino más cercano** :
+
+El emparejamiento por vecino más cercano es una técnica ampliamente utilizada en PSM para emparejar unidades tratadas y de control en función de la proximidad de sus puntuaciones de propensión. Es sencillo y computacionalmente eficiente, lo que lo convierte en una opción popular en muchas aplicaciones de PSM. El emparejamiento por vecino más cercano a menudo se denomina un algoritmo "codicioso" porque empareja las unidades en orden, sin considerar la distribución global de las puntuaciones de propensión. Una vez que se realiza un emparejamiento, no se vuelve a revisar, incluso si una unidad posterior hubiera sido un mejor emparejamiento. El método busca minimizar el sesgo mediante la creación de pares estrechamente emparejados, pero puede aumentar la varianza si el grupo de posibles emparejamientos se reduce demasiado (por ejemplo, utilizando un calibrador muy estrecho). Es esencial garantizar que exista una región de soporte común donde se superpongan las distribuciones de las puntuaciones de propensión de las unidades tratadas y de control, lo que garantiza la comparabilidad.
+:::
+
+### **Paso 2**
+
+#### Temas de los partidos por PS
+
+Vamos a realizar la comparación mediante un algoritmo de vecino más cercano. Este es un algoritmo de comparación voraz. Tenga en cuenta que ni siquiera estamos definiendo ningún calibrador.
+
+::: callout-caution
+### Consejo
+
+**Calibrador** :
+
+En el contexto de PSM, un calibrador es una diferencia máxima permisible predefinida entre los puntajes de propensión de las unidades emparejadas. Básicamente, establece un umbral para determinar cuán diferentes pueden ser las unidades emparejadas en términos de sus puntajes de propensión. Cuando se utiliza un calibrador, una unidad tratada solo se empareja con una unidad de control si la diferencia absoluta en sus puntajes de propensión es menor o igual al ancho del calibrador especificado. El calibrador se utiliza para evitar malos emparejamientos y, por lo tanto, minimizar el sesgo en el efecto estimado del tratamiento. El tamaño del calibrador es crucial. Un calibrador demasiado ancho puede permitir malos emparejamientos, mientras que un calibrador demasiado estrecho puede dar como resultado que muchas unidades no se emparejen. La implementación de un calibrador implica un equilibrio entre el sesgo y la eficiencia. El uso de un calibrador reduce el sesgo al evitar malos emparejamientos, pero puede aumentar la varianza al reducir el número de pares emparejados disponibles para el análisis. Por lo tanto, el uso de un calibrador en PSM es una decisión estratégica para mejorar la calidad de los emparejamientos y, por lo tanto, mejorar la validez de las inferencias causales extraídas de los datos observacionales. Es una herramienta práctica para garantizar que las unidades emparejadas sean suficientemente similares en términos de sus puntajes de propensión, reduciendo la probabilidad de sesgo debido a emparejamientos deficientes.
+:::
+
+```{r}
+# set seed
+set.seed(123)
+# match
+matching.obj <- matchit(ps.formula,
+                        data = analytic11n,
+                        method = "nearest",
+                        ratio = 1)
+# see how many matched
+matching.obj
+
+# create the "matched"" data
+OACVD.match <- match.data(matching.obj)
+
+# see the dimension
+dim(analytic11n)
+
+dim(OACVD.match)
+```
+
+### **Paso 3**
+
+Se utilizan métodos gráficos y numéricos para evaluar la calidad de las coincidencias y el equilibrio de covariables en la muestra emparejada.
+
+#### Examinando PS gráficamente
+
+Inspeccione visualmente el PS y evalúe el equilibrio de las covariables en la muestra emparejada. Se generan varios gráficos para visualizar la distribución del PS entre los grupos de tratamiento y para verificar el equilibrio de las covariables antes y después de la comparación.
+
+#### paquete matchit
+
+```{r fig.height=8, fig.width=7}
+# plot(matching.obj) # covariate balance
+plot(matching.obj, type = "jitter") # propensity score locations
+plot(matching.obj, type = "hist") #check matched treated vs matched control
+summrize.output <- summary(matching.obj, standardize = TRUE)
+plot(summrize.output)
+```
+
+#### Comprobación de superposición
+
+```{r}
+# plot propensity scores by exposure group
+plot(density(OACVD.match$distance[OACVD.match$OA==1]), 
+     col = "red", main = "")
+lines(density(OACVD.match$distance[OACVD.match$OA==0]), 
+      col = "blue", lty = 2)
+legend("topright", c("Non-arthritis","OA"), 
+       col = c("red", "blue"), lty=1:2)
+```
+
+#### paquete de cobalto
+
+Comprobación de superposición de una forma más cómoda
+
+```{r}
+# different badwidth
+by(OACVD.match$distance, OACVD.match$OA, summary)
+
+bal.plot(matching.obj, var.name = "distance")
+cobalt::love.plot(matching.obj, thresholds = 0.1)
+```
+
+#### Balance de covariables en una muestra emparejada
+
+El equilibrio de covariables se evalúa numéricamente utilizando diferencias de medias estandarizadas (SMD).
+
+::: callout-tip
+### Nota
+
+**Diferencias de medias estandarizadas** : SMD es una medida estadística versátil y ampliamente utilizada que facilita la comparación de grupos en la investigación al proporcionar una métrica de diferencia y equilibrio sin escala. En el contexto del emparejamiento por puntaje de propensión, lograr valores SMD bajos para las covariables después del emparejamiento es crucial para garantizar la validez de las inferencias causales extraídas de la muestra emparejada.
+
+Beneficios:
+
+-   El SMD no se ve influenciado por la escala de la variable medida, lo que lo hace adecuado para comparar el equilibrio de diferentes variables medidas en diferentes escalas.
+
+-   A diferencia de las pruebas de hipótesis, la SMD no se ve afectada por el tamaño de la muestra, lo que la convierte en una medida confiable para evaluar el equilibrio en muestras coincidentes.
+:::
+
+```{r}
+tab1 <- CreateTableOne(strata = "OA", data = OACVD.match, 
+                       test = FALSE, vars = var.names)
+print(tab1, smd = TRUE)
+```
+
+#### Otras medidas de equilibrio
+
+##### Categorías individuales
+
+Si desea comprobar el equilibrio en cada categoría (no es muy útil en situaciones generales). Generalmente nos interesa si las variables están equilibradas o no (no categorías).
+
+```{r}
+baltab <- bal.tab(matching.obj)
+baltab
+```
+
+##### Parcelas individuales
+
+Podrías representar gráficamente cada variable individualmente
+
+```{r}
+bal.plot(matching.obj, var.name = "income")
+bal.plot(matching.obj, var.name = "age")
+
+
+```
+
+### **Repita los pasos 1-3 nuevamente**
+
+El equilibrio de covariables se reevalúa en cada paso para garantizar la calidad de la coincidencia.
+
+#### Agregar calibrador
+
+Se repite el proceso de coincidencia, esta vez introduciendo un calibrador para garantizar que las coincidencias solo se realicen dentro de un rango específico de PS.
+
+```{r}
+logitPS <-  -log(1/OACVD.match$distance - 1) 
+# logit of the propensity score
+0.2*sd(logitPS) # suggested in the literature
+
+# Step 1 and 2
+matching.obj <- matchit(ps.formula,
+                        data = analytic11n,
+                        method = "nearest",
+                        ratio = 1,
+                        caliper = .2*sd(logitPS))
+# see how many matched
+matching.obj
+
+OACVD.match <- match.data(matching.obj)
+
+# Step 3
+by(OACVD.match$distance, OACVD.match$OA, summary)
+
+tab1 <- CreateTableOne(strata = "OA", data = OACVD.match, 
+                       test = FALSE, vars = var.names)
+print(tab1, smd = TRUE)
+```
+
+### **Paso 4**
+
+#### Estimar el efecto del tratamiento para datos coincidentes
+
+Se ajustan diferentes modelos (por ejemplo, regresión logística incondicional, diseño de encuesta) para estimar el efecto del tratamiento en la muestra emparejada.
+
+#### Logística incondicional
+
+```{r}
+# Wrong model for population!!
+outcome.model <- glm(CVD ~ OA, data = OACVD.match, family = binomial())
+publish(outcome.model)
+```
+
+#### Diseño de encuesta
+
+##### Convertir datos en diseño
+
+Los datos coincidentes se convierten en un objeto de diseño de encuesta para tener en cuenta los pares coincidentes en el análisis.
+
+```{r}
+analytic.miss$matched <- 0
+length(analytic.miss$ID) # full data
+
+length(OACVD.match$ID) # matched data
+
+length(analytic.miss$ID[analytic.miss$ID %in% OACVD.match$ID])
+
+analytic.miss$matched[analytic.miss$ID %in% OACVD.match$ID] <- 1
+table(analytic.miss$matched)
+
+w.design0 <- svydesign(id=~1, weights=~survey.weight, 
+                      data=analytic.miss)
+w.design.m <- subset(w.design0, matched == 1)
+```
+
+##### ¿Equilibrio en una población emparejada?
+
+```{r}
+tab1 <- svyCreateTableOne(strata = "OA", data = w.design.m, 
+                       test = FALSE, vars = var.names)
+print(tab1, smd = TRUE)
+```
+
+##### Análisis de resultados
+
+```{r}
+fit.design <- svyglm(CVD ~ OA, design = w.design.m, 
+       family = binomial(logit))
+
+publish(fit.design)
+```
+
+### **Datos coincidentes con ratio de incremento**
+
+El proceso de emparejamiento se repite con una proporción diferente (por ejemplo, 1:5) para explorar cómo el cambio de proporción afecta el equilibrio de covariables y la estimación del efecto del tratamiento.
+
+```{r}
+# Step 1 and 2
+matching.obj <- matchit(ps.formula,
+                        data = analytic11n,
+                        method = "nearest",
+                        ratio = 5,
+                        caliper = 0.2)
+# see how many matched
+matching.obj
+
+OACVD.match <- match.data(matching.obj)
+
+# Step 3
+by(OACVD.match$distance, OACVD.match$OA, summary)
+
+tab1 <- CreateTableOne(strata = "OA", data = OACVD.match, 
+                       test = FALSE, vars = var.names)
+print(tab1, smd = TRUE)
+
+summary(OACVD.match$weights)
+
+```
+
+#### Combinando pesos coincidentes
+
+Se exploran diferentes enfoques para incorporar ponderaciones (por ejemplo, ponderaciones coincidentes, ponderaciones de encuesta).
+
+#### No incorpora pesos coincidentes
+
+```{r}
+analytic.miss$matched <- 0
+length(analytic.miss$ID) # full data
+
+length(OACVD.match$ID) # matched data
+
+length(analytic.miss$ID[analytic.miss$ID %in% OACVD.match$ID])
+
+analytic.miss$matched[analytic.miss$ID %in% OACVD.match$ID] <- 1
+table(analytic.miss$matched)
+
+w.design0 <- svydesign(id=~1, weights=~survey.weight, 
+                      data=analytic.miss)
+w.design.m <- subset(w.design0, matched == 1)
+
+fit.design <- svyglm(CVD ~ OA, design = w.design.m, 
+       family = binomial(logit))
+
+publish(fit.design)
+```
+
+##### Incorporando pesos coincidentes
+
+```{r}
+analytic.miss$matched <- 0
+length(analytic.miss$ID) # full data
+
+length(OACVD.match$ID) # matched data
+
+length(analytic.miss$ID[analytic.miss$ID %in% OACVD.match$ID])
+
+analytic.miss$matched[analytic.miss$ID %in% OACVD.match$ID] <- 1
+table(analytic.miss$matched)
+```
+
+```{r}
+# multiply with matching (ratio) weights with survey weights
+analytic.miss$combined.weight <- 0
+analytic.miss$combined.weight[analytic.miss$ID %in% OACVD.match$ID] <-
+  OACVD.match$weights*OACVD.match$survey.weight
+w.design0 <- svydesign(id=~1, weights=~combined.weight, 
+                      data=analytic.miss)
+w.design.m <- subset(w.design0, matched == 1)
+
+fit.design <- svyglm(I(CVD=="event") ~ OA, design = w.design.m, 
+       family = binomial(logit))
+
+publish(fit.design)
+```
+
+#### Combinado con reemplazo
+
+La coincidencia se realiza con reemplazo, lo que permite que las unidades de control se utilicen en más de una coincidencia.
+
+```{r}
+# Step 1 and 2
+matching.obj <- matchit(ps.formula,
+                        data = analytic11n,
+                        method = "nearest",
+                        ratio = 5,
+                        caliper = 0.2,
+                        replace = TRUE)
+# see how many matched
+matching.obj
+
+OACVD.match <- match.data(matching.obj)
+# Step 3
+by(OACVD.match$distance, OACVD.match$OA, summary)
+
+tab1 <- CreateTableOne(strata = "OA", data = OACVD.match, 
+                       test = FALSE, vars = var.names)
+print(tab1, smd = TRUE)
+
+
+```
+
+```{r}
+summary(OACVD.match$weights)
+```
+
+#### Diseño de encuesta
+
+Los datos coincidentes se convierten en un objeto de diseño de encuesta y se estima el efecto del tratamiento teniendo en cuenta el diseño complejo de la encuesta.
+
+```{r}
+analytic.miss$matched <- 0
+length(analytic.miss$ID) # full data
+
+length(OACVD.match$ID) # matched data
+
+length(analytic.miss$ID[analytic.miss$ID %in% OACVD.match$ID])
+
+analytic.miss$matched[analytic.miss$ID %in% OACVD.match$ID] <- 1
+table(analytic.miss$matched)
+```
+
+```{r}
+# multiply with matching (ratio) weights with survey weights
+analytic.miss$combined.weight <- 0
+analytic.miss$combined.weight[analytic.miss$ID %in% OACVD.match$ID] <-
+  OACVD.match$weights*OACVD.match$survey.weight
+w.design0 <- svydesign(id=~1, weights=~combined.weight, 
+                      data=analytic.miss)
+w.design.m <- subset(w.design0, matched == 1)
+
+fit.design <- svyglm(I(CVD=="event") ~ OA, design = w.design.m, 
+       family = binomial(logit))
+
+publish(fit.design)
+```
+
+# **PSM en IMC-diabetes**
+
+### **Problema de análisis de propensión**
+
+-   Realice un análisis de **emparejamiento por puntaje de propensión** (emparejamiento de pares, sin reemplazo, utilizando un punto de corte SMD de 0,2, puede ajustarse por desequilibrio y/o todas las covariables en el modelo de resultados, si las hubiera) según las siguientes recomendaciones
+
+    -   Zanutto ( [2006](https://ehsanx.github.io/EpiMethods/propensityscore4.html#ref-zanutto2006comparison) )
+
+    -   DuGoff, Schuler y Stuart ( [2014](https://ehsanx.github.io/EpiMethods/propensityscore4.html#ref-dugoff2014generalizing) )
+
+    -   Austin, Jembere y Chiu ( [2018](https://ehsanx.github.io/EpiMethods/propensityscore4.html#ref-austin2018propensity) )
+
+Como se explica en el capítulo anterior sobre [PSM en OA-CVD (EE. UU.)](https://ehsanx.github.io/EpiMethods/propensityscore3.html) , hay cuatro pasos del emparejamiento por puntaje de propensión:
+
+-   Paso 1: Especificación del modelo PS
+
+-   Paso 2: Emparejamiento basado en los puntajes de propensión estimados
+
+-   Paso 3: Comprobación del saldo
+
+-   Paso 4: Modelado de resultados
+
+Solo el paso 1 es diferente para los enfoques de Zanutto (2006), DuGoff et al. (2014) y Austin et al. (2018).
+
+#### Conjunto de datos
+
+-   El siguiente conjunto de datos NHANES modificado
+
+    -   Datos de NHANES15lab5.R
+
+-   Utilice el conjunto de datos “analytic.with.miss” dentro de este archivo.
+
+    -   Para obtener las estimaciones finales del efecto del tratamiento, puede omitir los valores faltantes, pero solo después de crear el diseño (por ejemplo, crear un subconjunto del diseño, no de los datos en sí directamente).
+
+#### Variables
+
+-   Resultado: diabetes
+
+    -   'No' como categoría de referencia
+
+-   Exposición: IMC
+
+    -   convertir a binario con \>25 vs. \<= 25,
+
+    -   con \> 25 como categoría de referencia
+
+-   Lista de factores de confusión:
+
+    -   género
+
+    -   edad
+
+        -   asumir continuo
+
+    -   carrera
+
+    -   ingreso
+
+    -   educación
+
+    -   casado
+
+    -   colesterol
+
+    -   presión arterial diastólica
+
+    -   presión arterial sistólica
+
+-   Mediador:
+
+    -   trabajo fisico
+
+        -   'No' como categoría de referencia
+
+-   Características de la encuesta
+
+    -   fuente de alimentación
+
+    -   estratos
+
+    -   peso
+
+### **Preprocesamiento**
+
+#### Cargar datos
+
+```{r}
+load(file="NHANES15lab5.RData")
+```
+
+#### Resumen de variables
+
+```{r}
+# Exposure
+analytic.with.miss$bmi <- with(analytic.with.miss, 
+                                   ifelse(bmi>25, "Overweight", 
+                                          ifelse(bmi<=25, "Not overweight", NA)))
+analytic.with.miss$bmi <- as.factor(analytic.with.miss$bmi)
+analytic.with.miss$bmi <- relevel(analytic.with.miss$bmi, ref = "Overweight")
+
+# Drop unnecessary variables 
+analytic.with.miss$born <- NULL
+analytic.with.miss$physical.work <- NULL
+
+# Rename the weight variable into interview.weight
+names(analytic.with.miss)[names(analytic.with.miss) == "weight"] <- "interview.weight"
+```
+
+#### Reproducibilidad
+
+```{r}
+set.seed(504)
+
+```
+
+### **Enfoque de Zanutto (2006)**
+
+#### Paso 1
+
+```{r}
+# Specify the PS model to estimate propensity scores
+# NO INCLUYE PESO CLUSTER 
+ps.formula <- as.formula(I(bmi=="Not overweight") ~ gender + age + race + income + 
+                           education + married + cholesterol + diastolicBP + systolicBP)
+```
+
+#### Paso 2
+
+```{r}
+require(MatchIt)
+# Complete data for matching
+analytic.data <- analytic.with.miss[complete.cases(analytic.with.miss),]
+
+# Create a missing variable in the original dataset
+analytic.with.miss$miss <- 1
+analytic.with.miss$miss[analytic.with.miss$ID %in% analytic.data$ID] <- 0
+
+# Propensity scores
+ps.fit <- glm(ps.formula, data = analytic.data, family = binomial("logit"))
+analytic.data$PS <- predict(ps.fit, type = "response", newdata = analytic.data)
+
+# Caliper fixing to 0.2*sd(logit of PS)
+caliper <- 0.2*sd(log(analytic.data$PS/(1-analytic.data$PS)))
+
+# Match exposed and unexposed subjects 
+match.obj <- matchit(ps.formula, data = analytic.data,
+                     distance = analytic.data$PS, 
+                     method = "nearest", 
+                     replace = FALSE,
+                     caliper = caliper, 
+                     ratio = 1)
+analytic.data$PS <- match.obj$distance
+
+# Extract matched data
+matched.data <- match.data(match.obj) 
+```
+
+#### Paso 3
+
+```{r}
+# Balance checking
+cov <- c("gender", "age", "race", "income", 
+         "education", "married", "cholesterol", 
+         "diastolicBP", "systolicBP")
+
+tab1m <- CreateTableOne(strata = "bmi", vars = cov, data = matched.data, test = F)
+print(tab1m, smd = TRUE)
+```
+
+¿Todos los SMD son menores que el punto de corte especificado? Si es así, eso indica que hay un buen equilibrio de covariables.
+
+#### Paso 4
+
+```{r}
+require(survey)
+# Setup the design with survey features
+analytic.with.miss$matched <- 0
+analytic.with.miss$matched[analytic.with.miss$ID %in% matched.data$ID] <- 1
+
+# Survey setup for full data
+w.design0 <- svydesign(strata = ~strata, id = ~psu, weights = ~interview.weight, 
+                      data = analytic.with.miss, nest = TRUE)
+
+# Subset matched data
+w.design.m <- subset(w.design0, matched == 1)
+
+# Outcome model
+out.formula <- as.formula(I(diabetes == "Yes") ~ bmi)
+fit <- svyglm(out.formula, design = w.design.m, family = binomial("logit"))
+require(jtools)
+summ(fit, exp = TRUE, confint = TRUE, digits = 3)
+```
+
+#### Doble ajuste
+
+```{r}
+library(survey)
+# Outcome model with covariates adjustment
+fit.DA <- svyglm(I(diabetes == "Yes") ~ bmi + gender + age + race + income + 
+                 education + married + cholesterol + diastolicBP + systolicBP, 
+               design = w.design.m, family = binomial("logit"))
+summ(fit.DA, exp = TRUE, confint = TRUE, digits = 3)
+```
+
+### **Enfoque de DuGoff et al. (2014)**
+
+#### Paso 1
+
+```{r}
+# Specify the PS model to estimate propensity scores
+# INCLUYE psu + strata + interview.weight
+ps.formula2 <- as.formula(I(bmi == "Not overweight") ~ gender + age + race + income + education + 
+                           married + cholesterol + diastolicBP + systolicBP + 
+                           psu + strata + interview.weight)
+```
+
+#### Paso 2
+
+```{r}
+# Propensity scores
+ps.fit2 <- glm(ps.formula2, data = analytic.data, family = binomial("logit"))
+analytic.data$PS2 <- fitted(ps.fit2)
+
+# Caliper fixing to 0.2*sd(logit of PS)
+caliper2 <- 0.2*sd(log(analytic.data$PS2/(1-analytic.data$PS2)))
+
+# Match exposed and unexposed subjects 
+set.seed(504)
+match.obj2 <- matchit(ps.formula2, data = analytic.data,
+                     distance = analytic.data$PS2, 
+                     method = "nearest", 
+                     replace = FALSE,
+                     caliper = caliper2, 
+                     ratio = 1)
+analytic.data$PS2 <- match.obj2$distance
+
+# Extract matched data
+matched.data2 <- match.data(match.obj2) 
+```
+
+#### Paso 3
+
+```{r}
+# Balance checking
+cov2 <- c("gender", "age", "race", "income", 
+          "education", "married", "cholesterol", 
+         "diastolicBP", "systolicBP", 
+         "psu", "strata", "interview.weight")
+
+tab1m2 <- CreateTableOne(strata = "bmi", vars = cov2, data = matched.data2, test = F)
+print(tab1m2, smd = TRUE)
+
+```
+
+¿Todos los SMD son menores que el punto de corte especificado? Si es así, eso indica que hay un buen equilibrio de covariables.
+
+#### Paso 4
+
+```{r}
+# Setup the design with survey features
+analytic.with.miss$matched2 <- 0
+analytic.with.miss$matched2[analytic.with.miss$ID %in% matched.data2$ID] <- 1
+
+# Survey setup for full data
+w.design02 <- svydesign(strata = ~strata, id = ~psu, weights = ~interview.weight, 
+                       data = analytic.with.miss, nest = TRUE)
+
+# Subset matched data
+w.design.m2 <- subset(w.design02, matched2 == 1)
+
+# Outcome model
+out.formula <- as.formula(I(diabetes == "Yes") ~ bmi)
+fit2 <- svyglm(out.formula, design = w.design.m2, family = binomial("logit"))
+summ(fit2, exp = TRUE, confint = TRUE, digits = 3)
+```
+
+#### Doble ajuste
+
+```{r}
+# Outcome model with covariates adjustment
+fit2.DA <- svyglm(I(diabetes == "Yes") ~ bmi + gender + age + race + income + 
+                 education + married + cholesterol + diastolicBP + systolicBP, 
+               design = w.design.m, family = binomial("logit"))
+summ(fit2.DA, exp = TRUE, confint = TRUE, digits = 3)
+```
+
+### **Enfoque de Austin et al. (2018)**
+
+#### Paso 1
+
+```{r}
+# Specify the PS model to estimate propensity scores
+ps.formula3 <- as.formula(I(bmi == "Not overweight") ~ gender + age + race + income + education + 
+                           married + cholesterol + diastolicBP + systolicBP)
+
+# Survey design
+require(survey)
+analytic.design <- svydesign(id = ~psu, weights = ~interview.weight, strata = ~strata,
+                             data = analytic.data, nest = TRUE)
+```
+
+#### Paso 2
+
+```{r}
+# Propensity scores
+ps.fit3 <- svyglm(ps.formula3, design = analytic.design, family = binomial("logit"))
+analytic.data$PS3 <- fitted(ps.fit3)
+
+# Caliper fixing to 0.2*sd(logit of PS)
+caliper3 <- 0.2*sd(log(analytic.data$PS3/(1-analytic.data$PS3)))
+
+# Match exposed and unexposed subjects 
+set.seed(504)
+match.obj3 <- matchit(ps.formula, data = analytic.data,
+                     distance = analytic.data$PS3, 
+                     method = "nearest", 
+                     replace = FALSE,
+                     caliper = caliper3, 
+                     ratio = 1)
+analytic.data$PS3 <- match.obj3$distance
+
+# Extract matched data
+matched.data3 <- match.data(match.obj3) 
+```
+
+#### Paso 3
+
+```{r}
+# Balance checking
+cov <- c("gender", "age", "race", "income", 
+         "education", "married", "cholesterol", 
+         "diastolicBP", "systolicBP")
+
+tab1m3 <- CreateTableOne(strata = "bmi", vars = cov, data = matched.data3, test = F)
+print(tab1m3, smd = TRUE)
+```
+
+¿Todos los SMD son menores que el punto de corte especificado? Si es así, eso indica que hay un buen equilibrio de covariables.
+
+#### Paso 4
+
+```{r}
+# Setup the design with survey features
+analytic.with.miss$matched3 <- 0
+analytic.with.miss$matched3[analytic.with.miss$ID %in% matched.data3$ID] <- 1
+
+# Survey setup for full data
+w.design03 <- svydesign(strata = ~strata, id = ~psu, weights = ~interview.weight, 
+                       data = analytic.with.miss, nest = TRUE)
+
+# Subset matched data
+w.design.m3 <- subset(w.design03, matched3 == 1)
+
+# Outcome model
+out.formula <- as.formula(I(diabetes == "Yes") ~ bmi)
+fit3 <- svyglm(out.formula, design = w.design.m3, family = binomial("logit"))
+summ(fit3, exp = TRUE, confint = TRUE, digits = 3)
+```
+
+#### Doble ajuste
+
+```{r}
+# Outcome model with covariates adjustment
+fit3.DA <- svyglm(I(diabetes == "Yes") ~ bmi + gender + age + race + income + 
+                 education + married + cholesterol + diastolicBP + systolicBP, 
+               design = w.design.m, family = binomial("logit"))
+summ(fit3.DA, exp = TRUE, confint = TRUE, digits = 3)
+```
+
+# **PSM con MI**
+
+Implementación del método Propensity Score Matching (PSM) combinado con la imputación múltiple (MI) en un análisis estadístico, centrándose en el manejo de datos faltantes y la mitigación de confusores en estudios observacionales.
+
+```{r}
+# Load required packages
+library(MatchIt)
+require(tableone)
+require(survey)
+require(cobalt)
+require(Publish)
+require(optmatch)
+require(data.table)
+require(jtools)
+require(ggstance)
+require(DataExplorer)
+require(mitools)
+library(kableExtra)
+library(mice)
+```
+
+### **Planteamiento del problema**
+
+#### Regresión logística
+
+-   Utilice las **covariables** (enumeradas a continuación) en el modelo de imputación.
+
+-   **Las covariables del modelo de imputación** pueden ser diferentes a las covariables del análisis original. Se recomienda utilizar variables en el modelo de imputación que puedan predecir las variables con observaciones faltantes. En este ejemplo, utilizamos la variable de estratos como **variable auxiliar** en el modelo de imputación, pero no la variable de ponderación de la encuesta o PSU.
+
+-   También se puede modificar la **especificación del modelo de imputación** . Por ejemplo, utilizamos el método **pmm** para el IMC en el modelo de imputación.
+
+-   Elimine cualquier variable de identificación de sujeto del modelo de imputación si se creó en un paso intermedio. De hecho, las variables de identificación no deberían estar en el modelo de imputación si **no son predictivas** de las variables con observaciones faltantes.
+
+::: callout-caution
+### **Coincidencia de medias predictivas**:
+
+El método de “Coincidencia de medias predictivas” (PMM) en la imputación múltiple (MI) es una técnica ampliamente utilizada para manejar datos faltantes, particularmente adecuada para variables continuas. PMM funciona creando primero un modelo predictivo para la variable con datos faltantes, utilizando valores observados de otras variables en el conjunto de datos. Para cada valor faltante, PMM identifica un conjunto de valores observados con puntajes predichos que están cerca del puntaje predicho para el valor faltante, derivado del modelo predictivo. Luego, en lugar de imputar un puntaje predicho directamente, PMM selecciona aleatoriamente uno de los valores observados de este conjunto y lo asigna como el valor imputado. Este método conserva la distribución original de la variable imputada ya que solo utiliza valores observados para la imputación, y también tiende a preservar las relaciones entre las variables. PMM es particularmente ventajoso cuando el supuesto de normalidad de la variable imputada es cuestionable, proporcionando un enfoque sólido y práctico para gestionar datos faltantes en varios contextos de investigación.
+:::
+
+#### Emparejamiento por puntaje de propensión (Zanutto, 2006)
+
+-   Utilice el **emparejamiento por puntaje de propensión según** la recomendación de Zanutto EL (2006) en todos los conjuntos de datos imputados.
+
+-   Informe las estimaciones de OR agrupadas (ajustadas) y los intervalos de confianza del 95 % correspondientes (OR ajustado).
+
+### **Datos y variables**
+
+#### Variables
+
+Nos interesan principalmente los resultados **de la diabetes** y la exposición, **independientemente de si nacieron en los EE. UU. (o no)** .
+
+Variables bajo consideración:
+
+-   Características de la encuesta
+
+    -   Fuente de alimentación
+
+    -   estratos
+
+    -   peso de la encuesta
+
+-   Covariables
+
+    -   carrera
+
+    -   edad
+
+    -   casamiento
+
+    -   educación
+
+    -   género
+
+    -   IMC
+
+    -   presión arterial sistólica
+
+#### Preprocesamiento
+
+Se cargan los datos y se identifican las variables de interés.
+
+```{r}
+load(file="NHANES17.RData") # read data
+dim(analytic.with.miss)
+
+vars <- c("ID", # ID
+          "psu", "strata", "weight", # Survey features 
+          "race", "age", "married","education","gender","bmi","systolicBP", # Covariates
+          "born", # Exposure
+          "diabetes") # Outcome
+```
+
+#### Subconjunto del conjunto de datos
+
+Luego, el conjunto de datos se subdivide para conservar solo las variables relevantes, lo que garantiza que los análisis posteriores estén centrados y sean computacionalmente eficientes.
+
+```{r}
+dat.with.miss <- analytic.with.miss[,vars]
+dim(analytic.with.miss)
+```
+
+#### Inspeccionar los pesos
+
+Se inspeccionan y ajustan los pesos de las observaciones para evitar problemas en análisis posteriores.
+
+```{r}
+summary(dat.with.miss$weight)
+
+dat.with.miss$weight[dat.with.miss$weight == 0] <- 0.00000001
+
+```
+
+#### Recodificar la variable de exposición
+
+La variable de exposición se recodifica para mayor claridad y facilidad de interpretación de los resultados.
+
+```{r}
+dat.with.miss$born <- car::recode(dat.with.miss$born, 
+                            recodes = " 'Born in 50 US states or Washingt' = 
+                            'Born in US'; 'Others' = 'Others'; else = NA " )
+dat.with.miss$born <- factor(dat.with.miss$born, levels = c("Born in US", "Others"))
+```
+
+#### tipos de variables
+
+Se establecen los tipos de variables, lo que garantiza que cada variable se trate adecuadamente en los análisis.
+
+```{r}
+factor.names <- c("race", "married", "education", "gender", "diabetes")
+dat.with.miss[,factor.names] <- lapply(dat.with.miss[,factor.names], factor)
+```
+
+#### Inspeccionar el alcance del problema de datos faltantes
+
+Se genera una visualización para explorar la extensión y el patrón de los datos faltantes en el conjunto de datos, lo que informa la estrategia para manejarlos
+
+```{r}
+require(DataExplorer)
+require(ggthemes)
+require(ggplot2)
+
+plot_missing(dat.with.miss,theme_config = theme_bw())
+```
+
+Tenga en cuenta que se puede aplicar el método de **imputación múltiple y luego eliminación (MID) si el resultado tenía algunos valores faltantes. Debido a la pequeña cantidad de valores faltantes, es posible que MICE no impute los resultados.**
+
+### **Regresión logística**
+
+#### Inicialización
+
+Se inicializa el proceso MI, estableciendo el marco para imputaciones posteriores.
+
+```{r}
+imputation <- mice(data = dat.with.miss, maxit = 0, print = FALSE)
+```
+
+#### Configuración de covariables del modelo de imputación
+
+La matriz predictora se ajusta para especificar qué variables se utilizarán para predecir los valores faltantes en el modelo de imputación. Configuración de los estratos como variable auxiliar:
+
+```{r}
+pred <- imputation$pred
+pred 
+pred[,"ID"] <- pred["ID",] <- 0
+pred[,"psu"] <- pred["psu",] <- 0
+pred[,"weight"] <- pred["weight",] <- 0
+pred["strata",] <- 0
+pred
+```
+
+#### Configuración de la especificación del modelo de imputación
+
+Se especifica el método para imputar una variable en particular (por ejemplo, mediante el uso de la coincidencia de medias predictivas). Aquí, agregamos `pmm`para el IMC:
+
+```{r}
+meth <- imputation$meth
+meth["bmi"] <- "pmm"
+```
+
+#### Imputar datos incompletos
+
+Se imputan varios conjuntos de datos, cada uno de los cuales proporciona una “conjetura” diferente sobre los valores faltantes, en función de los datos observados. Imputamos m = 3 veces.
+
+```{r}
+imputation <- mice(data = dat.with.miss, 
+                   seed = 123, 
+                   predictorMatrix = pred,
+                   method = meth, 
+                   m = 3, 
+                   maxit = 5, 
+                   print = FALSE)
+impdata <- mice::complete(imputation, action="long")
+impdata$.id <- NULL
+m <- 3
+set.seed(123)
+allImputations <-  imputationList(lapply(1:m, 
+                                         function(n)
+                                           subset(impdata, 
+                                                  subset=.imp==n)))
+str(allImputations)
+```
+
+#### Diseño
+
+Se crea un objeto de diseño de encuesta, lo que garantiza que los análisis posteriores tengan en cuenta adecuadamente el diseño de la encuesta.
+
+```{r}
+w.design <- svydesign(ids = ~psu, weights = ~weight, strata = ~strata,
+                      data = allImputations, nest = TRUE)
+```
+
+#### Análisis de datos de encuestas
+
+Se ajusta un modelo de regresión logística a cada conjunto de datos imputado.
+
+```{r}
+model.formula <- as.formula(I(diabetes == 'Yes') ~ 
+                              born + race + age + married + 
+                              education + gender + bmi + systolicBP)
+fit.from.logistic <- with(w.design, svyglm(model.formula, family = binomial("logit")))
+```
+
+#### Estimaciones agrupadas
+
+Los resultados de los modelos de todos los conjuntos de datos imputados se agrupan para proporcionar una única estimación, teniendo en cuenta la incertidumbre debida a los datos faltantes.
+
+```{r}
+pooled.estimates <- MIcombine(fit.from.logistic)
+summary(pooled.estimates, digits = 2, logeffect=TRUE)
+OR <- round(exp(pooled.estimates$coefficients), 2) 
+OR <- as.data.frame(OR)
+CI <- round(exp(confint(pooled.estimates)), 2)
+OR <- cbind(OR, CI)
+OR[2,]
+```
+
+### **Análisis de emparejamiento por puntuación de propensión**
+
+#### Inicialización
+
+El proceso de MI se reinicia para facilitar la PSM en el contexto de MI.
+
+```{r}
+imputation <- mice(data = dat.with.miss, maxit = 0, print = FALSE)
+impdata <- mice::complete(imputation, action="long")
+m <- 3
+allImputations <- imputationList(lapply(1:m, 
+                                        function(n) 
+                                          subset(impdata, 
+                                                 subset=.imp==n)))
+```
+
+#### Zanutto EL (2006) bajo imputación múltiple
+
+::: callout-tip
+### Consejo
+
+Dentro de cada conjunto de datos imputado se realiza un proceso iterativo, que implica:
+
+1.  Estimación de puntuaciones de propensión.
+
+2.  Emparejamiento de sujetos tratados y no tratados en función de estas puntuaciones.
+
+3.  Extracción de datos coincidentes y verificación del equilibrio de covariables entre grupos coincidentes.
+
+4.  Ajuste de modelos de resultados a los datos ponderados de la encuesta y estimación de los efectos del tratamiento
+:::
+
+```{r}
+match.statm <- SMDm <- tab1m <- vector("list", m) 
+fit.from.PS <- vector("list", m)
+
+for (i in 1:m) {
+  analytic.i <- allImputations$imputations[[i]]
+  # Rename the weight variable into survey.weight
+  names(analytic.i)[names(analytic.i) == "weight"] <- "survey.weight"
+  
+  # Specify the PS model to estimate propensity scores
+  ps.formula <- as.formula(I(born=="Others") ~ 
+                             race + age + married + education + 
+                             gender + bmi + systolicBP)
+
+  # Propensity scores
+  ps.fit <- glm(ps.formula, data = analytic.i, family = binomial("logit"))
+  analytic.i$PS <- fitted(ps.fit)
+  
+  # Match exposed and unexposed subjects 
+  set.seed(123)
+  match.obj <- matchit(ps.formula, data = analytic.i, 
+                       distance = analytic.i$PS, 
+                       method = "nearest", 
+                       replace = FALSE,
+                       caliper = 0.2, 
+                       ratio = 1)
+  match.statm[[i]] <- match.obj
+  analytic.i$PS <- match.obj$distance
+  
+  # Extract matched data
+  matched.data <- match.data(match.obj) 
+  
+  # Balance checking
+  cov <- c("race", "age", "married", "education", "gender", "bmi", "systolicBP")
+  
+  tab1m[[i]] <- CreateTableOne(strata = "born", 
+                               vars = cov, data = matched.data, 
+                               test = FALSE, smd = TRUE)
+  SMDm[[i]] <- ExtractSmd(tab1m[[i]])
+  
+  # Setup the design with survey features
+  analytic.i$matched <- 0
+  analytic.i$matched[analytic.i$ID %in% matched.data$ID] <- 1
+  
+  # Survey setup for full data
+  w.design0 <- svydesign(strata = ~strata, id = ~psu, weights = ~survey.weight, 
+                         data = analytic.i, nest = TRUE)
+  
+  # Subset matched data
+  w.design.m <- subset(w.design0, matched == 1)
+  
+  # Outcome model (double adjustment)
+  out.formula <- as.formula(I(diabetes == "Yes") ~ 
+                              born + race + age + married + 
+                              education + gender + bmi + systolicBP)
+  fit.from.PS[[i]] <- svyglm(out.formula, design = w.design.m, 
+                     family = quasibinomial("logit"))
+}
+```
+
+#### Verificar datos coincidentes
+
+Se inspeccionan los datos coincidentes para garantizar que la comparación fue exitosa y apropiada.
+
+```{r}
+match.statm
+```
+
+#### Consultar saldo en datos coincidentes
+
+Se evalúa el equilibrio de covariables entre los grupos emparejados para garantizar que el emparejamiento haya reducido exitosamente el sesgo.
+
+```{r}
+SMDm
+```
+
+### **Estimación agrupada**
+
+Por último, las estimaciones del efecto del tratamiento a partir de los análisis emparejados en todos los conjuntos de datos imputados se agrupan para proporcionar una única estimación global, lo que garantiza que el resultado final tenga en cuenta adecuadamente la incertidumbre debida tanto al proceso de emparejamiento como a la imputación de los datos faltantes.
+
+```{r}
+pooled.estimates <- MIcombine(fit.from.PS)
+summary(pooled.estimates, digits = 2, logeffect=TRUE)
+OR <- round(exp(pooled.estimates$coefficients), 2) 
+OR <- as.data.frame(OR)
+CI <- round(exp(confint(pooled.estimates)), 2)
+OR <- cbind(OR, CI)
+OR[2,]
+```
+
+# **Ponderación PS (EE. UU.)**
+
+### **Problema de análisis de propensión**
+
+Utilizaremos el análisis **de ponderación por puntaje de propensión** (utilizando el punto de corte SMD 0,2, puede ajustarse por desequilibrio y/o todas las covariables en el modelo de resultados, si las hay) según las siguientes recomendaciones: ( [Zanutto 2006](#0) ) - ( [DuGoff, Schuler y Stuart 2014](#0) ) - ( [Austin, Jembere y Chiu 2018](#0) )
+
+-   Para obtener las estimaciones finales del efecto del tratamiento, puede omitir los valores faltantes, pero solo después de crear el diseño (por ejemplo, crear un subconjunto del diseño, no de los datos en sí directamente).
+
+#### Variables
+
+-   Resultado: diabetes
+
+    -   'No' como categoría de referencia
+
+-   Exposición: IMC
+
+    -   convertir a binario con \>25 vs. \<= 25,
+
+    -   con \> 25 como categoría de referencia
+
+-   Lista de factores de confusión:
+
+    -   género
+
+    -   edad
+
+        -   asumir continuo
+
+    -   carrera
+
+    -   ingreso
+
+    -   educación
+
+    -   casado
+
+    -   colesterol
+
+    -   presión arterial diastólica
+
+    -   presión arterial sistólica
+
+-   Mediador:
+
+    -   trabajo fisico
+
+        -   'No' como categoría de referencia
+
+-   Características de la encuesta
+
+    -   PSU
+
+    -   estratos
+
+    -   peso
+
+### **Preprocesamiento**
+
+#### Cargar datos
+
+```{r}
+load(file="NHANES15lab5.RData")
+
+```
+
+#### Resumen de variables
+
+```{r}
+# Full data
+dat.full <- analytic.with.miss
+
+# Exposure
+dat.full$bmi <- with(dat.full, ifelse(bmi>25, "Overweight", 
+                                      ifelse(bmi<=25, "Not overweight", NA)))
+dat.full$bmi <- as.factor(dat.full$bmi)
+dat.full$bmi <- relevel(dat.full$bmi, ref = "Overweight")
+
+# Drop unnecessary variables 
+dat.full$born <- NULL
+dat.full$physical.work <- NULL
+
+# Rename the weight variable into interview.weight
+names(dat.full)[names(dat.full) == "weight"] <- "interview.weight"
+```
+
+#### Datos completos del caso
+
+Utilizaremos los datos completos del caso para realizar el análisis.
+
+```{r}
+# Complete case data 
+analytic.data <- dat.full[complete.cases(dat.full),]
+dim(analytic.data)
+```
+
+#### Reproducibilidad
+
+```{r}
+set.seed(504)
+
+```
+
+### **Enfoque de Zanutto (2006)**
+
+#### Paso 1
+
+```{r}
+# Specify the PS model to estimate propensity scores
+ps.formula <- as.formula(I(bmi=="Not overweight") ~ gender + age + race + income + 
+                           education + married + cholesterol + diastolicBP + systolicBP)
+```
+
+#### Paso 2
+
+En el segundo paso, calcularemos los pesos estabilizados y no estabilizados. Sin embargo, a menudo se recomienda el peso de probabilidad inversa estabilizado para evitar pesos extremos ( [Hernán y Robins 2006](https://ehsanx.github.io/EpiMethods/propensityscore6.html#ref-hernan2006estimating) ) .
+
+```{r}
+# Propensity scores
+ps.fit <- glm(ps.formula, data = analytic.data, family = binomial("logit"))
+analytic.data$ps <- predict(ps.fit, type = "response", newdata = analytic.data)
+
+# Unstabilized weight
+analytic.data$usweight <- with(analytic.data, ifelse(I(bmi=="Not overweight"), 
+                                                     1/ps, 1/(1-ps)))
+
+# Unstabilized weight summary
+round(summary(analytic.data$usweight), 2)
+
+
+# Stabilized weight
+analytic.data$sweight <- with(analytic.data, ifelse(I(bmi=="Not overweight"), 
+                                                    mean(I(bmi=="Not overweight"))/ps, 
+                                                    (1-mean(I(bmi=="Not overweight")))/(1-ps)))
+
+# Stabilized weight summary
+round(summary(analytic.data$sweight), 2)
+
+```
+
+Podemos ver que la media de los pesos estabilizados es 1, mientras que es aproximadamente 2,1 para los pesos no estabilizados. Tanto para los pesos estabilizados como para los no estabilizados, parece que hay pesos extremos, en particular para los pesos no estabilizados. Los pesos extremos podrían tratarse con el truncamiento de pesos, típicamente truncados en los percentiles 1 y 99 ( [Cole y Hernán 2008](https://ehsanx.github.io/EpiMethods/propensityscore6.html#ref-cole2008constructing) ) .
+
+Trunquemos los pesos en los percentiles 1 y 99.
+
+```{r}
+# Truncating unstabilized weight
+analytic.data <- analytic.data %>% 
+  mutate(usweight_t = pmin(pmax(usweight, quantile(usweight, 0.01)), 
+                           quantile(usweight, 0.99)))
+summary(analytic.data$usweight_t)
+
+# Truncating stabilized weight
+analytic.data <- analytic.data %>% 
+  mutate(sweight_t = pmin(pmax(sweight, quantile(sweight, 0.01)), 
+                          quantile(sweight, 0.99)))
+summary(analytic.data$sweight_t)
+```
+
+#### Paso 3
+
+Ahora comprobaremos la distribución de las covariables según el estado de exposición en la pseudopoblación en términos de SMD preespecificado.
+
+```{r}
+# Covariates
+vars <- c("gender", "age", "race", "income", "education", "married", "cholesterol", 
+         "diastolicBP", "systolicBP")
+
+# Design with truncated unstabilized weight
+design.unstab <- svydesign(ids = ~ID, weights = ~usweight_t, data = analytic.data)
+
+# Design with truncated stabilized weight
+design.stab <- svydesign(ids = ~ID, weights = ~sweight_t, data = analytic.data)
+
+# Balance checking with truncated unstabilized weight
+tab.unstab <- svyCreateTableOne(vars = vars, strata = "bmi", data = design.unstab, test = F)
+print(tab.unstab, smd = T)
+```
+
+```{r}
+# Balance checking with truncated stabilized weight
+tab.stab <- svyCreateTableOne(vars = vars, strata = "bmi", data = design.stab, test = F)
+print(tab.stab, smd = T)
+```
+
+Como podemos ver, todos los SMD son menores que nuestro punto de corte especificado de 0,2, lo que indica que hay un buen equilibrio de covariables. A continuación, ajustaremos el modelo de resultados a la pseudopoblación (es decir, datos ponderados). Tenga en cuenta que debemos utilizar la función de encuesta como diseño para la estimación a nivel de población. Para este paso, multiplicaremos el peso de la puntuación de propensión y el peso de la encuesta y crearemos una `new weight`variable.
+
+#### Paso 4 - con peso no estabilizado
+
+```{r}
+require(survey)
+require(jtools)
+
+# Create an indicator variable in the full dataset
+dat.full$ind <- 0
+dat.full$ind[dat.full$ID %in% analytic.data$ID] <- 1
+
+# New weight = interview weight * unstabilized weight 
+analytic.data$new.usweight_t <- with(analytic.data, interview.weight * usweight_t)
+summary(analytic.data$new.usweight_t)
+
+
+#  New weight variable in the full dataset
+dat.full$new.usweight_t <- 0
+dat.full$new.usweight_t[dat.full$ID %in% analytic.data$ID] <- 
+  analytic.data$new.usweight_t
+summary(dat.full$new.usweight_t)
+
+# Survey setup with full data 
+w.design0 <- svydesign(id = ~psu, strata = ~strata, weights = ~new.usweight_t, 
+                      data = dat.full, nest = TRUE)
+
+# Subset the design for analytic sample
+w.design.s <- subset(w.design0, ind == 1)
+
+# Outcome model
+out.formula <- as.formula(I(diabetes == "Yes") ~ bmi)
+fit <- svyglm(out.formula, design = w.design.s, family = binomial("logit"))
+summ(fit, exp = TRUE, confint = TRUE, digits = 3)
+```
+
+#### Paso 4 - con peso estabilizado
+
+De manera similar, podemos ajustar el modelo de resultados con pesos estabilizados.
+
+```{r}
+# Create an indicator variable in the full dataset
+dat.full$ind <- 0
+dat.full$ind[dat.full$ID %in% analytic.data$ID] <- 1
+
+# New weight = interview weight * stabilized weight
+analytic.data$new.sweight_t <- with(analytic.data, interview.weight * sweight_t)
+summary(analytic.data$new.sweight_t)
+
+#  New weight variable in the full dataset
+dat.full$new.sweight_t <- 0
+dat.full$new.sweight_t[dat.full$ID %in% analytic.data$ID] <- analytic.data$new.sweight_t
+summary(dat.full$new.sweight_t)
+
+# Survey setup with full data 
+w.design0 <- svydesign(id = ~psu, strata = ~strata, weights = ~new.sweight_t, 
+                       data = dat.full, nest = TRUE)
+
+# Subset the design for analytic sample
+w.design.s2 <- subset(w.design0, ind == 1)
+
+# Outcome model
+out.formula <- as.formula(I(diabetes == "Yes") ~ bmi)
+fit.stab <- svyglm(out.formula, design = w.design.s2, family = binomial("logit"))
+summ(fit.stab, exp = TRUE, confint = TRUE, digits = 3)
+```
+
+#### Doble ajuste
+
+```{r}
+library(survey)
+# Outcome model with covariates adjustment
+fit.DA <- svyglm(I(diabetes == "Yes") ~ bmi + gender + age + race + income + 
+                 education + married + cholesterol + diastolicBP + systolicBP, 
+               design = w.design.s2, family = binomial("logit"))
+summ(fit.DA, exp = TRUE, confint = TRUE, digits = 3)
+```
+
+```{r}
+# Log odds ratio with p-values
+summary(fit.DA, df.resid = degf(w.design.s2))
+```
+
+### **Enfoque de DuGoff et al. (2014)**
+
+#### Paso 1
+
+```{r}
+# Specify the PS model to estimate propensity scores
+ps.formula2 <- as.formula(I(bmi == "Not overweight") ~ gender + age + race + income + education + 
+                           married + cholesterol + diastolicBP + systolicBP + 
+                           psu + strata + interview.weight)
+```
+
+#### Paso 2
+
+```{r}
+# Propensity scores
+ps.fit2 <- glm(ps.formula2, data = analytic.data, family = binomial("logit"))
+analytic.data$ps2 <- fitted(ps.fit2)
+
+# Stabilized weight
+analytic.data$sweight.dug <- with(analytic.data, ifelse(I(bmi=="Not overweight"), 
+                                                    mean(I(bmi=="Not overweight"))/ps2, 
+                                                    (1-mean(I(bmi=="Not overweight")))/(1-ps2)))
+summary(analytic.data$sweight.dug)
+
+# Truncating stabilized weight
+analytic.data <- analytic.data %>% 
+  mutate(sweight.dug_t = pmin(pmax(sweight.dug, quantile(sweight.dug, 0.01)), 
+                          quantile(sweight.dug, 0.99)))
+summary(analytic.data$sweight.dug_t)
+```
+
+#### Paso 3
+
+```{r}
+# Balance checking
+cov2 <- c("gender", "age", "race", "income", "education", "married", "cholesterol", 
+         "diastolicBP", "systolicBP")
+
+# Design with truncated stabilized weight
+design.stab <- svydesign(ids = ~ID, weights = ~sweight.dug_t, data = analytic.data)
+
+# Balance checking with truncated stabilized weight
+tab.stab2 <- svyCreateTableOne(vars = cov2, strata = "bmi", data = design.stab, test = F)
+print(tab.stab2, smd = T)
+```
+
+#### Paso 4
+
+```{r}
+# Create an indicator variable in the full dataset
+dat.full$ind <- 0
+dat.full$ind[dat.full$ID %in% analytic.data$ID] <- 1
+
+# New weight = interview weight * stabilized weight
+analytic.data$new.sweight.dug_t <- with(analytic.data, interview.weight * sweight.dug_t)
+summary(analytic.data$new.sweight.dug_t)
+
+#  New weight variable in the full dataset
+dat.full$new.sweight.dug_t <- 0
+dat.full$new.sweight.dug_t[dat.full$ID %in% analytic.data$ID] <- analytic.data$new.sweight.dug_t
+summary(dat.full$new.sweight.dug_t)
+
+# Survey setup with full data 
+w.design0 <- svydesign(id = ~psu, strata = ~strata, weights = ~new.sweight.dug_t, 
+                       data = dat.full, nest = TRUE)
+
+# Subset the design for analytic sample
+w.design.s2 <- subset(w.design0, ind == 1)
+
+# Outcome model
+out.formula <- as.formula(I(diabetes == "Yes") ~ bmi)
+fit.stab.dug <- svyglm(out.formula, design = w.design.s2, family = binomial("logit"))
+summ(fit.stab.dug, exp = TRUE, confint = TRUE, digits = 3)
+```
+
+#### Doble ajuste
+
+```{r}
+# Outcome model with covariates adjustment
+fit2.DA <- svyglm(I(diabetes == "Yes") ~ bmi + gender + age + race + income + 
+                 education + married + cholesterol + diastolicBP + systolicBP, 
+               design = w.design.s2, family = binomial("logit"))
+summ(fit2.DA, exp = TRUE, confint = TRUE, digits = 3)
+
+# Log odds ratio with p-values
+summary(fit2.DA, df.resid = degf(w.design.s2))
+```
+
+### **Enfoque de Austin et al. (2018)**
+
+#### Paso 1
+
+```{r}
+# Specify the PS model to estimate propensity scores
+ps.formula3 <- as.formula(I(bmi == "Not overweight") ~ gender + age + race + income + education + 
+                           married + cholesterol + diastolicBP + systolicBP)
+
+# Survey design
+require(survey)
+analytic.design <- svydesign(id = ~psu, weights = ~interview.weight, strata = ~strata,
+                             data = analytic.data, nest = TRUE)
+```
+
+#### Paso 2
+
+```{r}
+# Propensity scores
+ps.fit3 <- svyglm(ps.formula3, design = analytic.design, family = binomial("logit"))
+analytic.data$ps3 <- fitted(ps.fit3)
+
+# Stabilized weight
+analytic.data$sweight.aus <- with(analytic.data, ifelse(I(bmi=="Not overweight"), 
+                                                    mean(I(bmi=="Not overweight"))/ps3, 
+                                                    (1-mean(I(bmi=="Not overweight")))/(1-ps3)))
+summary(analytic.data$sweight.aus)
+
+# Truncating stabilized weight
+analytic.data <- analytic.data %>% 
+  mutate(sweight.aus_t = pmin(pmax(sweight.aus, quantile(sweight.aus, 0.01)), 
+                          quantile(sweight.aus, 0.99)))
+summary(analytic.data$sweight.aus_t)
+```
+
+#### Paso 3
+
+```{r}
+# Balance checking
+vars <- c("gender", "age", "race", "income", "education", "married", "cholesterol", 
+          "diastolicBP", "systolicBP")
+
+# Design with truncated stabilized weight
+design.stab <- svydesign(ids = ~ID, weights = ~sweight.aus_t, data = analytic.data)
+
+# Balance checking with truncated stabilized weight
+tab.stab.aus <- svyCreateTableOne(vars = vars, strata = "bmi", data = design.stab, test = F)
+print(tab.stab.aus, smd = T)
+```
+
+#### Paso 4
+
+```{r}
+# Create an indicator variable in the full dataset
+dat.full$ind <- 0
+dat.full$ind[dat.full$ID %in% analytic.data$ID] <- 1
+
+# New weight = interview weight * stabilized weight
+analytic.data$new.sweight.aus_t <- with(analytic.data, interview.weight * sweight.aus_t)
+summary(analytic.data$new.sweight.aus_t)
+
+#  New weight variable in the full dataset
+dat.full$new.sweight.aus_t <- 0
+dat.full$new.sweight.aus_t[dat.full$ID %in% analytic.data$ID] <- analytic.data$new.sweight.aus_t
+summary(dat.full$new.sweight.aus_t)
+
+# Survey setup with full data 
+w.design0 <- svydesign(id = ~psu, strata = ~strata, weights = ~new.sweight.aus_t, 
+                       data = dat.full, nest = TRUE)
+
+# Subset the design for analytic sample
+w.design.s2 <- subset(w.design0, ind == 1)
+
+# Outcome model
+out.formula <- as.formula(I(diabetes == "Yes") ~ bmi)
+fit.stab.aus <- svyglm(out.formula, design = w.design.s2, family = binomial("logit"))
+summ(fit.stab.aus, exp = TRUE, confint = TRUE, digits = 3)
+```
+
+#### Doble ajuste
+
+```{r}
+# Outcome model with covariates adjustment
+fit3.DA <- svyglm(I(diabetes == "Yes") ~ bmi + gender + age + race + income + 
+                 education + married + cholesterol + diastolicBP + systolicBP, 
+               design = w.design.s2, family = binomial("logit"))
+summ(fit3.DA, exp = TRUE, confint = TRUE, digits = 3)
+
+# Log odds ratio with p-values
+summary(fit3.DA, df.resid = degf(w.design.s2))
+```

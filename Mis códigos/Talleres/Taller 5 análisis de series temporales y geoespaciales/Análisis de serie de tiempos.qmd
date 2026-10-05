@@ -1,0 +1,504 @@
+---
+title: "Time series analysis"
+format: 
+  html:
+    toc: true
+    toc_float: 
+      collapsed: true
+    embed-resources: true
+    self-contained-math: true
+    tabsets: true
+editor: visual
+author: Daniel F
+---
+
+```{r echo = FALSE}
+
+setwd("C:/Users/danfe/Dropbox/Proyectos Daniel/Cursos - diplomados - Maestrias/Programa de autoformación en investigación y análisis de datos/Talleres")
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Análisis de series de tiempo
+
+1.  Ejemplo una serie de tiempo de pasajeros.
+
+2.  Ejemplo calentamiento global
+
+3.  Ejemplo datos de avistamientos de tiburones en buceo
+
+```{r}
+#Cargar librerias
+library(pacman)
+p_load(xts)
+p_load(aTSA)
+p_load(ggplot2)
+p_load(fable)
+p_load(fpp2)
+p_load(forecast)
+p_load(tsibble)
+p_load(tseries)
+p_load(tsbox)
+p_load(plyr)
+p_load(reshape)
+p_load(RCurl)
+
+```
+
+## Ejemplo 1: Serie de tiempo de pasajeros
+
+```{r}
+
+#cargar datos
+
+data("AirPassengers")
+#Primero se deben graficar los datos para ver posibles patrones
+plot(AirPassengers, type="o", xlab="Tiempo", ylab="Valores", main="Pasajeros")
+
+```
+
+Graficar la autocorrelación
+
+```{r}
+acf(AirPassengers, lag=48, col = 2, xlab = "lag", ylab ="Valores de AC")
+```
+
+Autcorrelación parcial
+
+```{r}
+pacf(AirPassengers, lag=48, col = 2, xlab = "lag", ylab ="Valores de AC")
+```
+
+Como hay confirmación de tendencia se hace la diferencia (1 - lag)
+
+```{r}
+plot(diff(AirPassengers), xlab="Tiempo", ylab="Valores")
+
+acf(diff(AirPassengers), lag=48, col = 2, xlab = "lag", ylab ="Valores de AC")
+
+pacf(diff(AirPassengers), lag=48, col = 2, xlab = "lag", ylab ="Valores de AC")
+```
+
+Como la varianza va incremento en el tiempo se debe trasformar con logaritmos para buscar la homogeneidad de las varianzas
+
+```{r}
+plot(diff(log(AirPassengers)), xlab="Tiempo", ylab="Valores")
+
+acf(diff(log(AirPassengers)), lag=48, col = 2, xlab = "lag", ylab ="Valores de AC")
+
+pacf(diff(log(AirPassengers)), lag=48, col = 2, xlab = "lag", ylab ="Valores de AC")
+```
+
+Augmented Dickey-Fuller test para ver no estacionaridad
+
+Devuelve la probabilidad de ser no estacionaria
+
+-   Si es mayor que 0.05 la serie es no estacionaria (tiene tendencia)
+
+-   Si es menor que 0.05 es estacionaria (No hay tendencia)
+
+```{r}
+adf.test(diff(log(AirPassengers)), alternative="stationary")
+
+```
+
+Ajuste automatico de los coeficientes
+
+```{r}
+ARIMAmodel <- auto.arima(log(AirPassengers))
+ARIMAmodel
+```
+
+(p,d,q) parte regular
+
+(P, D, Q) parte estacional
+
+Al modelar datos con modelos ARIMA, a veces resulta útil representar gráficamente las raíces características inversas. Las siguientes funciones calcularán y representarán gráficamente las raíces inversas de cualquier modelo ARIMA ajustado (incluidos los modelos estacionales).
+
+### Diagnóstico del modelo
+
+```{r}
+# Método 1
+
+tsdiag(ARIMAmodel) # Demuestra que el modelo no presenta autocorrelación entre residuos
+
+Box.test(ARIMAmodel$residuals, lag = 10, type = "Ljung-Box") # = ruido blanco
+
+```
+
+```{r}
+# Método 2
+checkresiduals(ARIMAmodel) # modelo con solo ruido blanco = adecuado para predicciones
+```
+
+### Observados vs esperados del modelo
+
+```{r}
+
+plot(ARIMAmodel$x, col="red")
+lines(fitted(ARIMAmodel), col="blue")
+
+ARIMAmodeldlog <- auto.arima(diff(log(AirPassengers)))
+ARIMAmodeldlog
+plot(ARIMAmodeldlog$x, col="red")
+lines(fitted(ARIMAmodeldlog), col="blue")
+```
+
+### Predicción
+
+```{r}
+forecast(ARIMAmodeldlog, h = 12)
+autoplot(forecast(ARIMAmodeldlog, h = 12))
+
+autoplot(forecast(ARIMAmodel, h = 12))
+
+airpass<- as.data.frame(forecast(ARIMAmodel, h = 12))
+
+exp(airpass$`Point Forecast`)
+```
+
+## Ejemplo 2: Calentamiento global
+
+```{r}
+#Datos de temperatura mundial
+URL<-url("https://crudata.uea.ac.uk/cru/data/temperature/HadCRUT5.0Analysis_gl.txt")
+
+gtemp<- read.table(URL, fill=TRUE)
+View(gtemp)
+## Poner los nombres de las columnas
+colnames(gtemp)<-c("Año", month.abb, "Anual")
+View(gtemp)
+
+##Esta hoja de datos tienen dos tipos de fila, una para anomalía y otra de temperatura
+##Solo ocupamos el primer tipo, por lo cual es siguiente comando
+##elimina el en una secuencia "[-seq" segundo tipo "(2,nrow(c)," cada 2 filas "by=2"
+gtemp<-gtemp[-seq(2,nrow(gtemp), by=2),]
+## Poner el año como nombre de la fila
+rownames(gtemp) <- gtemp[,1]
+attach(gtemp)
+
+```
+
+Primero se deben graficar los datos para ver posibles patrones
+
+```{r}
+#Primero se deben graficar los datos para ver posibles patrones
+plot(Anual ~ Año, data = gtemp, type = "o", xlab="Año",ylab = "Anomalía",
+     main = "Temperatura 1850-2024")
+#Graficar la autocorrelación
+acf(Anual, col="2", lag=20)
+#Graficar la autocorrelación parcial
+pacf(Anual,col="2", lag=20)
+```
+
+Como hay confirmación de tendencia se hace la diferencia (1 lag)
+
+```{r}
+plot(diff(Anual), type="o", xlab="Lag", ylab="Dif. Anomalía")
+#Graficar la autocorrelación
+acf(Anual, col="2", lag=20)
+#Graficar la autocorrelación parcial
+pacf(Anual,col="2", lag=20)
+```
+
+Evaluamos si hay estacionalidad
+
+```{r}
+adf.test(diff(log(AirPassengers)), alternative="stationary")
+
+```
+
+Corremos modelo de forma manual
+
+```{r}
+# de acuerdo a gráficos
+ARIMAmodel1 <- arima(Anual, order=c(3,1,0))
+ARIMAmodel2 <- arima(Anual, order=c(3,1,1))
+# Comparador aleatorio
+ARIMAmodel3 <- arima(Anual, order=c(0,1,3))
+
+AIC <- c(ARIMAmodel1$aic, ARIMAmodel2$aic, ARIMAmodel3$aic)
+Loglik<- c(ARIMAmodel1$loglik, ARIMAmodel2$loglik, ARIMAmodel3$loglik)
+
+data.frame(Loglik, AIC)
+```
+
+Corremos modelo de forma automática
+
+```{r}
+ARIMAmodel2 <- auto.arima(Anual)
+ARIMAmodel2
+```
+
+### Diagnóstico del modelo
+
+```{r}
+checkresiduals(ARIMAmodel2)
+```
+
+### observados vs esperados
+
+```{r}
+plot(ARIMAmodel2$x, col="red")
+lines(fitted(ARIMAmodel2), col ="blue")
+```
+
+### Predicción
+
+```{r}
+forecast(ARIMAmodel2, h = 12)
+autoplot(forecast(ARIMAmodel2, h = 12))
+```
+
+## Ejemplo 3: Avistamiento de tiburones
+
+```{r}
+# Crear la base de datos de avistamientos de tiburones martillo
+tiburones_data <- data.frame(
+  Año = rep(2003:2006, each = 12),
+  Mes = rep(c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"), 4),
+  Avistamientos = c(
+    66, 35, 77, 82, 20, 101, 147, 94, 111, 99, 49, 82,
+    56, 46, 22, 22, 139, 71, 142, 75, 54, 8, 38, 62,
+    83, 45, 71, 84, 130, 73, 62, 94, 89, 3, 54, 26,
+    22, 19, 151, 173, 172, 97, 134, 184, 193, 195, 202, 96
+  )
+)
+
+# Convertir a serie temporal
+martillo.ts <- ts(tiburones_data$Avistamientos, start = c(2003, 1), end = c(2006, 12), frequency = 12)
+
+martillo.ts
+```
+
+Podemos descomponer la serie
+
+```{r}
+library(forecast)
+library(sweep)
+fit_decomposed <- martillo.ts %>%
+    decompose()
+
+plot(fit_decomposed)
+```
+
+```{r}
+acf(diff(martillo.ts), col="2", lag=24)
+pacf(diff(martillo.ts), col="2", lag=24)
+
+```
+
+```{r}
+ARIMAmodel1<-auto.arima(martillo.ts)
+ARIMAmodel1
+ARIMAmodel2<-arima(martillo.ts, order=c(0,1,1), seasonal=c(0,0,1))
+```
+
+```{r}
+checkresiduals(ARIMAmodel1)
+```
+
+```{r}
+plot(ARIMAmodel1$x,col="black")
+lines(fitted(ARIMAmodel1), col="blue")
+```
+
+```{r}
+plot(forecast(ARIMAmodel1))
+```
+
+# ITS
+
+```{r}
+library( "scales" )        # variable transforms, formatting tables
+library( "stargazer" )     # formatting regression output
+library( "dplyr" )         # data wrangling
+library( "pander" )        # nice tables
+#devtools::install_github( repo="OuhscBbmc/Wats")
+library( "Wats" )          # time series plots
+```
+
+## Ejemplo práctico
+
+Aplicaremos los conceptos en el siguiente ejemplo práctico.
+
+Vamos a echar un vistazo a un conjunto de datos simulados que describen el bienestar de una clase de estudiantes. El bienestar de los estudiantes es un tema cada vez más discutido en [los debates de políticas](http://oecdeducationtoday.blogspot.com/2018/03/mental-health-students-school.html) y algunos estados están introduciendo [clases de educación sobre salud mental](https://www.nbcnews.com/better/health/fall-all-new-york-students-will-be-learning-about-mental-ncna911031) (incluso algunas [universidades](https://www.nytimes.com/2018/01/26/nyregion/at-yale-class-on-happiness-draws-huge-crowd-laurie-santos.html) ).
+
+El conjunto de datos contiene 365 observaciones diarias del bienestar de una clase de estudiantes. El bienestar se mide mediante un índice de 0 a 300. En t = 201, los estudiantes comenzarán a asistir a una clase de educación sobre salud mental. Queremos entender cómo (y si) mejora su bienestar.
+
+```{r}
+# load data from GitHub
+URL <- "https://github.com/DS4PS/pe4ps-textbook/blob/master/data/time-series-example.rds?raw=true"
+dataTS <- readRDS(gzcon(url( URL )))
+```
+
+En primer lugar, observamos cómo se estructura el conjunto de datos utilizando la función *de cabeza* y *cola* . También podemos observar las filas 198 a 204, donde se produce la interrupción.
+
+```{r}
+dataTS$Y <- round(dataTS$Y,1)
+
+d.temp <- rbind( head(dataTS), c("...","...","...","..."),
+                 dataTS[ 198:200, ], 
+                 c("**START**","**TREATMENT**","---","---"), 
+                 dataTS[ 201:204, ],  
+                 c("...","...","...","..."),
+                 tail(dataTS) )
+
+row.names( d.temp ) <- NULL  
+pander( d.temp )
+```
+
+```{r}
+attach(dataTS)
+
+plot( dataTS$T, dataTS$Y,
+      bty="n", pch=19, col="gray",
+      ylim = c(0, 300), xlim=c(0,400),
+      xlab = "Time (days)", 
+      ylab = "Wellbeing Index" )
+
+# Line marking the interruption
+abline( v=200, col="firebrick", lty=2 )
+text( 200, 300, "Start of Wellbeing Classes", col="firebrick", cex=1.3, pos=4 )
+
+# Add the regression line
+ts <- lm( Y ~ T + D + P, data=dataTS )
+lines( dataTS$T, ts$fitted.values, col="steelblue", lwd=2 )
+```
+
+El conjunto de datos contiene cuatro variables:
+
+| **Columna** | **Nombre de la variable**                | **Descripción**                               |
+|:-----------------|:---------------------------|:--------------------------|
+| $Y$         | Bienestar                                | Índice de bienestar (de 0 a 300)              |
+| T           | Tiempo                                   | Tiempo (de 1 a 365)                           |
+| D           | Tratamiento                              | Observación post (=1) y pre (=0) intervención |
+| P           | Tiempo transcurrido desde el tratamiento | Tiempo transcurrido desde la intervención     |
+
+Nuestro modelo se basa en la ecuación  1.1 :
+
+$$
+\begin{equation} \text{Y} = \text{b}_0 + \text{b}_1*Time + \text{b}_2*Treatment + \text{b}_3*Time Since Treatment + \text{e} \tag{2.1} \end{equation}
+$$
+
+Podemos ejecutar el modelo usando la función **lm** en R.
+
+```{r}
+regTS = lm ( Y ~ T + D + P, data=dataTS)  # Our time series model
+
+library(gtsummary)
+tbl_regression(regTS, intercept = TRUE)
+```
+
+Interpretemos nuestros coeficientes:
+
+-   El coeficiente **de tiempo** indica la tendencia del bienestar antes de la intervención. Es positivo y significativo, lo que indica que el bienestar de los estudiantes aumenta con el tiempo. Por cada día que pasa, el bienestar aumenta 0,19 puntos en el índice.\
+
+-   El coeficiente **de tratamiento** indica el aumento del bienestar de los estudiantes inmediatamente después de la intervención. Podemos ver que el efecto inmediato es positivo y significativo indicando que asistir a la primera clase aumentó el bienestar de los estudiantes en 13,09.\
+
+-   El coeficiente **de tiempo transcurrido desde el tratamiento** indica que la tendencia ha cambiado tras la intervención. El efecto sostenido es positivo y significativo, indicando que por cada día que pasa tras la intervención, el bienestar de los estudiantes aumenta 0,54 puntos en el índice.
+
+## Representación gráfica de los resultados
+
+Un ejercicio útil es calcular los resultados en diferentes puntos del tiempo como hicimos en la sección previa. Por ejemplo, podemos calcular el resultado justo después de la intervención, que ocurrió en el momento = 200. Tenga en cuenta que, si bien Tiempo = 201,Tiempo transcurrido desde el tratamiento es igual a 1 porque es el primer día después de la intervención
+
+$$
+\begin{equation} \text{Y} = \text{b}_0 + \text{b}_1*201 + \text{b}_2*1 + \text{b}_3*1 + \text{e} \tag{2.2} \end{equation}
+$$
+
+También podemos representar el punto en un gráfico:
+
+```{r fig.cap="Figura 2.1: Nivel de bienestar en t = 201"}
+# We create a small dataset with the new values
+data1 <- as.data.frame( cbind( T = 201, D = 1, P = 1 )) 
+
+# We use the function predict to (1) take the 
+#  coefficients estimated in regTS and 
+#  (2) calculate the outcome Y based on the 
+#  values we set in the new datset
+y1 <- predict( regTS, data1 ) 
+
+# We plot our initial observations, the column Y in our dataset
+plot( Y,
+      bty="n",
+      col = gray(0.5,0.5), pch=19,
+      xlim = c(1, 365), 
+      ylim = c(0, 300),
+      xlab = "Time (days)", 
+      ylab = "Wellbeing Index")
+
+# We add a point showing the level of wellbeing at time = 201)
+points( 201, y1, col = "dodgerblue4", 
+        pch = 19, bg = "dodgerblue4", cex = 2 )
+text( 201, y1, labels = "t = 201", pos = 4, cex = 1 )
+
+# Line marking the interruption
+abline( v=200, col="red", lty=2 )
+```
+
+El contrafactual al día 30 pos intervención
+
+```{r}
+data2 <- as.data.frame( cbind( T = 230, D = 1, P = 30 )) # New data
+
+data3 <- as.data.frame(cbind( T= 230, D = 0, P = 0)) # Data if the intervention does not occur
+
+y2 <- predict( regTS, data2 ) # We predict the new outcome
+
+y3 <- predict(regTS, data3) #Counterfactual
+
+# We plot our initial observations, the column Y in our dataset
+plot( Y,
+      bty="n",
+      col = gray(0.5,0.5), pch=19,
+      xlim = c(1, 365), 
+      ylim = c(0, 300),
+      xlab = "Time (days)", 
+      ylab = "Wellbeing Index")
+
+# We add a  point showing the level of wellbeing at time = 230
+points(230, y2, col = "dodgerblue4", pch = 19, bg = "red", cex = 2)
+
+# We add a point indicating the counterfactual
+points(230, y3, col = "darkorange2", pch = 19, cex = 2)
+
+# Label for our predicted outcome
+text(230, y2, labels = "Y at t = 230", pos = 4, cex = 1)
+
+#Label for the counterfactual 
+text(230, y3, labels = "C at t = 230", pos = 4, cex = 1)
+
+# Line marking the interruption
+abline( v=200, col="red", lty=2 )
+```
+
+Por último, podemos observar los resultados trazando todos los resultados previstos y sus contrafácticos. En la figura 2.5 podemos ver que hay un aumento en el índice de bienestar después de la intervención. La línea discontinua representa el contrafáctico.
+
+```{r}
+pred1 <- predict(regTS, dataTS) 
+# To estimate all predicted values of Y, we just use our dataset
+
+datanew <- as.data.frame(cbind(T = rep(1 : 365), D = rep(0), P = rep(0))) 
+# Create a new dataset where Treatment and Time Since Treatment are equal to 0 as the intervention did not occur.
+
+pred2 <- predict(regTS, datanew) 
+# Predict the counterfactuals
+
+plot( Y,
+      bty="n",
+      col = gray(0.5,0.5), pch=19,
+      xlim = c(1, 365), 
+      ylim = c(0, 400),
+      xlab = "Time (days)", 
+      ylab = "Wellbeing index")
+
+lines( rep(1:199), pred1[1:199], col="dodgerblue4", lwd = 3 )
+lines( rep(201:365), pred1[201:365], col="dodgerblue4", lwd = 3 )
+lines( rep(200:365), pred2[200:365], col="darkorange2", lwd = 3, lty = 5 ) 
+
+text(0, 45, labels = "Predicted values", pos = 4, cex = 1, col = "dodgerblue3")
+text(300, 95, labels = "Counterfactual", pos = 4, cex = 1, col = "darkorange2")
+
+# Line marking the interruption
+abline( v=200, col="darkorange2", lty=2 )
+```

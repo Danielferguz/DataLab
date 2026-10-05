@@ -1,0 +1,546 @@
+---
+title: "Taller ENDES"
+date: "`r Sys.Date()`"
+author: "Daniel Fernández"
+format: 
+  html:
+    toc: true
+    toc_float: 
+      collapsed: true
+    embed-resources: true
+    self-contained-math: true
+editor: visual
+---
+
+```{r}
+#| echo = FALSE
+
+# Cambiar directorio con Control + shift + h
+
+setwd("C:/_PROGRAMA/Estadística/Semana10/")
+setwd("C:/Users/danfe/Dropbox/Proyectos Daniel/Cursos - diplomados - Maestrias/Programa de autoformación en investigación y análisis de datos/Talleres/Taller 2 ENDES")
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Paso 1: Importación de las bases
+
+```{r}
+library(tidyverse)
+library(haven)
+library(survey)
+# devtools::install_github("horaciochacon/ENDES.PE")
+library(ENDES.PE)
+```
+
+descarga las bases de datos de microdatos de INEI <https://proyectos.inei.gob.pe/microdatos/>
+
+Cargamos las bases de datos de la ENDES 2023 con la función read_sav(), cambiar data por el directorio en el que se encuentre cada base)
+
+```{r table}
+HOGAR     <- read_sav("data/RECH0_2023.sav")
+VIVIENDA  <- read_sav("data/RECH23_2023.sav")  
+PS_VL <- read_sav("data/PS_VL_2023.sav")
+DESN_CRON <- read_sav("data/RECH6_2023.sav")
+
+
+#PERSONA   <- read_sav("data/RECH1_2023.SAV")
+
+#PPSS <- read_sav("data/Programas Sociales x Hogar_2023.sav")
+
+
+
+
+```
+
+## Paso 2: Unión de bases
+
+Visualizaremos los nombres de las primeras variables de cada base
+
+### Mergeo
+
+Mergeo solo considera dos bd: PS_VL y desnutricion cronica
+
+```{r}
+#Unimos base 
+base_Desnutri_Leche <-  unir_endes(base1 = DESN_CRON, base2 = PS_VL, 
+                         tipo_union = "individual") 
+base_Desnutri_Infantil_PSVL <- unir_endes(base1 = base_Desnutri_Leche, 
+                                          base2 = VIVIENDA, tipo_union = "hogar")  %>% 
+    unir_endes(base2 = HOGAR, tipo_union = "hogar") 
+```
+
+**Filtrar para todos los casos:**
+
+Se considera la BD RECH6 que identifica a los niños menores de 6 años de edad, la variable HC1 presenta la edad en meses de los niños menores de 6 años (incluye niños desde más de 5 meses hasta los 5 años, 11 meses y 29 días) que fueron listados en el hogar. de la BD RECH1, nos quedamos con los que durmieron la noche anterior HV103.
+
+El RECH06 tambien contempla la variable de medicion de hemoglobina (HC55) con un valor de 0 medido. Esto es necesario para variable de anemia, donde: 0(Medido), 3(No presente), 4(Rechazo) y 6(Otro)
+
+```{r}
+#La BD solo debe considerar niños mayores de 6 meses y que durmieron la noche anterior. #HC1   = Edad en meses, Archivo: RECH6 	NIÑOS MENORES DE 6 AÑOS table(base$HC1)
+#HV103 = ¿Durmió aquí anoche?, Archivo: RECH1(0)No:432 (1)Si:21032 (9)Inválidos
+
+# table(base_Desnutri_Infantil_PSVL$HV103) # No necesario si cuestionario solo se realizo a quienes durmieron la noche previa 
+
+base <- base_Desnutri_Infantil_PSVL %>% filter(HC1>=6 &    # niño >= 6meses
+                        HC55==0 &   # resultado de medir (hemoglobina)
+                        HC57 != 9)  # Nivel de anemia (1)Grave, (2)Moderado,
+                                    #  (3)Leve, 4(Sin anemia), (9)Inválidos
+
+base <- base_Desnutri_Infantil_PSVL %>% filter(!is.na(PS102_1A)) 
+
+#18900 observaciones  
+```
+
+Variable dependiente Vaso de Leche:
+
+```{r}
+#Variable Vaso de Leche
+#PS4 = Número de Orden del miembro del hogar que es beneficiario.RECH1::HVIDX
+table(base$PS102_1A)
+
+base <- base %>%
+mutate(  
+      VL = case_when( PS4 == 1 | PS4 == 2 | PS4 == 3 | PS4 == 4 | 
+                      PS4 == 5 | PS4 == 6 | PS4 == 7 ~ 1,
+                     is.na(PS4) ~ 0))
+
+base$VL = as.factor(base$VL)
+levels(base$VL) <- c("No", "Si")
+
+table(base$VL)
+#No(12886)  Si(6014)
+
+table(base$PS4)
+```
+
+**Edad del Niño:**
+
+```{r}
+#Variable Edad
+#Edad = Edad en meses HC1, Archivo: RECH6
+
+base <- base %>%
+  mutate(
+   Edad_meses = case_when(
+      HC1 >= 6 & HC1 <= 8 ~ "6 a 8 meses",
+      HC1 >= 9 & HC1 <= 11 ~ "9 a 11 meses",
+      HC1 >= 12 & HC1 <= 17 ~ "12 a 17 meses",
+      HC1 >= 18 & HC1 <= 23 ~ "18 a 23 meses",
+      HC1 >= 24 & HC1 <= 35 ~ "24 a 35 meses",
+      HC1 >= 36 & HC1 <= 47 ~ "36 a 47 meses",
+      HC1 >= 48 & HC1 <= 59 ~ "48 a 59 meses"))
+
+base$Edad_meses = factor(base$Edad_meses, 
+                    levels = c("6 a 8 meses", "9 a 11 meses", "12 a 17 meses", 
+                               "18 a 23 meses", "24 a 35 meses", "36 a 47 meses", 
+                               "48 a 59 meses"))
+table(base$Edad_meses)
+
+sum(!is.na(base$Edad_meses))
+```
+
+```{r}
+# Índice de riqueza (HV270) Archivo: RECH23
+# (1)Los más pobres (2)Pobre (3)Medio 4(Rico) 5(Más rico)
+
+base <- base %>%
+  mutate(
+    Riqueza = as_factor(HV270) %>% haven::zap_label()
+  )
+
+table(base$Riqueza)
+
+sum(!is.na(base$Riqueza))
+```
+
+**Anemia en Niños**
+
+-   Variable: Hemoglobina (Hb)
+
+-   Cálculo: Se mide la concentración de hemoglobina en la sangre del niño.
+
+-   Referencia Umbral: Menos de 11 g/dL para niños de 6 a 59 meses, y menos de 12 g/dL para niños de 5 a 11 años.
+
+Calculamos la variable Anemia:
+
+```{r}
+#Anemia
+#HC55  = Resultado de medir (hemoglobina) (HC55) Archivo: RECH6
+#        (0)Medido:18900 (3)No presente:0 (4)Rechazó:0 (6)Otro:0 (9)Inválidos
+table(base$HC55)
+#HC57  = Nivel de anemia, Archivo: RECH6
+#        (1)Grave:26 (2)Moderado:1959 (3)Leve:4667 (4)Sin anemia:12248 (9)Inválidos
+table(base$HC57)
+
+base <- base %>%
+  mutate(
+   Anemia = case_when(
+      HC57 == 1 | HC57 == 2 | HC57 == 3 ~ 1,
+      HC57 == 4 | is.na(HC57) ~ 0))
+
+base$Anemia = as.factor(base$Anemia)
+levels(base$Anemia) <- c("No", "Si")
+
+table(base$Anemia)
+
+table(base$VL, base$Anemia)
+
+table(base$Anemia, useNA = "no") %>%
+  addmargins(FUN = list(Total = sum), quiet = TRUE)
+# No(12248)  Si(6652)  Total(18900)
+```
+
+**Prueba de Chi, esta parte no funciona, despues se corriguira....**
+
+```{r}
+# base$Anemia = factor(base$Anemia, levels = c("No","Si")) REVISAR
+table(base$Anemia,base$VL)
+
+Chi <- chisq.test(table(base$Anemia,base$VL))
+  
+Chi
+print(paste("p-valor: ", format(Chi$p.value, digits = 4, scientific = FALSE)))
+
+
+#install.packages("add_ci")
+#library(add_ci)
+library(survey) 
+library(gtsummary)
+
+# Datos ponderados
+
+base %>%                   
+  tbl_svysummary(include = c(VL, Anemia),
+                 statistic= list (all_categorical() ~ "{p}",
+                              all_continuous() ~ "{mean} ± {sd}"),
+                                 digits = all_continuous() ~ 2 %>%
+  style_percent(columns = contains("p")) %>%
+  style_number(columns = contains("mean"), digits = 2)    
+   
+```
+
+**Desnutrición Infantil Crónica (Retraso en Talla para la Edad)**
+
+-   Variable: Talla para la edad (T/E)
+
+-   Cálculo: Se mide la talla del niño y se compara con la talla esperada para su edad, utilizando las tablas de crecimiento de la OMS (Organización Mundial de la Salud).
+
+-   Umbral: Menos de -2 desviaciones estándar (DE) de la mediana de la referencia de la OMS.
+
+```{r}
+
+library(Hmisc)
+
+# Desnutricion Cronica
+base <- base %>%
+  mutate(
+    di_te = HC70 / 100,
+    talla_edad = case_when(
+      di_te < -2.01 ~ "Retraso en el crecimiento",
+      di_te >= -2.01 & di_te <= 3.00 ~ "Talla normal",
+      di_te > 3.00 & di_te <= 4.00 ~ "Talla alta",
+      TRUE ~ NA_character_
+    ),
+    dc_nino = ifelse(talla_edad == "Retraso en el crecimiento", 1, 0)
+  )
+
+base$dc_nino = as.factor(base$dc_nino)
+levels(base$dc_nino) <- c("No", "Si")
+
+label(base$talla_edad) <- "Talla parstr(a la edad"
+label(base$dc_nino) <- "Desnutrición crónica"
+
+table(base$dc_nino)
+table(base$dc_nino, useNA = "no") %>%
+  addmargins(FUN = list(Total = sum), quiet = TRUE)
+
+table(base$VL,base$dc_nino)
+
+```
+
+**Desnutrición Infantil Aguda (Pérdida de Peso para la Talla)**
+
+-   Variable: Peso para la talla (P/T)
+
+-   Cálculo: Se mide el peso del niño y se compara con el peso esperado para su talla, utilizando las tablas de crecimiento de la OMS.
+
+-   Umbral: Menos de -2 desviaciones estándar (DE) de la mediana de la referencia de la OMS
+
+```{r}
+# Emaciacion
+base <- base %>%
+  mutate(
+    peso_talla = HC72 / 100,
+    emaciado = case_when(
+      peso_talla <= -3 ~ 1, # Emaciado 
+      peso_talla > -3 ~ 0   # bajo peso, normal, Sobrepeso  
+    )
+  )
+
+base$emaciado = as.factor(base$emaciado)
+levels(base$emaciado) <- c("No", "Si")
+
+label(base$peso_talla) <- "Emaciación / Bajo peso para la talla o D. Aguda"
+table(base$emaciado)
+
+table(base$VL,base$emaciado)
+table(base$emaciado, useNA = "no") %>%
+  addmargins(FUN = list(Total = sum), quiet = TRUE)
+
+```
+
+```{r}
+table(base$VL)
+table(base$VL, useNA = "no") %>%
+  addmargins(FUN = list(Total = sum), quiet = TRUE)
+```
+
+```         
+```
+
+**Para guardar en formato dta**
+
+```{r}
+#haven::write_dta(base_final, "base_final.dta")
+```
+
+## Otras variables relevantes
+
+-   Sexo del niño
+
+-   Historia de enfermedades del niño (diarrea, tos, fiebre, etc.)
+
+-   Prácticas de alimentación del niño (lactancia materna, alimentación complementaria, etc.)
+
+-   Características de la madre (edad, educación, ocupación, etc.)
+
+-   Características del hogar (ingresos, acceso a servicios básicos, etc.)
+
+```{r}
+
+```
+
+**Por ahora continuamos**
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+## Formato de tablas
+
+```{r}
+#| label: Tabla1
+
+
+library(gtsummary)
+
+# tema para redondear porcentajes a un decimal
+set_gtsummary_theme(list(
+  `tbl_summary-fn:percent_fun` = function(x) sprintf("%.1f", x * 100)
+))
+
+theme_gtsummary_compact() 
+
+# formato de digitos
+library(magrittr)
+
+style_percent_1digits <- purrr::partial(gtsummary::style_percent, digits = 1)
+style_number_2digits <- purrr::partial(gtsummary::style_number, digits = 2)
+
+
+```
+
+**Eliminamos missings de variables incluidas (Obviamos ello)**
+
+```{r}
+nrow(base) 
+
+ENDES %>% summarise(across(everything(), ~ sum(is.na(.))))
+
+ENDES <- na.omit(base)
+
+nrow(base) # 1,148 observations deleted
+
+```
+
+## setear base según diseño muestral
+
+```{r}
+library(survey) 
+CONGLOMERADO = base$HV021
+ESTRATO= base$HV022
+PONDERACION = base$HV005
+ENDES <-base
+
+diseño <- svydesign(id =~ CONGLOMERADO, strata =~ ESTRATO, 
+                    weights=~ PONDERACION, data=ENDES)  
+
+options(survey.lonely.psu = "certainty")
+
+```
+
+### Tabla 1
+
+**a) datos no ponderados**
+
+```{r}
+
+# visualiza los datos no ponderados
+tbl_summary(ENDES[,-c(1:3)],missing = "no",
+              statistic= list (all_categorical() ~ "{n}",
+                              all_continuous() ~ "{mean} ± {sd}"),
+                 digits = all_continuous() ~ 1)
+
+
+
+# visualiza los datos no ponderados
+tbl_summary(ENDES[,-c(1:3)],missing = "no",
+              statistic= list (all_categorical() ~ "{n}",
+                              all_continuous() ~ "{mean} ± {sd}"),
+                 digits = all_continuous() ~ 1)
+```
+
+**b) datos ponderados**
+
+```{r}
+
+# Datos ponderados
+
+diseño %>%                   
+  tbl_svysummary(include = c(VL, 
+                            Anemia, 
+                            di_te,
+                            dc_nino,
+                            peso_talla,
+                            talla_edad,
+                            emaciado, 
+                            Riqueza, 
+                            Edad_meses),
+                 statistic= list (all_categorical() ~ "{p}",
+                              all_continuous() ~ "{mean} ± {sd}"),
+                 digits = all_continuous() ~ 2) %>%
+   add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}")
+
+```
+
+## Tabla 2 - bivariado
+
+**a) datos no ponderados**
+
+```{r}
+# visualiza los datos no ponderados
+ENDES %>%                   
+tbl_summary(include=c(VL,Anemia, 
+                            di_te,
+                            peso_talla,
+                            talla_edad,
+                            emaciado, 
+                            Riqueza, 
+                            Edad_meses), by = dc_nino,
+            statistic= list (all_categorical() ~ "{n}",
+                              all_continuous() ~ "{mean} ± {sd}"),
+                 digits = all_continuous() ~ 2)
+
+# Datos ponderados
+```
+
+**b) datos ponderados**
+
+```{r}
+diseño %>%                   
+  tbl_svysummary(include = c(VL, 
+                            Anemia,
+                            di_te,
+                            peso_talla,
+                            talla_edad,
+                            emaciado, 
+                            Riqueza, 
+                            Edad_meses),
+                 by = diseño$dc_nino,
+                 percent = "row",
+                 statistic= list (all_categorical() ~ "{p}",
+                              all_continuous() ~ "{mean} ± {sd}"),
+                 digits = all_continuous() ~ 2) %>%
+   add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}")
+
+#%>%
+#add_p(pvalue_fun = ~ style_pvalue(.x, digits = 1))
+
+```
+
+## Tabla 3 - Regressiones
+
+```{r}
+
+# convertimos outcome en 0 y 1
+
+#ENDES$dc_nino <- ENDES$dc_nino %>% as.numeric() + 1
+
+diseño <- svydesign(id =~ CONGLOMERADO, strata =~ ESTRATO, 
+                    weights=~ PONDERACION, data=ENDES) 
+
+# Regression bivariada
+
+bivariado <- diseño %>%                   
+  tbl_uvregression(
+      method = survey::svyglm,
+      y = dc_nino,
+      method.args = list(family = quasipoisson(link="log")),
+      include = c(VL, Anemia, 
+                            peso_talla,
+                            emaciado, 
+                            Riqueza, 
+                            Edad_meses),
+      exponentiate = TRUE,    
+      pvalue_fun = ~style_pvalue(.x, digits = 3))
+
+
+
+
+# Regression multivariable
+  
+regresion_multi <- survey::svyglm(dc_nino ~ VL, 
+                            Anemia, 
+                            peso_talla,
+                            emaciado, 
+                            Riqueza, 
+                            Edad_meses, 
+                                    family = quasipoisson(link="log"), design = diseño)
+
+multivariable <-   tbl_regression(regresion_multi,
+      exponentiate = TRUE,    
+      pvalue_fun = ~style_pvalue(.x, digits = 3)) 
+
+
+
+## combinar con resultados univariantes 
+tbl_merge(
+  tbls = list(bivariado, multivariable),                          # combina
+  tab_spanner = c("**Univariate**", "**Multivariable**")) # establece los nombres de las cabeceras
+
+
+```
+
+## Evaluar supuestos
+
+```{r}
+library(performance)
+check_collinearity(regresion_multi)
+check_overdispersion(regresion_multi)
+
+model_performance(regresion_multi)
+test_likelihoodratio(regresion_multi)
+```

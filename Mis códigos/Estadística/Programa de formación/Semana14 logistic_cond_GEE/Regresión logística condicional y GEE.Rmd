@@ -1,0 +1,438 @@
+---
+title: 'Regresión logística condicional y ecuaciones de estimación generalizadas (GEE)'
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: journal
+    highlight: tango
+    code_folding: show 
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    df_print: paged
+    toc_float:
+      collapsed: true
+---
+
+```{r echo = FALSE}
+setwd("C:/Users/danfe/Dropbox/Proyectos Daniel/Cursos - diplomados - Maestrias/Programa de autoformación en investigación y análisis de datos/Rmarkdowns/Estadística/Programa de formación/Semana14 logistic_cond_GEE")
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                         fig.show = "asis", results = "show", fig.width = 10,
+                      fig.align='center',
+                      fig.path = "figures/",  # Configura el directorio donde se guardan los gráficos
+  dev = "png")
+```
+
+
+
+# Regresión logística condicional 
+
+La regresión logística condicional es una técnica estadística utilizada para analizar datos de estudios de casos y controles emparejados. Se enfoca en la relación entre una variable dependiente binaria y una o más variables independientes, considerando el emparejamiento de los casos y controles.
+
+La regresión logística tradicional (incondicional) está sesgada (sobreestimación de la OR) en los estudios de casos control donde se realiza emparejamiento, ya que la unidad de anpalisis no son los individuos, sino los pares (deja de existir independencia total de los controles). 
+
+El uso de la regresión logística condicional proporciona una comparación de cada estrato matcheado.
+
+**Ejemplo: ¿Existe asociación entre VIH y alcoholismo?**
+
+Caso control pareado: casos de VIH comparados a personas sin VIH ( vih)
+
+Pareo 1:1 por sexo y edad (+/ X años) de 396 personas (variable codigo ), 198 pares caso-control (variable caco)
+
+
+
+```{r}
+base <- haven::read_dta("RL condicional - VIH y alcoholismo.dta")
+
+library(haven)
+
+base$sexo <- as_factor(base$sexo)
+base$alcohol <- as_factor(base$alcohol)
+base$vih <- factor(base$vih, levels = c(0,1), labels = c("No", "Sí"))
+base$instr <- as_factor(base$instr)
+base$eciv <- as_factor(base$eciv)
+
+```
+
+
+```{r, echo=FALSE}
+
+DT::datatable(base, rownames = FALSE, options = list(pageLength = 5, scrollX = TRUE), class = 'tbl')
+
+```
+
+Resumimos las variables con una tabla descriptiva
+
+```{r}
+library(gtsummary)
+
+tbl_summary(base[,-c(1:2)], by= vih,
+            statistic = list(all_categorical() ~ "{n} ({p}%)"),
+            percent = "row",
+             digits = everything() ~ 1) %>% 
+  add_overall() %>% 
+  add_p(pvalue_fun = ~ style_pvalue(.x, digits = 3)) %>% 
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**VIH**") 
+
+
+```
+
+Corremos primera una regresión ingenua tradicional cruda
+
+```{r}
+## Uncoditional logistic regression, ignoring strata (not appropriate)
+model1 <- glm(vih ~ alcohol, 
+              data = base, family = binomial(link = "logit"))
+
+tbl_regression(model1, exp=T)
+```
+
+Interpreta los resultados: 
+
+- a:
+
+- b:
+
+Corremos ahora una regresión ingenua tradicional ajustada por confusores (Teoricamente ya esta controlado por edad y sexo con el emparejamiento)
+
+
+```{r}
+model2 <- glm(vih ~ alcohol +  instr + eciv, 
+              data = base, family = binomial(link = "logit"))
+
+tbl_regression(model2, exp=T)
+
+```
+
+Interpreta los resultados: 
+
+- a:
+
+- b:
+
+Ahora, correremos la misma regresión ajustando por el identificador de los pares matcheados $factor(caco)$
+
+```{r}
+## Uncoditional logistic regression (not appropriate)
+model3 <- glm(vih ~ alcohol + instr + eciv + factor(caco), 
+              data = base, family = binomial(link = "logit"))
+
+#la tabla es muy larga por lo que no mostraremos los coefientes de factor(caco)
+tbl_regression(model3, exp=T,
+               include = c(alcohol, instr, eciv))  
+
+summary(model3)$coef[c(1:8),]
+
+
+```
+
+Nota como incluir una variable con muchas cateogiras puede hacer que tu modelo explote (sobreestima los efectos)
+
+Utilizar el anterior enfoque podría hacer que tus cálculos demoren demasiadoy esten insesgados, por lo que es mejor utilizar clogit y calcular la regresión logistica condicionada al pareamiento
+
+```{r}
+## Analysis clogit
+library(survival)
+res.clogit <- clogit(as.numeric(vih) ~ alcohol + instr + eciv + strata(caco), data = base)
+
+tbl_regression(res.clogit, exp=T)
+```
+**Interpretación**
+
+Tanto la sospecha de alcoholismo como el alcoholismo en sí, están asociados con un mayor riesgo de tener VIH, pareando por sexo y edad +/ 2 años 
+
+- La sospecha de alcoholismo se asocia con un odds (riesgo) 110% mayor de tener VIH, p=0.023, pareando por sexo y edad +/ 2 años y ajustado por nivel de instrucción y estado civil
+
+- El alcoholismo se asocia con un odds (riesgo) 194% mayor de tener VIH, p<0.001, pareando por sexo y edad +/ 2 años y ajustado por nivel de instrucción y estado civil
+
+**Notas:** 
+
+En esta función los interceptos no se estiman. Por lo tanto, no hay probabilidad predicha, por lo que no hay ROC ni prueba de Hosmer-Lemeshow que se puedan evaluar.
+
+**Mensajes finales**
+
+• Regresión logística condicional es simple operativamente pero complejo en diseño e interpretación 
+
+• Pareo individual o grupal tiene múltiples aplicaciones, puede ser una forma muy poderosa de controlar confusores 
+
+• Es importante poder saber que riesgos tomar en sus usos
+
+
+# Generalized estimating equations (GEE).
+
+Las ecuaciones de estimación generalizadas, o GEE, son un método para modelar datos longitudinales o agrupados. Generalmente se usa con datos no normales, como datos binarios o de conteo. El nombre se refiere a un conjunto de ecuaciones que se resuelven para obtener estimaciones de parámetros (es decir, coeficientes del modelo). Si está interesado, consulte Agresti (2002) para obtener detalles computacionales. 
+
+A menudo modelamos datos longitudinales o agrupados con modelos de efectos mixtos o multinivel. Entonces, ¿en qué se diferencia GEE?
+
+- La principal diferencia es que es un modelo marginal . Se busca modelar un promedio poblacional. Los modelos de efectos mixtos/multinivel son modelos específicos de un tema o condicionales . Nos permiten estimar diferentes parámetros para cada sujeto o grupo. En otras palabras, las estimaciones de los parámetros están condicionadas al sujeto/grupo. Esto, a su vez, proporciona información sobre la variabilidad entre sujetos o grupos. También podemos obtener un modelo a nivel de población a partir de un modelo de efectos mixtos, pero es básicamente un promedio de los modelos específicos de cada sujeto.
+
+- GEE está destinado a agrupaciones simples o medidas repetidas. No puede acomodar fácilmente diseños más complejos como grupos anidados o cruzados; por ejemplo, medidas repetidas anidadas dentro de un tema o grupo. Esto es algo más adecuado para un modelo de efectos mixtos.
+
+- Los cálculos de GEE suelen ser más fáciles que los cálculos de modelos de efectos mixtos. GEE no utiliza los métodos de probabilidad que emplean los modelos de efectos mixtos, lo que significa que a veces GEE puede estimar modelos más complejos.
+
+- Debido a que GEE no utiliza métodos de probabilidad, el “modelo” estimado está incompleto y no es adecuado para la simulación.
+
+- GEE nos permite especificar una estructura de correlación para diferentes respuestas dentro de un sujeto o grupo. Por ejemplo, podemos especificar que la correlación de las mediciones tomadas más juntas es mayor que las tomadas más separadas. Esto no es algo que sea posible actualmente en el popular paquete lme4.
+
+Analicemos un ejemplo para comparar y contrastar GEE y modelos de efectos mixtos. Los datos que utilizaremos provienen de la Tabla 11.2 de Agresti (2002) y se refieren a un estudio longitudinal que compara dos medicamentos (“nuevos” versus “estándar”) para tratar la depresión. A continuación leemos los datos de un archivo .csv, establecemos "estándar" como nivel de referencia para la drugvariable y observamos las primeras tres filas. Vemos que el sujeto 1 ( id = 1) tuvo un diagnóstico "leve" y fue tratado con el medicamento "estándar" en los momentos 0, 1 y 2. En cada momento, la respuesta de depresión del sujeto fue un "1", lo que en este caso significa "Normal". Una respuesta de 0 significa "Anormal".
+
+```{r}
+URL <- "http://static.lib.virginia.edu/statlab/materials/data/depression.csv"
+dat <- read.csv(URL, stringsAsFactors = TRUE)
+dat$id <- factor(dat$id)
+dat$drug <- relevel(dat$drug, ref = "standard")
+```
+
+```{r, echo=FALSE}
+
+DT::datatable(dat, rownames = T, filter="top", options = list(pageLength = 5, scrollX=T), class = 'white-space: nowrap' )
+
+```
+
+En total tenemos datos sobre 340 sujetos.
+
+```{r}
+length(unique(dat$id))
+```
+
+Veamos la proporción de respuestas “normales” ( depression == 1) a lo largo del tiempo dentro de las categorías de diagnóstico y fármaco. A continuación creamos una tabla de medias por diagnosis, drugy time. Recuerda que la media de ceros y unos es la proporción de unos. Luego "aplanamos" la tabla ftable()y redondeamos los resultados a dos dígitos usando el operador de tubería, cortesía del paquete magrittr. Esto reproduce el Cuadro 11.3 de Agresti (2002). Observe que la proporción de "normal" aumenta con el tiempo para las cuatro combinaciones de diagnóstico y tratamiento, y que el aumento es más dramático para el medicamento "nuevo".
+
+
+```{r}
+library(magrittr)
+with(dat, tapply(depression, list(diagnose, drug, time), mean)) %>% 
+  ftable() %>% 
+  round(2)
+```
+Ahora usemos GEE para estimar un modelo marginal para el efecto de diagnosis, drugy time sobre la depression respuesta. También permitiremos una interacción para drugy time. (Esto significa que permitimos que la trayectoria de respuesta varíe dependiendo de drug). Usaremos la gee() función en el paquete gee para llevar a cabo el modelado. Si no tiene el paquete gee, descomente y ejecute la primera línea de código a continuación.
+
+Observe que la sintaxis de la fórmula es la misma que usaríamos con un modelo de efectos mixtos en R. También tenemos los argumentos familiares datay familypara especificar el marco de datos y la distribución del error, respectivamente. El idargumento especifica el factor de agrupación. En este caso es la idcolumna del marco de datos. (Es importante tener en cuenta que gee()se supone que el marco de datos está ordenado según la idvariable). El último argumento, corstr nos permite especificar la estructura de correlación. A continuación hemos especificado "independencia", lo que significa que no permitimos que se correlacionen las respuestas dentro de las materias. Algunas otras opciones posibles incluyen "intercambiable", "AR-M" y "no estructurado", que analizaremos en breve.
+
+```{r}
+# install.packages("gee")
+library(gee) # version 4.13-25
+dep_gee <- gee(depression ~ diagnose + drug*time,
+               data = dat, 
+               id = id, 
+               family = binomial,
+               corstr = "independence") # “exchangeable”, “AR-M”, and “unstructured”
+```
+
+Cuando ajustamos un modelo marginal con gee(), imprime automáticamente los coeficientes estimados. El summary() método proporciona una visión más detallada del modelo:
+
+```{r}
+summary(dep_gee)
+```
+
+**Interpretación de Coeficientes y Resultados en un Modelo Marginal Estimado**
+
+En la sección de coeficientes, observamos el modelo marginal estimado. Estos coeficientes están en la escala logit y se interpretan de la misma manera que en cualquier modelo de regresión logística binomial.
+
+- Coeficiente de tiempo: El coeficiente de tiempo es 0.48. Al exponenciarlo, obtenemos una razón de probabilidades (odds ratio) de 1.62. Esto significa que las probabilidades de responder como "Normal" al medicamento estándar aumentan aproximadamente un 62% por cada unidad de aumento en el tiempo.
+
+- Coeficiente del nuevo fármaco en función del tiempo (drugnew): Este coeficiente es 1,02. Sumamos esto al coeficiente de tiempo para obtener el efecto total del tiempo para el nuevo fármaco: 0,48 + 1,02 = 1,5. Al exponenciar este valor, obtenemos aproximadamente 4,5. Esto indica que las probabilidades de responder como "Normal" al nuevo medicamento aumentan 4,5 veces por cada unidad de aumento en el tiempo.
+
+Nos sentimos bastante seguros de la dirección de estos efectos dado que los coeficientes son significativamente mayores que sus errores estándar asociados.
+
+**Errores Estándar: "Ingenuo" y "Robusto"**
+
+Errores estándar ingenuos: Se calculan bajo la suposición de independencia entre las observaciones.
+
+Errores estándar robustos: Son preferibles casi siempre porque las varianzas de las estimaciones de los coeficientes tienden a ser demasiado pequeñas cuando las respuestas dentro de los sujetos están correlacionadas (Bilder y Loughin, 2015).
+
+En este caso, no hay mucha diferencia entre las estimaciones ingenuas y robustas, lo que sugiere que el supuesto de independencia de la estructura de correlación parece realista.
+
+**Estructura de “Correlación de Trabajo”**
+
+En la parte inferior, vemos la estructura de "Correlación de Trabajo". Como especificamos corstr = "independence", se utiliza una matriz identidad con ceros en las posiciones fuera de la diagonal. Esto indica que no asumimos ninguna correlación entre las respuestas dentro de los sujetos. La matriz es 3 x 3 ya que tenemos 3 observaciones por sujeto.
+
+**Parámetro de Escala Estimado**
+
+El "Parámetro de escala estimado" se informa como 0,9854. A esto a veces se le llama parámetro de dispersión. Es similar a lo que se informa cuando se ejecuta glm() con family = quasibinomial para modelar la dispersión excesiva. Este parámetro se calcula por defecto. Si no queremos calcularlo (es decir, igualarlo a 1), podemos configurarlo con scale.fix = TRUE.
+
+**Modelo con Estructura de Correlación Intercambiable**
+
+Ahora probemos un modelo con una estructura de correlación intercambiable, lo que indica que todos los pares de respuestas dentro de un sujeto están igualmente correlacionados. Para ello, configuramos corstr = "exchangeable".
+
+```{r}
+dep_gee2 <- gee(depression ~ diagnose + drug*time,
+               data = dat, 
+               id = id, 
+               family = binomial,
+               corstr = "exchangeable")
+
+summary(dep_gee2)
+```
+
+La matriz de “correlación de trabajo” muestra una estimación de -0,003433 como correlación común entre pares de observaciones dentro de un sujeto. Esto es pequeño y parece que podríamos salirnos con la nuestra si tratamos estos datos como 1020 observaciones independientes en lugar de 340 sujetos con 3 observaciones cada uno. También notamos que las estimaciones de los coeficientes son casi idénticas al modelo anterior con la estructura de correlación independiente.
+
+Otra posibilidad de correlación es una estructura autorregresiva. Esto permite que las correlaciones de las mediciones tomadas más juntas sean mayores que las de las tomadas más separadas. La estructura autorregresiva más común es la AR-1. En nuestro caso, esto significaría que las medidas 1 y 2 tienen una correlación de p1, mientras que las medidas 1 y 3 tienen una correlación de p2. Al igual que la estructura intercambiable, sólo necesitamos estimar un parámetro. Para ajustar una estructura de correlación AR-1 necesitamos establecer corstr = "AR-M"y Mv = 1. Esta vez extraeremos la "Correlación de trabajo" (working.correlation) del objeto del modelo ajustado en lugar de imprimir el resumen completo.
+
+```{r}
+dep_gee3 <- gee(depression ~ diagnose + drug*time,
+               data = dat, 
+               id = id, 
+               family = binomial,
+               corstr = "AR-M", Mv = 1)
+
+dep_gee3$working.correlation
+```
+
+Una vez más, la "correlación de trabajo" muestra valores pequeños. El parámetro de correlación se estima en 0,008477. Esa es la correlación estimada entre las medidas 1-2 y 2-3. La correlación estimada entre las medidas 1-3 es $0.008477^2$
+.
+
+Otra estructura de correlación de interés es la matriz "no estructurada". Esto permite que todas las correlaciones varíen libremente. Si tiene t puntos de tiempo (o t número de observaciones en un grupo), tendrá $t(t-1)/2$ parámetros de correlación a estimar. Por ejemplo, sólo 5 puntos de tiempo dan como resultado $5(4)/2 =10$ parámetros. Probablemente sea mejor evitar las matrices no estructuradas a menos que tenga fuertes razones para dudar de que una estructura más simple sea suficiente.
+
+¿Cómo elegir qué estructura de correlación utilizar? La buena noticia es que las estimaciones del GEE son válidas incluso si se especifica mal la estructura de correlación (Agresti, 2002). Por supuesto, esto supone que el modelo es correcto, pero, de nuevo, ningún modelo es exactamente correcto. Agresti sugiere utilizar la estructura intercambiable como punto de partida y luego comprobar cómo cambian las estimaciones de los coeficientes y los errores estándar con otras estructuras de correlación. Si los cambios son mínimos, opte por la estructura de correlación más simple.
+
+¿Cómo se compara el modelo GEE con estructura de correlación intercambiable con un modelo generalizado de efectos mixtos? Ajustemos el modelo y comparemos los resultados. Para esto usaremos la glmer()función en el paquete lme4. Observe que la sintaxis de la fórmula sigue siendo la misma excepto por la especificación de los efectos aleatorios. A continuación permitimos que la intercepción sea condicional al sujeto. Esto significa que obtendremos 340 modelos específicos de sujetos con diferentes interceptos pero coeficientes idénticos para todo lo demás.
+
+```{r}
+# install.packages("lme4)
+library(lme4) # version 1.1-31
+dep_glmer <- glmer(depression ~ diagnose + drug*time + (1|id), 
+               data = dat, family = binomial)
+summary(dep_glmer, corr = FALSE)
+```
+Los coeficientes del modelo enumerados en “Efectos fijos” son casi idénticos a los coeficientes GEE. En lugar de una matriz de correlación funcional, obtenemos una sección de "Efectos aleatorios": que resume la variabilidad entre sujetos. Técnicamente, asumimos que el efecto aleatorio de cada sujeto se extrae de una distribución normal con media 0 y alguna desviación estándar fija. El modelo estima que esta desviación estándar es aproximadamente 0,057. Para ver los 340 modelos diferentes por temas específicos, ingresa coef(dep_glmer)en la consola R. Notarás que cada sujeto recibe su propia intercepción. (En realidad, en este caso, es cada combinación única de variables predictivas la que recibe una intersección diferente).
+
+Los gráficos de efectos nos ayudan a visualizar modelos y ver cómo los predictores afectan la variable de respuesta en varias combinaciones de valores. Creemos gráficos de efectos para dep_gee2(modelo GEE con correlación intercambiable) y dep_glmer veamos cómo se comparan.
+
+Para el modelo de efectos mixtos, podemos usar la ggemmeans()función del paquete ggeffects. La ggemmeans()función llama a la emmeans()función desde el paquete del mismo nombre. La emmeans()función calcula los efectos marginales y funciona tanto para GEE como para modelos de efectos mixtos.
+
+Aquí está el gráfico de efectos para el modelo de efectos mixtos con el diagnóstico establecido en "severo".
+
+```{r}
+
+# install.packages("ggeffects")
+library(ggeffects) # version 1.2.0
+plot(ggemmeans(dep_glmer, terms = c("time", "drug"), 
+               condition = c(diagnose = "severe"))) + 
+  ggplot2::ggtitle("GLMER Effect plot")
+```
+
+Vemos que la probabilidad de una respuesta “normal” al medicamento “nuevo” aumenta de menos del 25 % en time= 0 a más del 75 % en time= 3. Podríamos considerar este gráfico como una estimación a nivel poblacional, ya que utiliza solo el efecto fijo. coeficientes.
+
+Para crear un gráfico de efectos para el modelo GEE ajustado por el paquete gee, debemos llamarlo emmeans()directamente. 
+
+A continuación usamos la emmeans()función y especificamos que queremos calcular las medias marginales para todos los niveles de timey drug, manteniéndolos diagnoseen "severo". El cov.keep = "time"argumento dice que debemos mantener todos los niveles time y no promediarlos. (Necesitamos hacer esto ya que el tiempo es numérico). El regrid = "response"argumento garantiza que las predicciones estén en la escala de respuesta (es decir, probabilidades).
+
+Canalizamos el resultado en as.data.frame(), el que se devuelve un marco de datos adecuado para trazar y guardamos el resultado como un objeto llamado emm_out.
+
+```{r}
+library(emmeans) # version 1.8.4-1
+emm_out <- emmeans(dep_gee2, specs = c("time", "drug"), 
+        at = list(diagnose = "severe"), 
+        cov.keep = "time", 
+        regrid = "response") %>% 
+  as.data.frame()
+```
+
+Para replicar el gráfico de ggeffects para el glmer()modelo, usamos ggplot2 directamente. Tenga en cuenta que ggeffects proporciona la theme_ggeffects()función para ayudar con esto, pero aún necesitamos hacer un poco de trabajo adicional para igualar la paleta de colores que usa ggeffects, que es "Set1" del paquete RColorBrewer.
+
+```{r}
+library(ggplot2) # version 3.4.1
+ggplot(emm_out) +
+  aes(x = time, y = prob, color = drug, fill = drug) +
+  geom_line() +
+  geom_ribbon(aes(ymin = asymp.LCL, ymax = asymp.UCL, 
+                  color = NULL), alpha = 0.15) +
+  scale_color_brewer(palette = "Set1") +
+  scale_fill_brewer(palette = "Set1", guide = NULL) +
+  scale_y_continuous(labels = scales::percent) +
+  theme_ggeffects() +
+  labs(title = "GEE Effect plot", y = "depression")
+```
+
+¡GEE es prácticamente idéntica a la glmer! Para este conjunto de datos en particular, no parece importar qué modelo utilizamos.
+
+Para facilitar el proceso de creación de gráficos de efectos, es posible que desee probar la geeglm()función del paquete geepack. Por ejemplo, para replicar el modelo y el gráfico de efectos anteriores, podemos ejecutar lo siguiente:
+
+```{r}
+library(geepack) # version 1.3.9
+dep_gee4 <- geeglm(depression ~ diagnose + drug*time,
+                   data = dat,
+                   id = id,
+                   family = binomial,
+                   corstr = "exchangeable")
+# create effect plot
+plot(ggemmeans(dep_gee4, terms = c("time", "drug"),
+               condition = c(diagnose = "severe"))) + 
+  ggplot2::ggtitle("GEE Effect plot")
+```
+
+Esperemos que ahora comprenda mejor cómo ejecutar e interpretar modelos GEE. Hay mucho más que aprender sobre los modelos GEE y este artículo no pretende ser exhaustivo. Si desea ir más allá, puede explorar el paquete geepack R, que incluye algunas funciones GEE más, una breve viñeta y un artículo introductorio en el Journal of Statistical Software. Según la viñeta de geepack, "los GEE funcionan mejor cuando tienes relativamente muchos grupos relativamente pequeños en tus datos".
+
+
+Ahora te dejo las siguientes lineas de código para que práctiques con una nueva base de datos :D
+
+```{r}
+# install.packages("geeasy")
+library(geeasy)
+
+# load data
+data("respiratory")
+
+respiratory$useid <- interaction(respiratory$center, respiratory$id)
+
+```
+
+```{r, echo=FALSE}
+
+DT::datatable(respiratory, rownames = T, filter="top", options = list(pageLength = 5, scrollX=T), class = 'white-space: nowrap' )
+
+```
+
+
+```{r}
+
+# fit model
+m1 <- geeasy::geelm(outcome ~ treat + sex + age + baseline, data = respiratory,
+           id = useid, family = "binomial", corstr = "exchangeable")
+
+m2 <- gee::gee(outcome ~ treat + sex + age + baseline,
+               data = respiratory, 
+               id = id, 
+               family = binomial,
+               corstr = "exchangeable")
+
+m3 <- glmer(outcome ~ treat + sex + age + baseline + (1|id), 
+               data = respiratory, family = binomial)
+
+
+summary(m2)
+```
+
+```{r}
+
+tbl_regression(m1, exp=T)
+tbl_regression(m2, exp=T)
+tbl_regression(m3, exp=T)
+
+```
+
+# Referencias
+
+Agresti, A. (2002). Análisis de datos categóricos (2ª ed.). Wiley.
+Bilder, C. y Loughin, T. (2015). Análisis de datos categóricos con R. Prensa CRC.
+
+Carey, V. (2019). Gee: solucionador de ecuaciones de estimación generalizada (Versión 4.13-20). https://CRAN.R-project.org/package=gee
+
+Harrell, F. (2015). Estrategias de modelado de regresión (2ª ed.). Saltador.
+
+Højsgaard, S., Halekoh, U. y Yan, J. (2006) El paquete R geepack para ecuaciones de estimación generalizadas. Revista de software estadístico , 15 (2), 1-11. https://doi.org/10.18637/jss.v015.i02
+
+Hohorn, T. y Everitt, B. (2014). Un manual de análisis estadísticos utilizando R (3ª ed.). Prensa CRC.
+
+Lenth, R. (2023). emsignifica: medias marginales estimadas, también conocidas como medias de mínimos cuadrados (Versión 1.8.4-1). https://CRAN.R-project.org/package=emmeans
+
+Liang, KY y Zeger, SL (1986). Análisis de datos longitudinales mediante modelos lineales generalizados. Biometrika , 73(1) 13--22. https://doi.org/10.1093/biomet/73.1.13
+
+Lüdecke, D. (2018). ggeffects: marcos de datos ordenados de efectos marginales de modelos de regresión. Revista de software de código abierto , 3 (26), 772. https://doi.org/10.21105/joss.00772 .
+
+Equipo central de R. (2021). R: Un lenguaje y entorno para la informática estadística . Fundación R para Computación Estadística. https://www.R-project.org/
+
+Wickham, H. (2016). ggplot2: Gráficos elegantes para análisis de datos . Springer-Verlag. https://doi.org/10.1007/978-3-319-24277-4
+
+https://library.virginia.edu/data/articles/getting-started-with-generalized-estimating-equations#:~:text=Generalized%20estimating%20equations%2C%20or%20GEE,as%20binary%20or%20count%20data. 

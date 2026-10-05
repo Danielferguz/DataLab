@@ -1,0 +1,391 @@
+---
+title: "Spatial autocorrelation analysis in R"
+author: "Carlos Mendez"
+output:
+  html_document:
+    code_download: true
+    df_print: paged
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    toc_depth: 4
+    number_sections: true
+    code_folding: "show"
+    theme: "cosmo"
+    highlight: "monochrome"
+  html_notebook:
+    code_folding: show
+    highlight: monochrome
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_depth: 4
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+  pdf_document: default
+  word_document: default
+bibliography: biblio.bib
+---
+
+<style>
+h1.title {font-size: 18pt; color: DarkBlue;} 
+body, h1, h2, h3, h4 {font-family: "Palatino", serif;}
+body {font-size: 12pt;}
+/* Headers */
+h1,h2,h3,h4,h5,h6{font-size: 14pt; color: #00008B;}
+body {color: #333333;}
+a, a:hover {color: #8B3A62;}
+pre {font-size: 12px;}
+</style>
+
+Suggested citation: 
+
+> Mendez C. (2020).  Spatial autocorrelation analysis in R. R Studio/RPubs. Available at <https://rpubs.com/quarcs-lab/spatial-autocorrelation>
+
+This work is licensed under the Creative Commons Attribution-Share Alike 4.0 International License. 
+![](License.png)
+
+Acknowledgment:
+
+Material adapted from multiple sources, in particular the course materials of [Guy Lansley & James Cheshire (2016)](https://data.cdrc.ac.uk/tutorial/an-introduction-to-spatial-data-analysis-and-visualisation-in-r).
+
+# Libraries
+
+```{r message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)  # Modern data science workflow
+library(sf)
+library(sp)
+library(spdep)
+library(rgdal)
+library(rgeos)
+library(tmap)
+library(tmaptools)
+library(spgwr)
+library(grid)
+library(gridExtra)
+
+
+# Change the presentation of decimal numbers to 4 and avoid scientific notation
+options(prompt="R> ", digits=4, scipen=999)
+```
+
+# Motivation
+
+Waldo Tober’s first law of geography is that “Everything is related to everything else, but near things are more related than distant things.” So we would expect most geographic phenomena to exert a spatial autocorrelation of some kind. In population data this is often the case as persons with similar characteristics tend to reside in similar neighbourhoods due to a range of reasons including house prices, proximity to workplaces and cultural factors.
+
+
+# Tutorial objectives
+
+- Run various measures of spatial correlation
+- Evaluate both global and local measures of spatial autocorrelation
+- Identify spatial clusters
+
+# Replication files
+
+- All necessary files can be downloaded from  [Guy Lansley & James Cheshire (2016)](https://data.cdrc.ac.uk/tutorial/an-introduction-to-spatial-data-analysis-and-visualisation-in-r).
+
+- If you are a member of the [QuaRCS lab](https://quarcs-lab.org), you can run this tutorial in [R Studio Cloud](https://rstudio.cloud/project/961530) and access the files in the following [Github Repository](https://github.com/quarcs-lab/tutorial-spatial-autocorrelation)
+
+
+# Preliminary material
+
+- [Moran's I](https://youtu.be/qWQ1Pa5cbtw)
+
+- [Interpretations of Moran's I](https://youtu.be/_J_bmWmOF3I)
+
+- [Moran Scatter Plot](https://youtu.be/ZfOc2Hn-GFc)
+
+- [Geary's C](https://youtu.be/EKIKEeAw0W8)
+
+- [Local Spatial Autocorrelation Clusters](https://youtu.be/gXovtSGNz2w)
+
+- [LISA Principle](https://youtu.be/GvkgJWrNMyI)
+
+- [Local Moran](https://youtu.be/_SmNHt4r79k)
+
+- [Local G Statistics](https://youtu.be/urfsjGo-XXc)
+
+- [Issues and Interpretation](https://youtu.be/zjYEIhOtDTs)
+
+
+# Import datasets
+
+
+## Non-spatial data
+
+```{r}
+Census.Data <-read.csv("practicaldata.csv")
+```
+
+```{r}
+glimpse(Census.Data)
+```
+
+
+## Spatial data
+
+```{r}
+Output.Areas <- readOGR(".", "Camden_oa11")
+```
+
+```{r eval=FALSE}
+# Run it in console (long output)
+glimpse(Output.Areas)
+```
+
+Using the `sf` package
+
+```{r}
+Output.Areas2 <- read_sf("Camden_oa11.shp")
+```
+
+```{r}
+glimpse(Output.Areas2)
+```
+
+# Merge datasets
+
+```{r}
+OA.Census <- merge(Output.Areas, Census.Data, by.x="OA11CD", by.y="OA")
+```
+
+Transform it into a `sf` object
+
+```{r}
+OA.Census_sf <- st_as_sf(OA.Census)
+```
+
+# Spatial distribution
+
+```{r}
+tm_shape(OA.Census_sf) + 
+  tm_fill("Qualification",
+          palette = "Reds", 
+          style = "quantile", 
+          title = "% with a Qualification") +
+  tm_borders(alpha=.4)  
+```
+
+# Neightbour structure
+
+## Find queen neighbours
+
+
+```{r}
+neighbours <- poly2nb(OA.Census)
+neighbours
+```
+
+```{r}
+neighbours_sf <- poly2nb(OA.Census_sf)
+neighbours_sf
+```
+
+
+## Plot queen neighbours links 
+
+```{r}
+plot(OA.Census, border = 'lightgrey')
+plot(neighbours, coordinates(OA.Census), add=TRUE, col='red')
+```
+
+## Find rook neighbours
+
+```{r}
+neighbours2 <- poly2nb(OA.Census, queen = FALSE)
+neighbours2
+```
+
+## Plot rook neighbours
+
+```{r}
+plot(OA.Census, border = 'lightgrey')
+plot(neighbours2, coordinates(OA.Census), add=TRUE, col='blue')
+```
+
+
+## Plot queen vs rook
+
+```{r}
+plot(OA.Census, border = 'lightgrey')
+plot(neighbours, coordinates(OA.Census), add=TRUE, col='red')
+plot(neighbours2, coordinates(OA.Census), add=TRUE, col='blue')
+```
+
+
+# Global spatial autocorrelation
+
+## Define weights matrix
+
+```{r}
+listw <- nb2listw(neighbours2)
+listw
+```
+
+## Global Moran test
+
+The correlation score is between -1 and 1. Much like a correlation coefficient, 1 determines perfect positive spatial autocorrelation (so our data is clustered), 0 identifies the data is randomly distributed and -1 represents negative spatial autocorrelation (so dissimilar values are next to each other).
+
+
+```{r}
+globalMoran <- moran.test(OA.Census$Qualification, listw)
+globalMoran
+```
+
+```{r}
+globalMoran[["estimate"]][["Moran I statistic"]]
+```
+
+```{r}
+globalMoran[["p.value"]]
+```
+
+
+The Moran I statistic is 0.54, we can, therefore, determine that there our qualification variable is positively autocorrelated in Camden. In other words, the data does spatially cluster. We can also consider the p-value as a measure of the statistical significance of the model.
+
+
+# Local spatial autocorrelation
+
+## Moran scatterplot 
+
+```{r}
+moran <- moran.plot(OA.Census$Qualification, listw = nb2listw(neighbours2, style = "W"))
+```
+
+## Compute local Moran
+
+```{r}
+local <- localmoran(x = OA.Census$Qualification, listw = nb2listw(neighbours2, style = "W"))
+```
+
+By considering the help page for the localmoran function (run `?localmoran` in R console) we can observe the arguments and outputs. We get a number of useful statistics from the model which are as defined:
+
+- Ii:	local moran statistic
+
+- E.Ii: expectation of local moran statistic
+
+- Var.Ii:	variance of local moran statistic
+
+- Z.Ii:	standard deviate of local moran statistic
+
+- Pr():	p-value of local moran statistic
+
+## Plot local Moran
+
+- A map the local moran statistic (Ii). 
+
+A positive value for Ii indicates that the unit is surrounded by units with similar values.
+
+```{r}
+# binds results to our polygon shapefile
+moran.map <- cbind(OA.Census, local)
+```
+
+```{r}
+tm_shape(moran.map) +
+  tm_fill(col = "Ii",
+          style = "quantile",
+          title = "local moran statistic") 
+```
+
+## Plot LISA clusters
+
+```{r}
+quadrant <- vector(mode="numeric",length=nrow(local))
+
+# centers the variable of interest around its mean
+m.qualification <- OA.Census$Qualification - mean(OA.Census$Qualification)     
+
+# centers the local Moran's around the mean
+m.local <- local[,1] - mean(local[,1])    
+
+# significance threshold
+signif <- 0.1 
+
+# builds a data quadrant
+quadrant[m.qualification >0 & m.local>0] <- 4  
+quadrant[m.qualification <0 & m.local<0] <- 1      
+quadrant[m.qualification <0 & m.local>0] <- 2
+quadrant[m.qualification >0 & m.local<0] <- 3
+quadrant[local[,5]>signif] <- 0   
+
+# plot in r
+brks <- c(0,1,2,3,4)
+colors <- c("white","blue",rgb(0,0,1,alpha=0.4),rgb(1,0,0,alpha=0.4),"red")
+plot(OA.Census,border="lightgray",col=colors[findInterval(quadrant,brks,all.inside=FALSE)])
+box()
+legend("bottomleft", legend = c("insignificant","low-low","low-high","high-low","high-high"),
+       fill=colors,bty="n")
+```
+
+# Getis-Ord approach
+
+The Getis-Ord Gi Statistic looks at neighbours within a defined proximity to identify where either high or low values cluster spatially. Here statistically significant hot-spots are recognised as areas of high values where other areas within a neighbourhood range also share high values too.
+
+First, we need to define a new set of neighbours. Whilst the spatial autocorrection considered units which shared borders, for Getis-Ord we are defining neighbours based on proximity. The example below shows the results where we have a search radius of 250 metres.
+
+However, here a search radius of just 250 metres fails to define nearest neighbours for some areas so we will need to set the radius as 800 metres or more for our model in Camden.
+
+- creates centroid and joins neighbours within 0 and 800 units
+
+```{r}
+nb <- dnearneigh(coordinates(OA.Census), 0, 800)
+```
+
+
+- creates listw
+
+```{r}
+nb_lw <- nb2listw(nb, style = 'B')
+```
+
+## Plot data and neighbours
+
+```{r}
+plot(OA.Census, border = 'lightgrey')
+plot(nb, coordinates(OA.Census), add=TRUE, col = 'red')
+```
+
+## Getis-Ord Gi statistic
+
+NOTE: On some machines the `cbind` may not work with a spatial data file, in this case, you will need to change OA.Census to OA.Census@data so that R knows which part of the spatial data file to join. If you take this approach the subsequent column ordering may be different to what is shown in the example below.
+
+
+```{r}
+local_g <- localG(OA.Census$Qualification, nb_lw)
+local_g <- cbind(OA.Census, as.matrix(local_g))
+names(local_g)[6] <- "gstat"
+```
+
+## Cluster map
+
+```{r}
+tm_shape(local_g) + 
+  tm_fill("gstat", 
+          palette = "RdBu",
+          style = "pretty") +
+  tm_borders(alpha=.4)
+```
+
+The Gi Statistic is represented as a Z-score. Greater values represent a greater intensity of clustering and the direction (positive or negative) indicates high or low clusters. The final map should indicate the location of hot-spots across Camden. Repeat this for another variable.
+
+
+# References
+
+- [Bivand, R. S., & Wong, D. W. (2018). Comparing implementations of global and local indicators of spatial association. Test, 27(3), 716-748.](https://link.springer.com/article/10.1007/s11749-018-0599-x)
+
+
+
+# Other tutorials
+
+- [GeoDa Workbook](https://geodacenter.github.io/documentation.html)
+
+- [ECS530: (VI) Spatial autocorrelation](https://rsbivand.github.io/ECS530_h19/ECS530_VI.html)
+    - [Code and data](https://github.com/rsbivand/ECS530_h19/blob/master/ECS530_VI.Rmd)
+    - [Video](https://youtu.be/vySVctD__Lc)
+
+END

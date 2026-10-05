@@ -1,0 +1,526 @@
+---
+title: "Taller de análisis estadístico con R"
+date: "`r Sys.Date()`"
+author: "Daniel Fernández"
+format: html
+editor: visual
+---
+
+::: callout-note
+### Nota
+
+No podemos tratar de llegar a las respuestas con el análisis si antes no sabemos cuál es la pregunta de investigación.
+:::
+
+```{r}
+#| echo = FALSE
+
+setwd("C:/Users/danfe/Dropbox/Proyectos Daniel/Cursos - diplomados - Maestrias/Programa de autoformación en investigación y análisis de datos/Talleres")
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+::: callout-tip
+### Instrucciones
+
+Contexto simulado con fines académicos
+:::
+
+En enero de 2024, un grupo de investigadores se dio cuenta de que en la población de Perú la mortalidad por infarto se había duplicado en comparación con hace 10 años. Tras revisar la literatura, encontraron que una de las principales razones de este aumento era la hipertensión arterial, un factor de riesgo que incrementaba hasta cuatro veces la probabilidad de desarrollar estos eventos (RR: 4.0). Además, descubrieron que en Perú, la prevalencia de hipertensión había aumentado del 12% en 2010 al 25% en 2024, coincidiendo con el alza de casos de infartos.
+
+Los investigadores sospechaban que, de las diferentes variables de exposición que podrían causar este incremento en los casos, la adición de sal extra a las comidas se había vuelto mucho más frecuente. Por ende, plantearon la hipótesis de que agregar sal se asociaba con un incremento en la prevalencia de hipertensión. Debido a la falta de recursos, los investigadores solo pudieron realizar una entrevista transversal en la que se abordaron múltiples características de los participantes, con la finalidad de evitar confusión en la relación que buscaban.
+
+A continuación, se presenta la estructura del taller para que pueda ser desarrollado de forma individual y enviado por correo
+
+::: callout-caution
+### Fecha de entrega
+
+Antes de las 10:00 pm, del 18 de agosto
+:::
+
+## Cargar paquetes :D
+
+```{r}
+
+library(tidyverse)
+library(haven)
+
+```
+
+## 1. Estadística descriptiva
+
+**a) Importar la base de datos**
+
+Para importar utilizaremos el paquete de `haven` que contiene la función `read_dta` que nos ayudará a importar archivos de STATA.
+
+```{r}
+base <- haven::read_dta("base_simulada.dta")
+
+```
+
+**b) Seleccionamos variables a utilizar**
+
+Podemos usar `view(base)` para ver que tenemos una enorme cantidad de datos.
+
+```{r}
+
+dim(base)
+view(base)
+```
+
+Observamos que son 1086 observaciones y 231 variables, pero a nosotros solo nos interesan pocas variables, así que seleccionaremos solo las de nuestro interés.
+
+```{r}
+base2 <- base %>% select(edad, sexo, instruccion2, estado_civil2, riqueza, etnia,
+                         region2, residencia, 
+                         sentado_horas2, actividad_fisica_ipaq, IMC, fumadoractual,
+                         ldl_colesterolmg_dl, primera_medida_sistolica,
+                         primera_medida_diastolica,
+                         pa_elevada2, hipertension, dias_agrega_sal, ps_sodio)
+```
+
+**c) De ser necesario limpieza y creación de variables**
+
+Algunas variables ya tienen etiquetas para sus categorias, estas fueron creadas en STATA. Para que R las reconozca utilizaremos los siguientes comandos:
+
+```{r}
+
+base3 <- base2 %>% mutate(sexo = as_factor(sexo),
+                          instruccion2 = as_factor(instruccion2), 
+                          estado_civil2 = as_factor(estado_civil2), 
+                          riqueza = as_factor(riqueza), 
+                          etnia = as_factor(etnia),
+                          region2 = as_factor(region2), 
+                          residencia = as_factor(residencia), 
+                         sentado_horas2 = as_factor(sentado_horas2), 
+                         actividad_fisica_ipaq = as_factor(actividad_fisica_ipaq), 
+                         fumadoractual = as_factor(fumadoractual),
+                         pa_elevada2  = as_factor(pa_elevada2), 
+                         hipertension = as_factor(hipertension), 
+                         sentado_horas2 = as.numeric(sentado_horas2),
+                         dias_agrega_sal = as_factor(dias_agrega_sal)) 
+
+```
+
+***ACTIVIDAD 1*****:** Crea las siguientes variables
+
+-   Obesidad a partir del IMC (obesidad = IMC \>=30)
+
+-   Presión arterial media \[(PAS + 2\*PAD)/3\]
+
+-   Si añade sal a las comidas a partir de "*dias_agrega_sal" (*Añade_sal, etiqueta como "Sí" si los valores son diferentes de 0 días, o como "No" si es igual a 0 días como, ojo con valor de 99 que indica que no hay información)
+
+```{r eval=FALSE}
+
+base3 <- base3 %>% mutate(obesidad = case_when(
+                                      IMC >= 30 ~ 1,
+                                      TRUE ~ 0
+                                      ))
+                        # IMC = NULL, ¿para que lo borraría?
+base3 <- base3 %>% mutate(PAM = (primera_medida_sistolica + 2 *                                    primera_medida_diastolica) / 3)
+                          
+base3 <- base3 %>% mutate(Añade_sal = case_when(
+                    dias_agrega_sal == 0 ~ "No",
+                    dias_agrega_sal == 99 ~ NA_character_,  # Indica                                                   que no hay información
+                    dias_agrega_sal != 0 ~ "Sí"
+                    ))
+
+```
+
+***ACTIVIDAD 2*****:** Filtra la base de datos para que tengas una base sin datos perdidos y anota el numero de observaciones antes y despues de eliminar los datos perdidos
+
+```{r eval=FALSE}
+
+nrow(base3)
+
+base3 <- base3 %>% filter(complete.cases(.))
+
+nrow(base3)
+```
+
+Ahora si estamos listos para empezar con el análisis.
+
+***ACTIVIDAD 2*****:** Crea una tabla que presente las caracteristicas descriptivas de la muestra evaluada, no es necesario cambiar las etiquetas
+
+OJO: evaluar si debes presentar media y desviación estandar o mediana y p25-p75
+
+```{r eval=FALSE}
+
+edad
+sentado_horas2
+ldl_colesterolmg_dl
+ps_sodio
+
+skimr::skim(base3) #de manera visual conforme a los histogramas de las variables numéricas, los resultados tienen que ajustarse a la no normalidad de los datos 
+
+
+```
+
+Creamos la tabla!!!!
+
+Cambiar para que se presente un decimal para % y para medidas de tendencia central y dispersión
+
+```{r}
+#| label: Tabla1
+#| tbl-cap: "Características de la muestra"
+
+
+library(gtsummary)
+tbl_summary(base3)
+
+str(base3$edad)
+str(base3$pa_elevada2)
+
+base3 <- base3 %>%
+  mutate(pa_elevada2 = as.character(pa_elevada2))
+base3 %>%
+  tbl_summary(
+    statistic = list(all_continuous() ~ "{mean} ({sd})",
+                     all_categorical() ~ "{n} ({p}%)"),
+    digits = list(all_categorical() ~ c(0, 1))
+    )       #me he demorado demasiado en este punto xd 
+
+
+
+```
+
+Pasemos por alto que la prevalencia de hipertensión no se acerca a la prevalencia que se reporta para la población peruana y trabajemos con la variable "**pa_elevada2**"
+
+## 2. Estadística inferencial - pruebas de hipótesis
+
+::: callout-caution
+### Recuerda
+
+**Hipótesis:** Añadir sal a las comidas se asocia con mayor frecuencia de presión arterial elevada en la población peruana.
+:::
+
+***ACTIVIDAD 3*****:** Crea una tabla bivariada en función del desenlace "presión arterial elevada" y presenta los valores p de las pruebas de hipótesis correspondientes (indicar que prueba se utilizó para cada variable.
+
+base3 %\>%
+
+filter(!is.na(pa_elevada2)) %\>%
+
+dplyr::select(edad, sexo, instruccion2, estado_civil2, riqueza, etnia, region2, residencia, sentado_horas2, actividad_fisica_ipaq, fumadoractual, ldl_colesterolmg_dl, Añade_sal, obesidad) %\>%
+
+colnames()
+
+```{r}
+# Establece el tema de gtsummary para mostrar los porcentajes con un decimal
+set_gtsummary_theme(list(
+  "tbl_summary-fn:percent_fun" = function(x) sprintf("%.1f", x * 100)
+))
+
+# Crea la tabla resumen
+tabla_resumen <- base3 %>% 
+  filter(!is.na(pa_elevada2)) %>% 
+  dplyr::select(edad, sexo, instruccion2, estado_civil2, riqueza, etnia, region2, residencia, sentado_horas2, actividad_fisica_ipaq, fumadoractual, ldl_colesterolmg_dl, Añade_sal, obesidad, pa_elevada2) %>%
+  tbl_summary(
+    by = pa_elevada2,
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      percent = "row",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = all_continuous() ~ 1,
+    type = all_categorical() ~ "categorical",
+    missing_text = "Missing"
+  ) %>%
+  add_overall() %>% 
+  add_p(
+    pvalue_fun = ~ style_pvalue(.x, digits = 3),
+    test = list(
+      all_continuous() ~ "t.test",
+      all_categorical() ~ "chisq.test"
+    )
+  ) %>%
+  modify_header(label ~ "**Variable**") %>%
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Presión arterial elevada**")
+
+# Verifica la tabla generada
+tabla_resumen
+```
+
+***ACTIVIDAD 4*****:** Crea una tabla bivariada en función de la variable de exposición creada "Añadir sal a las comidas" (Añade_sal) y presenta los valores p de las pruebas de hipótesis correspondientes (indicar que prueba se utilizó para cada variable.
+
+```{r}
+# Establece el tema de gtsummary para mostrar los porcentajes con un decimal
+# almacenamos todos los objetos de chi cuadrado en un objeto
+observedchi2 <- chisq.test(base3$Añade_sal, base3$pa_elevada2)
+
+# solicitamos los valores esperados
+observedchi2$expected
+
+
+
+
+
+set_gtsummary_theme(list(
+  "tbl_summary-fn:percent_fun" = function(x) sprintf("%.1f", x * 100)
+))
+
+
+# Crea la tabla resumen
+tabla_resumen <- base3 %>% 
+  filter(!is.na(pa_elevada2)) %>% 
+  dplyr::select(Añade_sal, pa_elevada2) %>%
+  tbl_summary(
+    by = pa_elevada2,
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      percent = "row",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = all_continuous() ~ 1,
+    type = all_categorical() ~ "categorical",
+    missing_text = "Missing"
+  ) %>%
+  add_overall() %>% 
+  add_p(
+    pvalue_fun = ~ style_pvalue(.x, digits = 3),
+    test = list(
+      all_continuous() ~ "t.test",
+      all_categorical() ~ "chisq.test"
+    )
+  ) %>%
+  modify_header(label ~ "**Variable**") %>%
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Presión arterial elevada**")
+
+# Verifica la tabla generada
+tabla_resumen
+```
+
+## 3. Estadística inferencial - regresiones
+
+***ACTIVIDAD 5*****:** Crea una tabla de regresión lineal simple y ajustada para la relación de agregar sal (variable de exposición dicotómica) y el desenlace "presión arterial media" (PAM)
+
+Considera en el modelo las variables que creas que son confusoras en la relación causal que estas intentando demostrar
+
+Los decimales deben ser 2 para los coeficientes y 3 para el valor p
+
+```{r}
+# Regresión lineal simple
+modelo_simple <- lm(PAM ~ Añade_sal, data = base3)
+
+# Resumen de la regresión simple
+summary(modelo_simple)
+
+# Regresión lineal ajustada (ejemplo con posibles confusores)
+modelo_ajustado <- lm(PAM ~ Añade_sal + edad + sexo + ldl_colesterolmg_dl + actividad_fisica_ipaq, data = base3)
+
+# Resumen de la regresión ajustada
+summary(modelo_ajustado)
+
+library(gtsummary)
+
+# Crear tabla para el modelo simple
+tabla_simple <- tbl_regression(modelo_simple, 
+                               estimate_fun = ~ style_sigfig(.x, digits = 2), 
+                               pvalue_fun = ~ style_pvalue(.x, digits = 3))
+
+# Crear tabla para el modelo ajustado
+tabla_ajustada <- tbl_regression(modelo_ajustado, 
+                                 estimate_fun = ~ style_sigfig(.x, digits = 2), 
+                                 pvalue_fun = ~ style_pvalue(.x, digits = 3))
+
+# Mostrar las tablas
+tabla_simple
+tabla_ajustada
+```
+
+Antes de interpretar los coeficientes, evalúa los supuestos solo para la variable de exposición
+
+```{r}
+# Ajustar modelo con edad y ldl_colesterolmg_dl
+modelo <- lm(PAM ~ edad + ldl_colesterolmg_dl, data = base3)
+
+# Resumen del modelo
+summary(modelo)
+
+# Residuals vs Fitted plot (para evaluar la linealidad)
+plot(modelo, which = 1)
+
+# Prueba de Cook-Weisberg (Breusch-Pagan)
+cook_weisberg_test <- bptest(modelo)
+
+# Mostrar los resultados
+print(cook_weisberg_test)
+
+# Q-Q plot (para evaluar la normalidad de los residuos)
+plot(modelo, which = 2)
+
+# Prueba de Shapiro-Wilk
+shapiro.test(resid(modelo))
+
+# Prueba de Durbin-Watson
+dwtest(modelo)
+```
+
+***ACTIVIDAD 6*****:** Crea una tabla de regresión de poisson con varianza robusta cruda y ajustada para la relación de agregar sal (variable de exposición dicotómica) y el desenlace dicotómico "presión arterial elevada" (pa_elevada2)
+
+Considera en el modelo las variables que creas que son confusoras en la relación causal que estas intentando demostrar
+
+Los decimales deben ser 2 para los RPs y 3 para el valor p
+
+```{r}
+pacman::p_load("sandwich",'BiocManager', "lmtest", "gtsummary")
+# Verificar tipos de variables
+str(base3$pa_elevada2)        # Debe ser factor (0 y 1)
+str(base3$Añade_sal)          # Debe ser factor o numérica (0 y 1)
+str(base3$edad)               # Debe ser numérica
+str(base3$ldl_colesterolmg_dl)# Debe ser numérica
+
+base3$Añade_sal <- factor(base3$Añade_sal, levels = c("No", "Sí"))
+
+# Verificar la conversión
+str(base3$Añade_sal)
+
+table(base3$pa_elevada2, useNA = "ifany")
+table(base3$Añade_sal, useNA = "ifany")
+
+# Convertir `pa_elevada2` a variable binaria
+base3_clean <- base3 %>%
+  mutate(pa_elevada2_num = ifelse(pa_elevada2 == "Elevado(>=130/80)", 1, 0))
+
+
+# Ajustar el modelo de Poisson crudo con la variable binaria
+modelo_poisson_crudo <- glm(pa_elevada2_num ~ Añade_sal, family = poisson(link = "log"), data = base3_clean)
+
+# Obtener errores estándar robustos
+modelo_poisson_crudo_robust <- coeftest(modelo_poisson_crudo, vcov = vcovHC(modelo_poisson_crudo, type = "HC0"))
+
+# Convertir a exponentes para obtener los RPs
+rp_crudo <- exp(coef(modelo_poisson_crudo))
+
+# Crear un data frame para los resultados crudos
+resultados_crudos <- data.frame(
+  Coeficiente = rp_crudo,
+  Errores_Est = modelo_poisson_crudo_robust[, "Std. Error"],
+  `Valor p` = modelo_poisson_crudo_robust[, "Pr(>|z|)"]
+)
+
+# Redondear los valores para que tengan 2 decimales en los RPs y 3 en los valores p
+resultados_crudos <- resultados_crudos %>%
+   dplyr:::mutate(
+    Coeficiente = round(Coeficiente, 2),
+    `Valor.p` = round(`Valor.p`, 3)
+  )
+
+# Ver los resultados crudos
+print(resultados_crudos)
+
+
+
+
+str(base3_clean$pa_elevada2)
+str(base3_clean$Añade_sal)
+str(base3_clean$edad)
+str(base3_clean$sexo)
+str(base3_clean$ldl_colesterolmg_dl)
+str(base3_clean$actividad_fisica_ipaq)
+
+any(base3_clean$edad < 0, na.rm = TRUE)
+any(base3_clean$ldl_colesterolmg_dl < 0, na.rm = TRUE)
+
+base3_clean <- base3_clean %>%
+  filter(!is.na(pa_elevada2) & !is.na(Añade_sal) & !is.na(edad) & 
+         !is.na(sexo) & !is.na(ldl_colesterolmg_dl) & !is.na(actividad_fisica_ipaq))
+
+str(base3_clean)
+
+
+summary(base3_clean$pa_elevada2)
+table(base3_clean$pa_elevada2)
+
+base3_clean <- base3_clean %>%
+  mutate(pa_elevada2_num = ifelse(pa_elevada2 == "Elevado(>=130/80)", 1, 0))
+
+
+# Ajustar el modelo de Poisson ajustado con la variable binaria
+modelo_poisson_ajustado <- glm(pa_elevada2_num ~ Añade_sal + edad + sexo + ldl_colesterolmg_dl + actividad_fisica_ipaq, 
+                               family = poisson(link = "log"), 
+                               data = base3_clean)
+
+# Verificar el resumen del modelo
+summary(modelo_poisson_ajustado)
+
+# Obtener errores estándar robustos
+modelo_poisson_ajustado_robust <- coeftest(modelo_poisson_ajustado, vcov = vcovHC(modelo_poisson_ajustado, type = "HC0"))
+
+# Convertir a exponentes para obtener los RPs
+rp_ajustado <- exp(coef(modelo_poisson_ajustado))
+
+# Crear un data frame para los resultados ajustados
+resultados_ajustados <- data.frame(
+  Coeficiente = rp_ajustado,
+  Errores_Est = modelo_poisson_ajustado_robust[, "Std. Error"],
+  `Valor p` = modelo_poisson_ajustado_robust[, "Pr(>|z|)"]
+)
+
+# Redondear los valores para que tengan 2 decimales en los RPs y 3 en los valores p
+resultados_ajustados <- resultados_ajustados %>%
+  mutate(
+    Coeficiente = round(Coeficiente, 2),
+    `Valor.p` = round(`Valor.p`, 3)
+  )
+
+# Ver los resultados ajustados
+print(resultados_ajustados)
+
+
+#DANI, PERDÓNAME XD NO SE EN QUE ESTOY FALLANDO CON MI CÓDIGO DE LA TABLA CON GTSUMMARY 
+```
+
+Antes de interpretar los coeficientes, evalúa los supuestos solo para la variable de exposición
+
+```{r}
+####DISTRIBUCIÓN DE POISSON
+# Calcular la media y varianza de la variable dependiente
+mean_pa_elevada <- mean(base3_clean$pa_elevada2_num)
+var_pa_elevada <- var(base3_clean$pa_elevada2_num)
+
+mean_pa_elevada
+var_pa_elevada
+
+
+###linealidad
+# Ajustar el modelo de Poisson
+modelo_poisson <- glm(pa_elevada2_num ~ Añade_sal, family = poisson(link = "log"), data = base3_clean)
+# Graficar residuos
+par(mfrow = c(1, 2))
+plot(fitted(modelo_poisson), residuals(modelo_poisson, type = "pearson"), 
+     xlab = "Valores Ajustados", ylab = "Residuos de Pearson",
+     main = "Residuos de Pearson")
+abline(h = 0, col = "red")
+
+##SOBREDISPERSIÓN
+pacman::p_load(MASS)
+# Ajustar el modelo binomial negativo
+modelo_nb <- glm.nb(pa_elevada2_num ~ Añade_sal, data = base3_clean)
+
+# Comparar con el modelo de Poisson
+summary(modelo_poisson)
+summary(modelo_nb) 
+
+
+##INDEPENDENCIA DE OBSERVACIONES
+# Cálculo de los residuos de Cook
+cooks_distance <- cooks.distance(modelo_poisson)
+
+# Graficar la distancia de Cook
+plot(cooks_distance, type = "h", 
+     main = "Distancia de Cook",
+     xlab = "Índice de Observación", 
+     ylab = "Distancia de Cook")
+abline(h = 4 / length(cooks_distance), col = "red", lty = 2)
+```
+
+### Escribe algunas recomendaciones para mejorar el programa
+
+1.  Primero agradecerte Dani, por la paciencia que nos tienes, para mí la codificación en R es algo nuevo, así que ando agarrandole el ritmo, sé que lo siguiente es más fuertecito pero espero que podamos acoplarnos todos como hasta ahora
+
+2.  No podría pedir que sea más explicativo pero quizás el tiempo de las sesiones debería ser duplicado, ya que no hay forma de que toquemos la clase de epi y de estadística en un solo domingo, entiendo que es autoformativo pero quizás ese tiempo extra nos pueda ayudar en enfocarnos solo en Epi o solo en Estad durante esa semana
+
+3.  Indicar que existen diferentes rutas para construir los códigos, en lo personal prefiero ir entendiendo como se desarrolla cada aspecto mientras que voy malogrando la base (por ejemplo ahora se crearon muchos data frames) pero es necesario para comprender ciertos aspectos de RStudio (por ejemplo cual es el valor de "pacman" sobre lo que cotidianamente se usa, o cual es el valor de "%%" sobre lo que antes se hacía (esta en la lectura, pero es mejor cuando lo vemos directamente en el R")
+
+4.  Ayudar a deconstruirnos, yo en lo personal estoy muy familizarizado con STATA, es mucho más práctico para una persona que solo realiza pruebas estadísticas no complejas, pero ahora que estoy manoseando el R, solo tendría que cambiar la variable en algunos códigos y obtener tablas de resumenes. Para mi eso hace que R tome más fuerza y seguramente me será mucho más util en otro tipo de analisis y generación de gráficos
+
+5.  Mejorar más la interacción en el grupo, a veces sueltas preguntas randoms en el chat y eso hace que podamos tener un momento de ocio fuera del aspecto laboral, agradezco esas preguntas para generar la curiosidad entre todos.

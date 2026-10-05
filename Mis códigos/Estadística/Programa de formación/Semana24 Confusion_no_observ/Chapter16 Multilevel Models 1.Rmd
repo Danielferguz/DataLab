@@ -1,0 +1,398 @@
+---
+title: "Chapter 16: Multilevel Modeling"
+author: "Teresa G. Borowski"
+output:
+  html_document:
+    theme: cerulean
+    highlight: textmate
+    fontsize: 8pt
+    toc: true
+    number_sections: true
+    code_download: true
+    toc_float:
+      collapsed: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(fig.width=5)
+knitr::opts_chunk$set(fig.height=3.75)
+knitr::opts_chunk$set(fig.align='center') 
+```
+
+# Prepping your R
+
+##Packages you will need:
+
+- install.packages("lme4") # Allows you to fit linear mixed-effects models.
+- install.packages("effects") # Helps you visualize interactions
+- install.packages("corrplot") # Helps you to visualize correlations 
+- install.packages("stargazer") # Makes tables
+- install.packages("car") # Helps with Diagnostics
+- install.packages("MASS") # For stepwise regression
+- install.packages("ggplot2") # To create plots
+- install.packages("texreg") # Allows you to save tables.
+
+##Load the libraries you need.
+
+```{r}
+library(lme4)
+library(effects)
+library(corrplot)
+library(stargazer)
+library(car)
+library(MASS)
+library(ggplot2)
+library(texreg)
+```
+
+
+# The Data Set:
+
+This is a special type of data where there is only one measurement per student (i.e., there is no within subject variable), and students are nested in schools so we must control for the effects of schools. 
+
+Multilevel data occur when observations are nested within groups, for example, when students are nested within schools in a district.
+
+Our simple story -
+
+We looked at 6 schools (3 rich and 3 poor) with 40 students in each rich school and 160 students in each poor school, and we measured them on Happiness, number of Friends, and GPA. We wondered if happiness could be predicted by number of friends and/or GPA.
+
+Our Level 1 will be the lowest unit of observation - those nested in groups. In this case, Level 1 is the students.
+
+Our Level 2 refers to the groups in which the level 1 units are nested; in this case Level 2 is the schools.
+
+## Simulating the Dataset:
+
+### Make your equations
+Create a distribution for each school, making the variance of rich schools small and the variance of poor schools large. We've also made the equations different so that our X (number of friends) coefficient is negative in rich schools but positive in the poor schools. We keep our Z (GPA) coefficient the same for all schools. 
+
+```{r}
+set.seed(42)
+nrich=40
+npoor=160
+#Paramaters
+S.F.Rich=-2 # setting paramaeters for the Friends variable in the Rich schools
+S.F.Poor=6 # setting parameters for the Friends variable in the Poor schools
+
+S.G.Rich=.7 # setting parameters for the GPA variable in the Rich schools
+S.G.Poor=.7 # setting parameters for the GPA variable in the Poor schools
+# Rich Schools
+# School 1
+X1 <- rnorm(nrich, 10, 2) # number of friends
+Z1 <- runif(nrich, 1.0, 4.0) # GPA
+Y1 <- S.F.Rich*X1 + S.G.Rich*Z1 + 80 + rnorm(nrich, sd= 5) # Our equation to create Y
+
+# School 2
+X2 <- rnorm(nrich, 10, 2) # number of friends
+Z2 <- runif(nrich, 1.0, 4.0) # GPA
+Y2 <- S.F.Rich*X2 + S.G.Rich*Z2 + 75 + rnorm(nrich, sd= 5)
+
+# School 3
+X3 <- rnorm(nrich, 10, 2) # number of friends
+Z3 <- runif(nrich, 1.0, 4.0) # GPA
+Y3 <- S.F.Rich*X3 + S.G.Rich*Z3 +90 + rnorm(nrich, sd= 5)
+
+# Poor Schools
+# School 4
+X4 <- rnorm(npoor, 5, 2) #number of friends
+Z4 <- runif(npoor, 1.0, 4.0) #GPA
+Y4 <- S.F.Poor*X4 + S.G.Poor*Z4 + 35 + rnorm(npoor, sd = 10)
+
+# School 5
+X5 <- rnorm(npoor, 5, 2) #number of friends
+Z5 <- runif(npoor, 1.0, 4.0) #GPA
+Y5 <- S.F.Poor*X5 + S.G.Poor*Z5 + 40 + rnorm(npoor, sd = 10)
+
+# School 6
+X6 <- rnorm(npoor, 5, 2) #number of friends
+Z6 <- runif(npoor, 1.0, 4.0) #GPA
+Y6 <- S.F.Poor*X6 + S.G.Poor*Z6 + 50 + rnorm(npoor, sd = 10)
+
+``` 
+
+### Make your data frames
+Now that we have our equations, we're going to create the data frame for each school.
+
+```{r}
+# The 3 Rich Schools:
+Student.Data.School.1<-data.frame(Happiness=Y1, Friends=X1, GPA=Z1)
+Student.Data.School.2<-data.frame(Happiness=Y2, Friends=X2, GPA=Z2)
+Student.Data.School.3<-data.frame(Happiness=Y3, Friends=X3, GPA=Z3)
+
+# The 3 Poor Schools:
+Student.Data.School.4<-data.frame(Happiness=Y4, Friends=X4, GPA=Z4)
+Student.Data.School.5<-data.frame(Happiness=Y5, Friends=X5, GPA=Z5)
+Student.Data.School.6<-data.frame(Happiness=Y6, Friends=X6, GPA=Z6)
+
+```
+
+### Testing the formulas
+Let's test if these formulas work with an example from each set of schools (one rich and one poor).
+
+```{r}
+# Rich - School 1
+corr.student = cor(Student.Data.School.1)
+corrplot(corr.student, method = "number",diag = FALSE,type = "lower")
+```
+
+Great, our correlation between Friends and Happiness is -.76 and we have a correlation between GPA and Happiness of -.05.
+
+```{r}
+# Poor - School 4
+corr.student = cor(Student.Data.School.4)
+corrplot(corr.student, method = "number",diag = FALSE,type = "lower")
+```
+
+Great, our correlation between Friends and Happiness is .77, which is higher AND in the opposite direction than in rich schools. There was no correlation between GPA and Happiness.
+
+Pay attention to the fact that the schools have different correlation values for Friends and Happiness depending on if they're rich or poor. Rich schools have r = -.76 and poor schools have r = .77. For GPA and Happiness, only the rich school had a correlation. This will be important. 
+
+NOTE: Although I am telling you that some schools are rich and some are poor, you may not know this information when you come in and try to do the analysis. If we knew this information, we would put SES as another Level 2 predictor. 
+
+
+### Put 'em together and what have you got!?
+Now that we know they work, let's put all schools together into one dataset. 
+
+```{r}
+All.Schools.Data <- rbind(Student.Data.School.1, Student.Data.School.2, Student.Data.School.3, Student.Data.School.4, Student.Data.School.5, Student.Data.School.6) 
+head(All.Schools.Data)
+```
+
+### Adding Student and School Variables
+Now let's add in Student ID's and the Schools as variables.
+
+```{r}
+# Adding the subject variable (Student ID)
+All.Schools.Data$StudentID<-seq(1:nrow(All.Schools.Data))
+# Did it work?
+head(All.Schools.Data)
+# Yes!
+
+# Adding the School variable. 
+All.Schools.Data$School<-c(rep(1, nrich), rep(2,nrich), rep(3, nrich), rep(4, npoor), 
+                           rep(5, npoor), rep(6, npoor))
+```
+
+### Test the full dataset
+Let's see what the scatter plots for each school.
+
+- Schools 1-3 are richand schools 4-6 are poor.
+
+
+# Plotting 
+
+Now let's plot up raw data.
+
+First, let's plot with Friends as our IV.
+
+```{r}
+theme_set(theme_bw(base_size = 12, base_family = "")) 
+
+# Friends
+Model.Plot.Friends <-ggplot(data = All.Schools.Data, aes(x = Friends, y=Happiness,group=School))+	
+  facet_grid( ~ School)+	
+  geom_point(aes(colour = School))+	
+  geom_smooth(method = "lm", se = TRUE, aes(colour = School))+	
+  xlab("Friends")+ylab("Happiness")+	
+  theme(legend.position = "none")	
+Model.Plot.Friends	
+```
+
+Now, let's plot with GPA as our IV.
+
+```{r}
+Model.Plot.GPA <-ggplot(data = All.Schools.Data, aes(x =GPA, y=Happiness,group=School))+	
+  facet_grid( ~ School)+	
+  geom_point(aes(colour = School))+	
+  geom_smooth(method = "lm", se = TRUE, aes(colour = School))+	
+  xlab("GPA")+ylab("Happiness")+	
+  theme(legend.position = "none")	
+Model.Plot.GPA	
+```
+
+Let's see what our correlations look like when lumping all the rich and poor schools together.
+
+```{r}
+corr.student = cor(All.Schools.Data[,1:3])
+corrplot(corr.student, method = "number",diag = FALSE,type = "lower")
+```
+
+Notice how the correlation between Friends and Happiness has changed when you collapse across all rich and poor schools. The correlation is now .24 (which is between Rich and Poor schools). It is a positive correlation as well, but only poor schools (those with more students) had a positive correlation.
+Also notice that the correlation between GPA and Happiness is .05, which is the same as for the rich school - the only one that had showed a correlation. 
+
+
+# Regular Regression
+
+## All Data
+Let's try running a normal regression on all the data at once.
+
+First, let's center the variables.
+
+```{r}
+All.Schools.Data$Friends.C<-scale(All.Schools.Data$Friends, scale = FALSE)[,]
+All.Schools.Data$GPA.C<-scale(All.Schools.Data$GPA, scale = FALSE)[,]
+```
+
+Now we can run the regression.
+
+```{r}
+Reg.Model<-lm(Happiness ~ Friends.C + GPA.C, data = All.Schools.Data)
+summary(Reg.Model)
+#plot(Reg.Model)
+```
+
+Putting all schools together in a regular regression, we have a positive, significant effect of Friends and no effect of GPA. But what happens when we separate the schools by rich or poor status?
+
+## By School
+Now let's see what happens if you run a normal regression on rich and poor schools separately.
+
+```{r}
+# Rich Schools
+School.Rich.Reg.Model<-lm(Happiness ~ Friends.C + GPA.C, data = subset(All.Schools.Data, School<4))
+summary(School.Rich.Reg.Model)
+```
+
+Notice, we have a negative, significant effect for Friends but no effect for GPA.
+
+```{r}
+# Poor Schools
+School.Poor.Reg.Model<-lm(Happiness ~ Friends.C + GPA.C, data = subset(All.Schools.Data, School>3))
+summary(School.Poor.Reg.Model)
+```
+
+Uh-oh. Now we have a positive, significant effect of Friends and no effect of GPA.
+
+## What's the problem?
+
+Remember! Although I am telling you that some schools are rich and some are poor, you may not know this information when you come in and try to do the analysis. If we knew this information, we could put SES as another Level 2 predictor. Also, I am only using six schools to demonstrate, but in a more "normal" case of nested design there may be way too many schools to treat SES as a fixed factor in the design.
+
+The regular regression did not reflect what was happening in each school type. It gave us a positive effect (Friends) when only poor schools had a positive effect. Collapsing across school types in this case was not ideal because different things were happening within each school type, compromising the generalizability of the findings.
+
+Another way to put this, the regular (lm) regression indicates that the more friends a student has, the happier they are, but looking closer this is not the case in all schools (and is, in fact, the opposite in some). If you were trying to generalize your findings or use them to argue for/show a need for an intervention, your results would be misleading and could cause problems. 
+
+SO,
+Let's try running this as a multilevel, random effects model:
+
+
+# Random Effects Model
+
+Using a multi-level model allows us to separate the within-group effects from the between-group effects, whereas regular regression blends them together into a single coefficient. 
+
+
+## Running the Random Effects Model 
+
+
+### First, we run the null model.
+
+```{r}
+Null<-lmer(Happiness ~ 1 # This simply means Happiness predicted by the intercept
+                  +(1|School), # each school gets its own intercept 
+                  data=All.Schools.Data, REML = FALSE)
+summary(Null)
+```
+
+We examine the intra-class correlation (ICC) to determine if multi-level modeling is the correct choice for our analysis. The ICC measures the degree of clustering in our data and answers the question, "How much does my Level 2 predict the total variance of my study?" If your ICC is greater than 0, you have a multi-level study. 
+
+```{r}
+ICC.Model<-function(Model.Name) {
+  tau.Null<-as.numeric(lapply(summary(Model.Name)$varcor, diag))
+  sigma.Null <- as.numeric(attr(summary(Model.Name)$varcor, "sc")^2)
+  ICC.Null <- tau.Null/(tau.Null+sigma.Null)
+  return(ICC.Null)
+}
+
+ICC.Model(Null)
+```
+
+Our ICC is greater than 0, meaning we were correct to think of this as a multi-level problem.
+
+
+### Next, we run the Level 1 predictor (GPA).
+
+```{r}
+The.Model.1<-lmer(Happiness ~ GPA.C 
+                  +(1|School),
+                data=All.Schools.Data, REML = FALSE)
+summary(The.Model.1)
+```
+
+The results indicate that a student's GPA does not have an effect on their Happiness when controlling for Level 2 fluctuations in Happiness. 
+
+
+### Finally, we run the Level 2 predictor (Friends).
+
+This model allows the variable Friends to vary between schools.
+
+
+```{r}
+The.Model.2<-lmer(Happiness ~ Friends.C + GPA.C 
+                  +(1+Friends.C|School), # each school gets its own intercept, and Friends can vary as a function of the school.
+                data=All.Schools.Data, REML = FALSE)
+summary(The.Model.2)
+```
+
+The results indicate that the number of Friends a student has does not have an effect on Happiness when controlling for the random effects of Level 2 influences.
+
+
+### What do the results mean?
+
+In our regular (lm) regression, Friends had a significant effect, b = 1.40 (p < .001). However, in our mixed (lmer) regression, Friends had a larger (2.16), but non-significant effect.
+
+Why is this important? The goal of multi-level modeling is to draw a conclusion about the general sample that you have while controlling for differences you are not trying to explain (in this example, rich vs. poor). Not properly controlling for these differences, which you may often not know are there, will increase your chance of Type I error. Because the effect of Friends was different in different schools, it makes sense that the multi-level model (MLM) did not show a significant effect. In the present example, our MLM gave us a more accurate interpretation - that no main effect of Friends existed for all schools generally. 
+
+
+## Checking your Assumptions
+
+For a comprehensive look at how to run diagnostics, please see [Chapter 12](http://ademos.people.uic.edu/Chapter12.html) and [Chapter 18](http://ademos.people.uic.edu/Chapter18.html)  
+
+
+# P-Values
+
+*P*-values are hotly disputed in Mixed Models. 
+
+One solution is to estimate degrees of freedom to get p-values. SAS/SPSS uses Satterthwaite approximations. There are also Kenward-Roger approximations (see Westfall, Kenny, & Judd, 2014). Either are acceptable. Making a number of assumptions, these outputs will mirror the results of a traditional ANOVA fairly closely. 
+
+install.packages("lmerTest")
+
+This is a mixed model add-on package to calculate p-values based on a certain set of assumptions.
+Each ddf is a different method of attaining p-values, so you can choose which to run. I give you three examples below. 
+you will need to refit the models with the package `lmerTest` installed and loaded.
+
+```{r}
+library(lmerTest)
+The.Model.2<-lmer(Happiness ~ Friends.C + GPA.C 
+                  +(1+Friends.C|School),
+                data=All.Schools.Data, REML = FALSE)
+
+summary(The.Model.2,ddf = "lme4")
+summary(The.Model.2, ddf = "Satterthwaite") # SAS method
+```
+
+If you want to report main effects and interactions instead of slopes, you might convert your mixed model into an ANOVA.
+
+```{r}
+anova(The.Model.2,ddf = "Kenward-Roger") # Kenny et al suggested method
+```
+
+# References
+
+Huta, V. (2014). When to use hierarchical linear modeling. The Quantitative Methods for Psychology, 10(1): 13- 28.
+
+Westfall, J., Kenny, D. A., & Judd, C. M. (2014). Statistical power and optimal design in experiments in which samples of participants respond to samples of stimuli. Journal of Experimental Psychology: General, 143(5), 2020-2045.
+
+Woltman, H., Feldstain, A., MacKay, J. C., & Rocchi, M. (2012). An introduction to hierarchical linear modeling. Tutorials in Quantitative Methods for Psychology, 8(1): 52-69.
+
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-98878793-1', 'auto');
+  ga('send', 'pageview');
+
+</script>
+

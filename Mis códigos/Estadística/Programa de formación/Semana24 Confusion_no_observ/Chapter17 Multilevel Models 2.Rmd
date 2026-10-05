@@ -1,0 +1,293 @@
+---
+title: "Chapter 17: Mixed Effects Modeling"
+author: "Sushmita Shrikanth"
+output:
+  html_document:
+    theme: cerulean
+    highlight: textmate
+    fontsize: 8pt
+    toc: true
+    number_sections: true
+    code_download: true
+    toc_float:
+      collapsed: false
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+# Background Information
+Mixed models are especially useful when working with a within-subjects design because it works around the ANOVA assumption that data points are independent of  one another. In a within subjects design, one participant provides multiple data points and those data will correlate with one another because they come from the same participant. Therefore, using a mixed model allows you to systematically account for item-level variability (within subjects) and subject-level variability (within groups).
+
+**When to Use?** -- Studies that obtain multiple measurements over time (longitudinal, time-series) or multiple trials per participant (within subjects) lend themselves well to mixed model analyses.
+
+The following example will illustrate the logic behind mixed effects models.
+
+## Example: National Pizza Study
+Let's say that we are interested in examining the effect of pizza consumption on people's moods. Each participant provided an average number of pizzas consumed, and measurements are collected at 15 timepoints 
+
+- Hypothetical sample size, **n = 30**
+- **DV**: Mood rating (scale)
+- **IV1**: Pizza consumption 
+- **IV2**: Time points (Weeks, 1-10)
+
+Here is some hypothetical data (code used to generate data can be found [here](https://github.com/RInterested/SIMULATIONS_and_PROOFS/blob/master/Athletes%20mixed%20effects)): 
+
+```{r include = FALSE}
+
+rm(list = ls())
+set.seed(0)
+library(lme4)
+library(mvtnorm)
+
+subjects = 30
+time = 10
+ 
+i = 0.2 
+s = 0.5 
+r = 0.5
+cov.matrix1<-  matrix(c(i^2, r * i * s, r * i * s, s^2), nrow = 2, byrow = T)
+
+require(mvtnorm)
+random.effects_subjects <-  rmvnorm(subjects, mean = c(0, 0), sigma = cov.matrix1)
+subjects.df = data.frame(subject  = c(1:subjects)) 
+subjects.df$alpha_subjects = 1 + random.effects_subjects[, 1]
+subjects.df$beta_subjects =  2 + random.effects_subjects[, 2]
+
+i =   0.8   
+s =   0.2 
+r = -0.01   
+(cov.matrix2 <-  matrix(c(i^2, r * i * s, r * i * s, s^2), nrow = 2, byrow = T))
+
+random.effects_time <-  rmvnorm(time, mean = c(0, 0), sigma = cov.matrix2)
+
+time.df = data.frame(time  = c(1:time)) 
+time.df$alpha_time   =    -1 + random.effects_time[, 1]
+time.df$beta_time    =     1 + random.effects_time[, 2]
+summary(time.df$beta_time) 
+sd(time.df$beta_time)     
+summary(time.df$alpha_time)
+sd(time.df$alpha_time)
+cor(time.df$alpha_time, time.df$beta_time) 
+
+observations <- subjects * time
+observations.df <-  data.frame(
+  subject = sort(rep(c(1:subjects), time)),
+  time = rep(c(1:time), subjects), 
+  pizza = rep(rnorm(subjects * time, 30, 5)))
+dat1   <-  merge(subjects.df, observations.df)
+dat2   <-  merge(dat1, time.df)
+dat3   <-  dat2[with(dat2, order(subject,time)), ]
+rownames(dat3)   <-  1:nrow(dat3)
+
+
+df <-  within(dat3, 
+              mood <-  alpha_subjects + pizza * beta_subjects +
+                alpha_time    + pizza * beta_time    +
+                0.75 * rnorm(n = observations)) 
+
+head(df)
+pizzadata <- df[,-c(3,4,6,7)]
+```
+
+
+```{r echo = FALSE}
+head(pizzadata)
+
+```
+
+**NOTE** - This is a within-subjects study. All participants are providing multiple measurements. 
+
+## Important Terminology 
+Below are some important terms to know for understanding the statistical concepts used in mixed models:
+
+###Crossed & Nested Designs
+**Crossed designs** refer to the *within-subject* variables (i.e. timepoint, condition, etc.). Crossed designs occur when multiple measurements are associated with multiple grouping variables. In a completely crossed design, all subjects provide responses for all conditions/time-points.
+
+  - Pizza study: We have subjects providing responses at 10 time points. Thus, we have a crossed design. 
+  
+**Nested designs** refer to the *between-subject* variable. Generally this is a higher-level variable that subjects or items are grouped under.
+  
+  - Pizza study: Not nested.
+
+###Fixed v. Random Effects
+**Fixed effects** are, essentially, your predictor variables. This is the effect you are interested in after accounting for random variability (hence, fixed). 
+ 
+  - Pizza study: The fixed effects are PIZZA consumption and TIME, because we're interested in the effect of pizza consumption on MOOD, and if this effect varies over TIME. 
+  
+**Random effects** are best defined as noise in your data. These are effects that arise from uncontrollable variability within the sample. *Subject* level variability is often a random effect.
+ 
+  - Pizza study: Controlling for random effects of subject, pizza consumption, and effect of time on subject, all of which vary across participants. 
+
+**NOTE** - Predictor variables can be both fixed (i.e. causing a main effect/interaction) and random (i.e. causing variance/variability in responses). When building your models, you can treat your predictor as a fixed & random factor. 
+
+### Slopes v. Intercepts: 
+To better understand slopes and intercepts it maybe helpful to imagine plotting the relationship between the IVs and DV for each subject.
+
+**Intercepts**: The baseline relationship between IV & DV. Fixed effects are plotted as intercepts to reflect the baseline level of your DV.
+  
+  -	Random intercepts: Variability in baseline measurements 
+      
+      * Pizza Study: Different baseline levels of pizza consumption across subjects
+      
+  - Fixed intercepts: Baseline variance is not affected
+  
+      * Pizza study: 
+
+**Slope**: The strength of the relationship between IV & DV (controlling for randomness), which represent random effects. You should expect to see differences in the slopes of your random factors. 
+  
+  - Pizza study: The strength of the relationship between pizza consumption and mood will vary from person to person, resulting in random slopes per subject. Because subjects start at  
+
+**Note**: If 2 variables share a lot of variance, the random intercepts and slopes may be correlated with one another. This can be accounted for in random structures as well. 
+
+**Hypotheses For Study**
+Random effects: 
+- "Subjects" will have their own intercepts. 
+- Subjects' slope will vary by pizza consumption intercepts, and by timepoint intercepts. 
+- The slopes and intercepts of pizza consumption and time will be correlated (shared variance)
+Fixed effects: 
+- Expecting there to be an overall main effect of pizza consumption over time. 
+- Expecting interaction such that more pizza over time predicts mood. 
+
+# Setting up data in R 
+- **Coding**: Recode your variable (mean-centered, effects) as best suited for your data. 
+- **Long Format** : Refer to [TidyR chapter](http://ademos.people.uic.edu/Chapter9.html) 
+- **Packages**: Make sure you have the following packages downloaded: 
+
+``` {r, message=FALSE, echo=TRUE}
+
+library (lmerTest) # Mixed model package by Douglas Bates, comes w/ pvalues! 
+library (texreg) #Helps us make tables of the mixed models
+library (afex) # Easy ANOVA package to compare model fits
+library (plyr) # Data manipulator package
+library (ggplot2) # GGplot package for visualizing data
+
+```
+
+
+#Modeling Procedure
+Modeling conventions differ by field, but this example will begin by fitting the null model first, then building up hierarchically.
+ 
+
+## Random effects structure
+The *null model* will be fit to the [maximal likelihood estimate](http://lme4.r-forge.r-project.org/lMMwR/lrgprt.pdf). The random effects structure reflects YOUR understanding of where to expect variance, and how nested data will interact with that variance. The general syntax is as follows:
+
+``` 
+(1 + IV | unit level)  
+(1 + IV.1*IV.2 | unit level)
+
+#or
+
+(0 + IV | unit level)
+(0 + IV.1*IV.2 | unit level)
+
+```
+When there is a 1 before the line, you are accounting for random intercepts (varying baseline levels) in your variable. A O indicates the variable has a fixed intercept and not a random one.  These are a few hypothetical random effects structures:
+
+  - ```(1| subject)``` = Random intercepts and slopes for subjects (different baselines, different average effect per subject).
+  - ```(1 + pizza |subject)``` = The effect of pizza will vary *between* subjects. Random intercepts for pizza consumption, random slopes
+for subjects influenced by pizza consumption. 
+  - ``` (1 + pizza | subject) + (0 + time| subject)``` = Subjects have random intercepts and slopes as influenced by pizza consumption. Time slopes can vary as function of the subject, but variance between pizza consumption and time as independent
+  - ``` (1 + pizza + time | subject)``` = Same as above, but variance between pizza consumption and time are SHARED (pizza consumption has relationship with time that varies by subject). 
+  - ``` (1 + pizza * time | subject)`` =  Each subject can have their intercept, random slopes influenced by pizza and time, and their interaction between pizza and time. IMPORTANTLY, all random slopes and intercepts can be *correlated*. 
+  
+### Fitting Best Random Effects Structure
+The ```lmer``` package can be used for modeling, and the general syntax is as follows: 
+ ```
+ modelname <- lmer (dv ~ 1 + IV +(randomeffects), data = data.name, REML = FALSE)
+ 
+ ```
+
+You can name each model whatever you want, but note that the name of the dataframe containing your data is specified in each model. Keep ``` REML = FALSE ```. 
+
+First, however, we need to specify the random effects term that best fits the data. Try out different structures, and use the ```anova``` function to find the best fitting random effects structure. This function compares the fit of the model to see how fit has improved with additional items. You can also **visualize your data** to see what fits. ### Insert ggplot2 reference.  
+
+``` {r echo = TRUE, message = FALSE}
+nullmodel1 <- lmer( mood ~ 1 + (1|subject), data = pizzadata, REML=FALSE)
+nullmodel2 <- lmer( mood ~ 1 + (1 + pizza |subject), data = pizzadata, REML=FALSE)
+nullmodel3 <- lmer( mood ~ 1 + (1 + pizza * time |subject), data = pizzadata, REML=FALSE)
+
+anova (nullmodel1, nullmodel2, nullmodel3)
+```
+
+Refer to the p-values in the output to see whether there was an improvement in fit. Because there was an improvement in between model 1 and model 2, but NO improvement between model 2 and model 3, we can proceed using the best fit model, `nullmodel2`, as our random effects structure for the rest of the analyses. 
+
+## Fixed effects
+Specific predictors can now be introduced into our model by specifying the DV followed by the predictor, random effects, and the dataframe. 
+
+**Model 1** - Pizza consumption predict mood (main effect): 
+
+```{r echo = TRUE, message = FALSE, error = FALSE}
+m1=lmer(mood ~ pizza + (1 + pizza + time |subject), data=pizzadata, REML = FALSE)
+summary(m1)
+
+```
+
+This model appears to show pizza consumption as a positive predictor of mood, as indicated by a posi
+
+Random effects: 
+
+  - SD reflects the amount of variation. Check correlation between intercept and slope (i.e. if intercept increases, slope increases). 
+    
+Fixed effects
+
+  - Check estimates for beta value -- time has a significant effect, improvement in mood by about 1 point over time. 
+  - Check correlation of fixed effects -- if too high, this may imply [multicollinearity](http://ademos.people.uic.edu/Chapter13.html)
+
+**Model 2** -- Pizza consumption and timepoints included as predictors of mood. 
+```{r echo = TRUE, message = FALSE, error = FALSE}
+m2= lmer(mood ~ pizza + time + (1 + pizza + time |subject), data=pizzadata, REML = FALSE)
+summary(m2)
+
+```
+
+```{r echo = TRUE, message = FALSE, error = FALSE}
+m2= lmer(mood ~ pizza + time + (1 + pizza + time |subject), data=pizzadata, REML = FALSE)
+summary(m2)
+
+```
+
+Results show significant effects of both pizza consumption and time on mood! Do they interact? 
+
+**Model 3** -- Including an interaction term between pizza consumption and time (pizza consumption varies over time)
+
+```{r echo = TRUE, message = FALSE, error = FALSE}
+m3 = lmer(mood ~ pizza*time + (1 + pizza + time |subject), data=pizzadata, REML = FALSE)
+summary(m3)
+
+```
+
+Results show that while pizza consumption and time are still significant main predictors, their interaction term did not reach significance. 
+
+## Comparing Model Fit 
+The ANOVA function allows you to compute Chi-squares between each model to see the improvement in model fit. The `effects` package should also include p-values in the output. 
+
+```{r echo = TRUE}
+
+anova (m1, m2, m3)
+
+```
+
+As you can see by the p-values, while there is an improvement in fit from model 1 to model 2, model 3 did not explain more variance. As such, model 2 appears to be the best fit.
+
+We can now conclude that after controlling for random effects, more pizza consumption does lead to improvements in mood over time, but there is no interaction with time. 
+
+This concludes the tutorial on mixed effects models. Below are references for additional information 
+# References 
+[Checking assumptions](http://ademos.people.uic.edu/Chapter18.html)
+[More theory here](http://www.stat.cmu.edu/~hseltman/309/Book/chapter15.pdf), [here](http://jakewestfall.org/misc/BDB2008.pdf), and [here](http://www.bodowinter.com/tutorial/bw_LME_tutorial2.pdf).
+[Effects coding](http://www.martijnwieling.nl/R/sheets.pdf)
+[Simulating data](http://anythingbutrbitrary.blogspot.in/2012/10/hierarchical-linear-models-and-lmer.html)
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-98878793-1', 'auto');
+  ga('send', 'pageview');
+
+</script>

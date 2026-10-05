@@ -1,0 +1,549 @@
+---
+title: "Análisis de datos 2: Regresión logistica bivariable y multivariable"
+author: "Daniel Fernandez"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: cerulean
+    highlight: textmate
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    df_print: paged
+    toc_float:
+      collapsed: false
+---
+
+```{r echo = FALSE}
+setwd("C:/Users/danfe/Dropbox/Proyectos Daniel/Cursos - diplomados - Maestrias/Programa de autoformación en investigación y análisis de datos/Rmarkdowns/Estadística/Programa de formación/Semana 9")
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                         fig.show = "asis", results = "show",
+                      fig.align='center',
+                      fig.path = "figures/",  # Configura el directorio donde se guardan los gráficos
+  dev = "png")
+```
+
+\newpage
+
+# Presentación de la tabla de regresión
+
+**Cargar paquetes**
+```{r}
+pacman::p_load(
+  rio,          # Importación de ficheros
+  here,         # Localizador de ficheros
+  tidyverse,    # gestión de datos + gráficos ggplot2, 
+  stringr,      # manipular cadenas de texto 
+  purrr,        # bucle sobre objetos de forma ordenada
+  gtsummary,    # resumen estadístico y tests 
+  broom,        # ordenar resultados de regresiones
+  lmtest,       # pruebas de razón de verosimilitud
+  parameters,   # alternativa para ordenar los resultados de las regresiones
+  ver           # alternativa para visualizar gráficos de bosque
+  )  
+```
+
+Resumiremos las estrategias para calculas las medidas de efecto  (por ejemplo, odds ratios, risk ratios y hazard ratios) con las funciones de regresión de R base, como glm() y el paquete gtsummary. También utilizaremos funciones como tidy() del paquete broom para limpiar los resultados de la regresión.
+
+NOTA: Utilizamos el término univariante como sinonimo de bivariable o bivariado. Mientras, multivariable para referirnos a una regresión con múltiples variables. 
+
+**Importación de base**
+
+Importamos los datos de casos de una epidemia de ébola simulada (archivo .rds). Importa los datos con la función import() del paquete rio.
+
+```{r}
+# importar el listado de casos
+linelist <- import("linelist_cleaned.rds")
+
+head(linelist, 10)
+```
+\newpage
+
+**Definir variables**
+
+Deseo saber si el sexo masculino se asocia con una mayor mortalidad en comparación del sexo femenino:
+
+1. variable de desenlace: outcome = mortalidad para el ejemplo
+
+```{r}
+str(linelist$outcome)
+```
+2. Variable independiente 
+
+```{r}
+str(linelist$gender)
+```
+3. Variables confusoras
+
+Consideraremos las siguientes variables como confusoras (a pesar que algunas podrían no serlas en el DAG):
+
+- fiebre
+
+- escalofríos
+
+- tos
+
+- dolores
+
+- vómitos
+
+**Recomendación:**
+
+Agruparemos la variable independiente y confusoras para hacer los cálculos más rápidos
+
+Nota: solo agrupamos variables de la misma clase, en este caso variables de tipo caracter. 
+
+```{r}
+## definir las variables de interés 
+indep_vars <- c("gender", "fever", "chills", "cough", "aches", "vomit")
+```
+
+
+**Convertir variables categoricas a tipo factor**
+
+```{r}
+## convertir variables a tipo factor
+linelist <- linelist %>%  
+  mutate(across(                                      
+    .cols = all_of(c(indep_vars, "outcome")),  ## para cada columna listada y "outcome"
+    .fns = ~as.factor(.x)
+  ))
+
+# verificamos la clase de variable
+str(linelist[,c(indep_vars, "outcome")])
+
+# vemos que para Outcome la primera categoria es DEATH (como queremos que sea nuestra categoría de interes debemos cambiar el orden de los niveles)
+linelist$outcome <- linelist$outcome %>% factor(levels = c("Recover","Death"))
+
+# comprobamos
+str(linelist$outcome)
+
+
+```
+**Eliminar las filas con valores perdidos**
+
+Para eliminar las filas con valores perdidos, se puede utilizar la función drop_na() de tidyr. Sin embargo, sólo queremos hacer esto para las filas a las que les faltan valores en las columnas de interés.
+
+```{r}
+## añadir age_category a las variables explicativas 
+indep_vars <- c(indep_vars, "age_cat")
+
+## eliminar las filas con información no disponible para las variables de interés 
+linelist <- linelist %>% 
+  drop_na(any_of(c("outcome", indep_vars)))
+
+# verificamos si se borraron los NA
+str(linelist[,c(indep_vars, "outcome")])
+
+```
+## Regresión univariante / bivariada
+
+### Funcion glm()
+
+La función glm() del paquete stats (parte de R base) se utiliza para ajustar los modelos lineales generalizados (GLM).
+
+**Recordemos los argumentos**
+
+glm(formula, family, data, weights, subset, ...)
+
+- formula = El modelo se proporciona a glm() como una ecuación, con el resultado a la izquierda y las variables explicativas a la derecha de una tilde ~.
+
+- family = Determina el tipo de modelo a ejecutar. Para la regresión logística, utiliza family = "binomial", para poisson utiliza family = "poisson". Otros ejemplos se encuentran en la tabla siguiente.
+
+- data = Especifica tu base de datos.
+
+Si es necesario, también puede especificar la función de enlace mediante la sintaxis family = familytype(link = "linkfunction")). Puedes leer más en la documentación sobre otras familias y argumentos opcionales como weights = y subset = (?glm).
+
+```{r echo=FALSE}
+# Cargar las bibliotecas necesarias
+library(dplyr)
+library(gt)
+
+# Crear la tabla usando tribble
+tabla_familias <- tribble(
+  ~Familia, ~Función_de_enlace,
+  "binomial", "(link = \"logit\")",
+  "gaussian", "(link = \"identity\")",
+  "Gamma", "(link = \"inverse\")",
+  "inverse.gaussian", "(link = \"1/mu^2\")",
+  "poisson", "(link = \"log\")",
+  "quasi", "(link = \"identity\", variance = \"constant\")",
+  "quasibinomial", "(link = \"logit\")",
+  "quasipoisson", "(link = \"log\")"
+)
+
+# Crear la tabla con gt y aplicar formato
+tabla_familias |> 
+  gt() |> 
+  tab_style(
+    style = cell_text(weight = "bold", align = "center"),
+    locations = cells_column_labels()
+  ) |> 
+  tab_style(
+    style = cell_text(align = "center"),
+    locations = cells_body()
+  ) |> 
+  tab_options(
+    table.width = pct(80),
+    table.font.size = "medium"
+  ) |> 
+  opt_horizontal_padding(scale = 2)
+
+
+```
+
+En este ejemplo estamos evaluando la asociación entre diferentes categorías de edad y el resultado de muerte (codificado como 1 en la sección anterior “Preparación”). A continuación se muestra un modelo univariante de outcome por age_cat. Guardamos la salida del modelo como model y luego la imprimimos con summary() en la consola. Observa que las estimaciones proporcionadas son las probabilidades logarítmicas (log odds) y que el nivel de referencia es el primer nivel del factor age_cat (“0-4”).
+
+```{r}
+model <- glm(outcome ~ age_cat, family = "binomial", data = linelist)
+summary(model)
+```
+
+**Imprimir resultados**
+
+En la mayoría de los casos, para su empleo posterior, es necesario hacer modificaciones a los resultados obtenidos anteriormente. La función tidy() del paquete broom es útil de cara a hacer más presentables los resultados de nuestros modelos.
+
+Aquí demostramos cómo combinar los resultados del modelo con una tabla de recuento.
+
+Obtén las estimaciones de log odds ratio exponenciadas y los intervalos de confianza pasando el modelo a tidy() y estableciendo exponentiate = TRUE y conf.int = TRUE.
+
+```{r}
+library(broom)
+
+model <- glm(outcome ~ age_cat, family = "binomial", data = linelist) %>% 
+  tidy(exponentiate = TRUE, conf.int = TRUE) %>%        # exponenciar y producir ICs
+  mutate(across(where(is.numeric), round, digits = 3))  # redondear todas las columnas numéricas
+
+
+model
+```
+
+
+### paquete gtsummary
+
+A continuación presentamos el uso de tbl_uvregression() del paquete gtsummary. 
+
+Seleccionamos sólo las columnas necesarias de linelist (variables explicativas y la variable de resultado) y las introducimos en tbl_uvregression(). Vamos a ejecutar una regresión univariante en cada una de las columnas que definimos como explanatory_vars en la sección de preparación de datos (sexo, fiebre, escalofríos, tos, dolores, vómitos y age_cat).
+
+Dentro de la propia función, proporcionamos el method = como glm (sin comillas), la columna de resultado y = (outcome), especificamos a method.args = que queremos ejecutar la regresión logística a través de family = binomial, y le decimos que exponencie los resultados.
+
+La salida es HTML y contiene el recuento de cada variable.
+
+```{r}
+univ_tab <- linelist %>% 
+  dplyr::select(indep_vars, outcome) %>% ## selecciona las variables de interés
+
+  tbl_uvregression(                         ## produce una tabla univariante
+    method = glm,                           ## define la regresión que se desea ejecutar (modelo lineal generalizado)
+    y = outcome,                            ## define la variable de resultado
+    method.args = list(family = binomial),  ## define el tipo de glm que se quiere ejecutar (logístico)
+    exponentiate = TRUE ,                    ## exponencia para producir odds ratios (en lugar de log odds)
+  pvalue_fun = function(x) style_pvalue(x, digits = 3) )
+
+## ver la tabla de resultados univariantes
+univ_tab
+```
+
+## Regresión multivariable
+
+### Función glm()
+Aquí utilizamos glm() pero en este caso, añadiremos más variables al lado derecho de la ecuación, separadas por símbolos de suma (+).
+
+```{r}
+mv_reg <- glm(outcome ~ gender + fever + chills + cough + aches + vomit + age_cat, family = "binomial", data = linelist)
+
+summary(mv_reg)
+```
+
+**Construir el modelo**
+
+Puedes construir tu modelo paso a paso, guardando varios modelos que incluyan determinadas variables explicativas. Puedes comparar estos modelos con pruebas de razón de verosimilitud utilizando lrtest() del paquete lmtest, como se indica a continuación:
+
+NOTA: El uso de anova(model1, model2, test = "Chisq") de R base produce los mismos resultados
+
+```{r}
+model1 <- glm(outcome ~ age_cat, family = "binomial", data = linelist)
+model2 <- glm(outcome ~ age_cat + gender, family = "binomial", data = linelist)
+
+lmtest::lrtest(model1, model2)
+```
+
+Otra opción es tomar el objeto que contiene el modelo y aplicar la función step() del paquete stats. Especifica qué dirección de selección de variables deseas utilizar al construir el modelo.
+
+```{r }
+## escoger un modelo usando selección hacia adelante basada en AIC
+## también se puede hacer "hacia atrás" o "ambos" ajustando la dirección
+final_mv_reg <- mv_reg %>%
+  step(direction = "forward", trace = FALSE)
+```
+
+Para mayor claridad, también puedes desactivar la notación científica en tu sesión de R.
+
+```{r}
+options(scipen=999,digits = 3)
+```
+
+Como se describe en la sección sobre el análisis univariante, pasamos la salida del modelo a tidy() para exponenciar las probabilidades logarítmicas y los IC. Finalmente, redondeamos todas las columnas numéricas a dos decimales. Haz scroll para ver el resultado.
+
+```{r}
+mv_tab_base <- final_mv_reg %>% 
+  broom::tidy(exponentiate = TRUE, conf.int = TRUE) %>%  ## get a tidy dataframe of estimates 
+  mutate(across(where(is.numeric), round, digits = 3))          ## redonda
+
+mv_tab_base
+```
+
+##  Paquete gtsummary
+
+El paquete gtsummary proporciona la función tbl_regression(), que toma los resultados de una regresión (glm() en este caso) y produce una bonita tabla resumen.
+
+```{r}
+
+# theme to round percentages to one decimal place
+set_gtsummary_theme(list(
+  `tbl_summary-fn:percent_fun` = function(x) sprintf("%.1f", x * 100)
+))
+
+
+## mostrar la tabla de resultados de la regresión final 
+mv_tab <- tbl_regression(final_mv_reg, exponentiate = TRUE,
+                         pvalue_fun = function(x) style_pvalue(x, digits = 3) )
+
+mv_tab
+```
+
+## Combinar regresiones univariantes y multivariables 
+
+También puedes combinar varias tablas producidas por gtsummary con la función tbl_merge(). En este ejemplo combinaremos los resultados multivariables con los resultados univariantes de gtsummary que creamos anteriormente:
+
+```{r}
+## combinar con resultados univariantes 
+tbl_merge(
+  tbls = list(univ_tab, mv_tab),                          # combina
+  tab_spanner = c("**Univariate**", "**Multivariable**")) # establece los nombres de las cabeceras
+```
+
+# Ejemplos con otros tipos de regresiones
+
+## Regresión binomial
+
+```{r}
+univ_tab <- linelist %>% 
+  dplyr::select(indep_vars, outcome) %>% ## selecciona las variables de interés
+
+  tbl_uvregression(                         ## produce una tabla univariante
+    method = glm,                           ## define la regresión que se desea ejecutar (modelo lineal generalizado)
+    y = outcome,                            ## define la variable de resultado
+    method.args = list(family = binomial(link="log")),  ## define el tipo de glm que se quiere ejecutar (logístico)
+    exponentiate = TRUE,                     ## exponencia para producir odds ratios (en lugar de log odds)
+  pvalue_fun = function(x) style_pvalue(x, digits = 3) )
+
+## ver la tabla de resultados univariantes
+univ_tab
+```
+
+
+```{r}
+## mostrar la tabla de resultados de la regresión final 
+
+final_mv_reg <- glm(formula = outcome ~ gender + fever + chills + cough + aches + 
+    vomit + age_cat, family = binomial(link = "log"), data = linelist)
+
+mv_tab <- tbl_regression(final_mv_reg, exponentiate = TRUE,
+                         pvalue_fun = function(x) style_pvalue(x, digits = 3) )
+
+mv_tab
+```
+
+```{r}
+## combinar con resultados univariantes 
+tbl_merge(
+  tbls = list(univ_tab, mv_tab),                          # combina
+  tab_spanner = c("**Univariate**", "**Multivariable**")) # establece los nombres de las cabeceras
+```
+
+
+
+## Regresion de poisson con varianza robusta 
+
+```{r}
+# build logistic regression model
+mod <- glm(formula = outcome ~ gender + fever + chills + cough + aches + 
+    vomit + age_cat, family = binomial(link = "log"), data = linelist)
+
+# write a tidy function wrapping jtools::summ
+tidy_robust <- function(x, 
+                        exponentiate = FALSE, 
+                        conf.level = 0.95, 
+                        robust = c("HC0", "HC1", "HC2", "HC3", "HC4", "HC4m", "HC5"), 
+                        ...) {
+  robust <- match.arg(robust)
+  
+  jtools::summ(x, confint = TRUE, ci.width = conf.level, 
+               exp = exponentiate, robust = robust) %>%
+    purrr::pluck("coeftable") %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column() %>%
+    setNames(c("term", "estimate", "conf.low", "conf.high", 
+               "statistic", "p.value"))
+}
+
+tidy_robust(mod)
+
+tbl1 <- 
+  tbl_regression(
+    mod, 
+    exponentiate = TRUE,
+    tidy_fun = tidy_robust,
+    pvalue_fun = function(x) style_pvalue(x, digits = 3) 
+  )
+
+tbl1
+
+tbl2 <- 
+  tbl_regression(
+    mod, 
+    exponentiate = TRUE,
+    tidy_fun = purrr::partial(tidy_robust, robust = "HC0"),
+    pvalue_fun = function(x) style_pvalue(x, digits = 3) 
+  ) %>% 
+  add_n()
+
+tbl2 
+
+```
+
+tbl1 y tbl2 son iguales
+
+ahora creamos la regresion bivariable
+
+```{r}
+
+tbl_bi_robust  <- linelist %>% 
+  dplyr::select(indep_vars, outcome) %>% ## selecciona las variables de interés
+
+  tbl_uvregression(                         ## produce una tabla univariante
+    method = glm,                           ## define la regresión que se desea ejecutar (modelo lineal generalizado)
+    y = outcome,                            ## define la variable de resultado
+    method.args = list(family = binomial(link="log")),  ## define el tipo de glm que se quiere ejecutar (binomial )
+    exponentiate = TRUE ,                    ## exponencia para producir RR
+    tidy_fun = tidy_robust,
+    pvalue_fun = function(x) style_pvalue(x, digits = 3) )
+
+## ver la tabla de resultados univariantes
+tbl_bi_robust
+```
+```{r}
+## combinar con resultados univariantes 
+tbl_merge(
+  tbls = list( tbl_bi_robust, tbl2),                          # combina
+  tab_spanner = c("**Univariate**", "**Multivariable**")) # establece los nombres de las cabeceras
+```
+
+__NOTA 1: En caso tus datos provengan de un estudio transversal los IRR (incidence rate ratio) pueden ser interpretados como RP __
+
+__NOTA 2: En caso tu desenlace sea dicotómico (como este ejemplo) es valido usar rergesión de poisson con varianza robusta para estimar el RR/RP en vez de usar regresión binomial (a veces no converge) y/o logistica (este estima OR). Te recomiendo comparar las estimaciones presentadas con los diferentes métodos__
+
+## regresion multinomial 
+
+```{r}
+library(UPG)
+
+data(program)
+
+program <- program %>%
+  mutate(interaction = write * female)
+
+program$program <- factor(program$program)
+program$prog2 <- relevel(as.factor(program$program), ref = 1)
+program$female <- factor(program$female)
+program$ses <- factor(program$ses)
+program$intercept <- NULL
+
+
+# bivariable
+
+library(nnet)
+library(gtsummary)
+
+univ_tab <- program %>% 
+  dplyr::select(prog2, ses ,  write, female, interaction) %>% ## selecciona las variables de interés
+  tbl_uvregression(                         ## produce una tabla univariante
+    method = nnet::multinom,                     ## define la regresión que se desea ejecutar (modelo lineal generalizado)
+    y = prog2,                            ## define la variable de resultado
+    method.args = list(family = binomial),  ## define el tipo de glm que se quiere ejecutar (logístico)
+    exponentiate = TRUE ,                    ## exponencia para producir odds ratios (en lugar de log odds)
+  pvalue_fun = function(x) style_pvalue(x, digits = 3) )
+
+univ_tab
+
+#multivariable
+
+library(nnet)
+
+multi_mo <- multinom(prog2 ~ ses + write + female + interaction, data = program,model=TRUE)
+
+library(gtsummary)
+
+multi_mo2 <- multi_mo %>%
+                    tbl_regression(exponentiate = T,
+                                   pvalue_fun = function(x) style_pvalue(x, digits = 3) )
+
+multi_mo2
+
+```
+```{r}
+multinom_pivot_wider <- function(x) {
+  # Check if input is a tbl_regression or tbl_uvregression
+  if (!inherits(x, "tbl_regression") && !inherits(x, "tbl_uvregression")) {
+    stop("`x=` must be class 'tbl_regression' or 'tbl_uvregression'.")
+  }
+
+  # Check if the table contains multinomial regression results
+  if (!"groupname_col" %in% colnames(x$table_body)) {
+    stop("The provided table must be from a multinomial regression model.")
+  }
+  
+  # Create tibble of results
+  df <- tibble::tibble(outcome_level = unique(x$table_body$groupname_col))
+  df$tbl <- purrr::map(df$outcome_level, function(lvl) {
+    gtsummary::modify_table_body(
+      x, 
+      ~ dplyr::filter(.x, .data$groupname_col %in% lvl) %>%
+        dplyr::ungroup() %>%
+        dplyr::select(-.data$groupname_col)
+    )
+  })
+  
+  tbl_merge(df$tbl, tab_spanner = paste0("**", df$outcome_level, "**"))
+}
+
+# Test the function with univ_tab
+univ_pivot_wider <- multinom_pivot_wider(univ_tab)
+
+multi_pivot_wider <- multinom_pivot_wider(multi_mo2)
+
+## combinar con resultados univariantes 
+merge <- tbl_merge(
+  tbls = list(univ_pivot_wider, multi_pivot_wider),                          # combina
+  tab_spanner = c("**Univariate**", "**Multivariable**")) # establece los nombres de las cabeceras
+
+merge
+
+```
+
+OJO: para la exportación de la tabla a word utiliza:
+
+```{r}
+library(flextable)
+library(officer)
+
+# Convertir la tabla gtsummary a flextable
+tabla_flextable <- as_flex_table(merge)
+
+# Guardar la tabla en un documento de Word
+read_docx() %>%
+  body_add_flextable(value = tabla_flextable) %>%
+  print(target = "tabla_resumen.docx")
+```

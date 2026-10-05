@@ -1,0 +1,447 @@
+---
+title: "Resolución del 1er taller de análisis estadístico con R"
+date: "`r Sys.Date()`"
+author: "Daniel Fernández"
+format: 
+  html:
+    toc: true
+    toc_float: 
+      collapsed: true
+    embed-resources: true
+    self-contained-math: true
+editor: visual
+---
+
+::: callout-note
+### Nota
+
+No podemos tratar de llegar a las respuestas con el análisis si antes no sabemos cuál es la pregunta de investigación.
+:::
+
+```{r}
+#| echo = FALSE
+
+setwd("C:/Users/danfe/Dropbox/Proyectos Daniel/Cursos - diplomados - Maestrias/Programa de autoformación en investigación y análisis de datos/Talleres/Taller 1")
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+::: callout-tip
+### Instrucciones
+
+Contexto simulado con fines académicos
+:::
+
+En enero de 2024, un grupo de investigadores se dio cuenta de que en la población de Perú la mortalidad por infarto se había duplicado en comparación con hace 10 años. Tras revisar la literatura, encontraron que una de las principales razones de este aumento era la hipertensión arterial, un factor de riesgo que incrementaba hasta cuatro veces la probabilidad de desarrollar estos eventos (RR: 4.0). Además, descubrieron que en Perú, la prevalencia de hipertensión había aumentado del 12% en 2010 al 25% en 2024, coincidiendo con el alza de casos de infartos.
+
+Los investigadores sospechaban que, de las diferentes variables de exposición que podrían causar este incremento en los casos, la adición de sal extra a las comidas se había vuelto mucho más frecuente. Por ende, plantearon la hipótesis de que agregar sal se asociaba con un incremento en la prevalencia de hipertensión. Debido a la falta de recursos, los investigadores solo pudieron realizar una entrevista transversal en la que se abordaron múltiples características de los participantes, con la finalidad de evitar confusión en la relación que buscaban.
+
+A continuación, se presenta la estructura del taller para que pueda ser desarrollado de forma individual y enviado por correo
+
+::: callout-caution
+### Fecha de entrega
+
+Antes de las 10:00 pm, del 18 de agosto
+:::
+
+## Cargar paquetes :D
+
+```{r}
+
+library(tidyverse)
+library(haven)
+
+```
+
+## 1. Estadística descriptiva
+
+**a) Importar la base de datos**
+
+Para importar utilizaremos el paquete de `haven` que contiene la función `read_dta` que nos ayudará a importar archivos de STATA.
+
+```{r}
+base <- haven::read_dta("base_simulada.dta")
+
+```
+
+**b) Seleccionamos variables a utilizar**
+
+Podemos usar `view(base)` para ver que tenemos una enorme cantidad de datos.
+
+```{r}
+
+dim(base)
+
+```
+
+Observamos que son 1086 observaciones y 231 variables, pero a nosotros solo nos interesan pocas variables, así que seleccionaremos solo las de nuestro interés.
+
+```{r}
+base2 <- base %>% select(edad, sexo, instruccion2, estado_civil2, riqueza, etnia,
+                         region2, residencia, 
+                         sentado_horas2, actividad_fisica_ipaq, IMC, fumadoractual,
+                         ldl_colesterolmg_dl, primera_medida_sistolica,
+                         primera_medida_diastolica,
+                         pa_elevada2, hipertension, dias_agrega_sal, ps_sodio)
+```
+
+**c) De ser necesario limpieza y creación de variables**
+
+Algunas variables ya tienen etiquetas para sus categorias, estas fueron creadas en STATA. Para que R las reconozca utilizaremos los siguientes comandos:
+
+```{r}
+
+base3 <- base2 %>% mutate(sexo = as_factor(sexo),
+                          instruccion2 = as_factor(instruccion2), 
+                          estado_civil2 = as_factor(estado_civil2), 
+                          riqueza = as_factor(riqueza), 
+                          etnia = as_factor(etnia),
+                          region2 = as_factor(region2), 
+                          residencia = as_factor(residencia), 
+                         sentado_horas2 = as_factor(sentado_horas2), 
+                         actividad_fisica_ipaq = as_factor(actividad_fisica_ipaq), 
+                         fumadoractual = as_factor(fumadoractual),
+                         pa_elevada2  = as_factor(pa_elevada2), 
+                         hipertension = as_factor(hipertension), 
+                         sentado_horas2 = as.numeric(sentado_horas2),
+                         dias_agrega_sal = as_factor(dias_agrega_sal)) 
+
+
+```
+
+***ACTIVIDAD 1*****:** Crea las siguientes variables
+
+-   Obesidad a partir del IMC (obesidad = IMC \>=30)
+
+-   Presión arterial media \[(PAS + 2\*PAD)/3\]
+
+-   Si añade sal a las comidas a partir de "*dias_agrega_sal" (*Añade_sal, etiqueta como "Sí" si los valores son diferentes de 0 días, o como "No" si es igual a 0 días como, ojo con valor de 99 que indica que no hay información)
+
+```{r }
+
+# Crear la columna Obesidad a partir del IMC (obesidad = IMC >=30)
+base3 <- base3 %>%   mutate(obesidad = case_when(
+    IMC >= 30 ~ "Sí",
+    TRUE ~ "No"  ),
+    
+    IMC = NULL,
+    
+    PAM = (primera_medida_sistolica + 2 * primera_medida_diastolica) / 3, 
+    
+    dias_agrega_sal = case_when(dias_agrega_sal  == 99 ~ NA_character_,
+                                TRUE ~ dias_agrega_sal),
+    Añade_sal = case_when(
+            dias_agrega_sal  != "0"  ~ "Sí",        
+            dias_agrega_sal   == "0" ~ "No"))
+    
+  
+```
+
+***ACTIVIDAD 2*****:** Filtra la base de datos para que tengas una base sin datos perdidos y anota el numero de observaciones antes y despues de eliminar los datos perdidos
+
+```{r }
+
+# Número de observaciones antes de eliminar datos perdidos
+observaciones_antes <- nrow(base3)
+dim(base3)
+
+
+# Filtrar la base para eliminar  datos perdidos
+
+base3 <- na.omit(base3)
+dim(base3)
+# Número de observaciones después de eliminar datos perdidos
+observaciones_despues <- nrow(base3)
+dim(base3)
+
+# Mostrar el número de observaciones antes y después
+observaciones_antes
+observaciones_despues
+
+
+```
+
+Ahora si estamos listos para empezar con el análisis.
+
+***ACTIVIDAD 2*****:** Crea una tabla que presente las caracteristicas descriptivas de la muestra evaluada, no es necesario cambiar las etiquetas
+
+OJO: evaluar si debes presentar media y desviación estandar o mediana y p25-p75
+
+```{r }
+
+#Edad
+
+#Evaluar el tamaño  :275 ,  distribucion no normal/ uso mediana y p25-p75
+sum(complete.cases(base3$edad))
+hist(base3$edad)
+
+shapiro.test(base3$edad)
+
+skimr::skim(base3)
+
+
+#sentado_horas2 distribucion no normal
+hist(base3$sentado_horas2)
+shapiro.test(base3$sentado_horas2)
+
+#ldl_colesterolmg_dl distribucion no normal
+
+hist(base3$ldl_colesterolmg_dl)
+shapiro.test(base3$ldl_colesterolmg_dl)
+
+#ps_sodio distribucion no normal
+
+hist(base3$ps_sodio)
+shapiro.test(base3$ps_sodio)
+
+
+```
+
+Creamos la tabla!!!!
+
+Cambiar para que se presente un decimal para % y para medidas de tendencia central y dispersión
+
+```{r}
+#| label: Tabla1
+#| tbl-cap: "Características de la muestra"
+
+library(gtsummary) 
+set_gtsummary_theme(theme_gtsummary_compact())  
+
+# theme to round percentages to one decimal place 
+set_gtsummary_theme(list(`tbl_summary-fn:percent_fun` = function(x) sprintf("%.1f", x * 100)))
+
+# formato de digitos 
+pacman::p_load(magrittr, purrr)
+style_percent_1digits <- purrr::partial(gtsummary::style_percent, digits = 1) 
+style_number_2digits <- purrr::partial(gtsummary::style_number, digits = 2)
+
+tbl_summary(base3)
+
+```
+
+Pasemos por alto que la prevalencia de hipertensión no se acerca a la prevalencia que se reporta para la población peruana y trabajemos con la variable "**pa_elevada2**"
+
+## 2. Estadística inferencial - pruebas de hipótesis
+
+::: callout-caution
+### Recuerda
+
+**Hipótesis:** Añadir sal a las comidas se asocia con mayor frecuencia de presión arterial elevada en la población peruana.
+:::
+
+***ACTIVIDAD 3*****:** Crea una tabla bivariada en función del desenlace "presión arterial elevada" y presenta los valores p de las pruebas de hipótesis correspondientes (indicar que prueba se utilizó para cada variable.
+
+```{r}
+
+# Menos del 20% de las celdas tiene frecuencias menores de 5, se usa Chicuadrado 
+chi2<- chisq.test(base3$Añade_sal , base3$pa_elevada2)
+chi2$expected
+
+#valor p es igual a 1 , no hay diferencia estadisticamente significativa entre añadir sal a las comidas y la frecuencia de preseion arterial elevada en la poblacion peruana
+tbl_summary(base3, by = pa_elevada2, 
+            missing = "no",
+            percent = "row")%>% 
+  add_p(pvalue_fun = ~ style_pvalue(.x, digits = 3))
+
+
+```
+
+***ACTIVIDAD 4*****:** Crea una tabla bivariada en función de la variable de exposición creada "Añadir sal a las comidas" (Añade_sal) y presenta los valores p de las pruebas de hipótesis correspondientes (indicar que prueba se utilizó para cada variable.
+
+```{r}
+
+tbl_summary(base3, by = Añade_sal, 
+            missing = "no",
+            percent = "row")%>% 
+  add_p(pvalue_fun = ~ style_pvalue(.x, digits = 3))
+# para las variables categoricas se usa  chi 2
+# edad prueba de Mann Whitney
+
+
+```
+
+## 3. Estadística inferencial - regresiones
+
+***ACTIVIDAD 5*****:** Crea una tabla de regresión lineal simple y ajustada para la relación de agregar sal (variable de exposición dicotómica) y el desenlace "presión arterial media" (PAM)
+
+Considera en el modelo las variables que creas que son confusoras en la relación causal que estas intentando demostrar
+
+Los decimales deben ser 2 para los coeficientes y 3 para el valor p
+
+```{r}
+
+
+# Instalar y cargar el paquete performance
+#install.packages("performance")
+library(performance)
+library(dplyr)
+library(broom)
+# Primero : Regresion lineal simple
+model_simple <- lm(PAM~Añade_sal, data = base3)
+
+tbl_regression(model_simple,
+               pvalue_fun = function(x) style_pvalue(x, digits = 3))
+
+# Segundo: Regresion lineal ajustada(edad, obesidad) 
+
+# podrian añadir mas variables de acuerdo a su DAG no hay modelos incorrectos :D
+
+model_ajustado <- lm(PAM ~ Añade_sal + edad + obesidad + ps_sodio, data = base3)
+
+
+tbl_regression(model_ajustado,
+               pvalue_fun = function(x) style_pvalue(x, digits = 3))
+
+
+
+```
+
+Antes de interpretar los coeficientes, evalúa los supuestos solo para la variable de exposición
+
+```{r}
+# Evaluación de los Supuestos del Modelo
+
+#Paso 1: Crear el Modelo Simple
+model_simple 
+
+#Paso 2: Evaluación de los Supuestos
+#1  Linealidad: por defecto si cumple para variables independientes categoricas
+library(performance)
+library(lmtest)
+check_model(model_simple)
+
+# opcion 2
+plot(model_simple, which = 1)
+
+
+#2 Independencia -- si  cumple 
+# Prueba de Durbin-Watson --> es opcional 
+dwtest(model_simple)
+
+
+#3 normalidad   -->  No cumple, deberia de realizarse bootstrap (no lo haremos porque estamos comenzando)
+plot(model_simple, which = 2)
+check_normality(model_simple)
+shapiro.test(resid(model_simple))
+
+
+
+# Homocedasticidad-- si  cumple 
+check_homogeneity(model_simple)
+# Prueba de Cook-Weisberg (Breusch-Pagan)
+ lmtest::bptest(model_simple)
+
+
+library(gtsummary)
+# Si cumple todo recien podremos interpreta los resultados
+tbl_regression(model_simple, 
+               pvalue_fun = function(x) style_pvalue(x, digits = 3))
+
+
+#Interpretacion:
+#En la población de estudio, la PAM es 0.28 unidades menor en el grupo que añade sal a las comidas en comparación con el grupo que no añade sal. Esta diferencia no es estadísticamente significativa.
+
+
+```
+
+***ACTIVIDAD 6*****:** Crea una tabla de regresión de poisson con varianza robusta cruda y ajustada para la relación de agregar sal (variable de exposición dicotómica) y el desenlace dicotómico "presión arterial elevada" (pa_elevada2)
+
+Considera en el modelo las variables que creas que son confusoras en la relación causal que estas intentando demostrar
+
+Los decimales deben ser 2 para los RPs y 3 para el valor pview
+
+```{r}
+library(performance)
+library(broom)
+# trasformar a 0 y 1 el desenlace
+
+base3$pa_elevada2<- base3$pa_elevada2 %>% 
+                          as.factor() %>% as.numeric() - 1
+
+out.formula <- pa_elevada2 ~ Añade_sal
+
+fit1 <- glm(out.formula,  family = poisson(link = "log"), 
+            data = base3)
+
+check_overdispersion(fit1) # si hay sobredispersion (esperable por ser Y dicotomico)
+check_zeroinflation(fit1)
+
+
+#Creamos función para realizar estimación sándwich :D
+
+tidy_robust <- function(x, 
+                        exponentiate = FALSE, 
+                        conf.level = 0.95, 
+                        robust = c("HC0", "HC1", "HC2", "HC3", "HC4", "HC4m", "HC5"), 
+                        ...) {
+  robust <- match.arg(robust)
+  
+  jtools::summ(x, confint = TRUE, ci.width = conf.level, 
+               exp = exponentiate, robust = robust) %>%
+    purrr::pluck("coeftable") %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column() %>%
+    setNames(c("term", "estimate", "conf.low", "conf.high", 
+               "statistic", "p.value"))
+}
+
+
+#Corregimos la regresión
+
+ tbl_regression(
+    fit1, 
+    exponentiate = TRUE,
+    include = Añade_sal, 
+    tidy_fun = tidy_robust,
+    pvalue_fun = function(x) style_pvalue(x, digits = 3) 
+  )
+
+# puedes hacer lo mismo añadiendo más variables al modelo
+```
+
+Antes de interpretar los coeficientes, evalúa los supuestos solo para la variable de exposición
+
+```{r}
+
+# Evaluación de los Supuestos del Modelo
+
+#Paso 1: Crear el Modelo Simple
+fit1 
+
+#Paso 2: Evaluación de los Supuestos
+#1  Linealidad: por defecto si cumple para variables independientes categoricas
+library(performance)
+library(lmtest)
+check_model(fit1)
+
+# opcion 2
+plot(fit1, which = 1)
+
+
+#2 Independencia -- si  cumple 
+# Prueba de Durbin-Watson --> es opcional 
+dwtest(fit1)
+
+
+#3 normalidad   -->  No cumple, deberia de realizarse bootstrap (no lo haremos porque estamos comenzando)
+plot(fit1, which = 2)
+check_normality(simulate_residuals(fit1))
+
+
+# Homocedasticidad-- si  cumple 
+check_homogeneity(fit1)
+# Prueba de Cook-Weisberg (Breusch-Pagan)
+ lmtest::bptest(fit1)
+
+
+library(gtsummary)
+# Si cumple todo recien podremos interpreta los resultados
+tbl_regression(fit1, exponentiate = T,
+               pvalue_fun = function(x) style_pvalue(x, digits = 3))
+
+
+#Interpretacion:
+#En la población de estudio, añadir sal a las comidas disminuye en 4% (RP: 0.96; IC 95%: 0.44 a 1.85) la prevalencia de presión arterial elevada en comparación con el grupo que no añade sal. Esta diferencia no es estadísticamente significativa.
+
+
+```

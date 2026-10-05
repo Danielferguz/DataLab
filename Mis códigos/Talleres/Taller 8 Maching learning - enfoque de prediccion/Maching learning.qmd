@@ -1,0 +1,243 @@
+---
+title: "Prediction models - ML"
+format: 
+  html:
+    toc: true
+    toc_float: 
+      collapsed: true
+    embed-resources: true
+    self-contained-math: true
+    tabsets: true
+editor: visual
+author: Daniel F
+---
+
+```{r echo = FALSE}
+
+setwd("C:/Users/danfe/Dropbox/Proyectos Daniel/Cursos - diplomados - Maestrias/Programa de autoformación en investigación y análisis de datos/Talleres/Taller 8 Maching learning - enfoque de prediccion")
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# **Conceptos generales**
+
+## **Aprendizaje automático**
+
+El aprendizaje automático se centra en el desarrollo de algoritmos y modelos que permiten a las computadoras aprender de los datos y hacer predicciones o tomar decisiones basadas en ellos sin necesidad de programarlos explícitamente. En epidemiología, el aprendizaje automático tiene varios usos y aplicaciones importantes.
+
+## **Lista de lectura**
+
+Referencia clave
+
+-   ( [Bi y otros 2019](https://ehsanx.github.io/EpiMethods/machinelearning0.html#ref-bi2019machine) )
+
+A continuación se presentan referencias opcionales pero útiles.
+
+-   ( [Carim 2021](https://ehsanx.github.io/EpiMethods/machinelearning0.html#ref-karim2021) )
+
+-   ( [Liu y otros 2019](https://ehsanx.github.io/EpiMethods/machinelearning0.html#ref-liu2019read) )
+
+-   ( [Kuhn y otros 2013](https://ehsanx.github.io/EpiMethods/machinelearning0.html#ref-kuhn2013over) )
+
+-   ( [James y otros, 2013](https://ehsanx.github.io/EpiMethods/machinelearning0.html#ref-james2013introduction) )
+
+-   ( [Vittinghoff y otros 2012](https://ehsanx.github.io/EpiMethods/machinelearning0.html#ref-vittinghoff2012predictor) )
+
+-   ( [Steyerberg 2019](https://ehsanx.github.io/EpiMethods/machinelearning0.html#ref-Steyerberg2019) )
+
+# **Resultado continuo**
+
+### **Cargar conjunto de datos**
+
+```{r}
+ObsData <- readRDS(file = "rhcAnalytic.RDS")
+head(ObsData)
+```
+
+### **Predicción de la duración de la estancia**
+
+Ahora, mostramos el ajuste de regresión cuando el resultado es continuo (duración de la estadía).
+
+#### Variables
+
+```{r}
+baselinevars <- names(dplyr::select(ObsData, 
+                         !c(Length.of.Stay,Death)))
+baselinevars
+```
+
+#### Modelo
+
+```{r}
+# adjust covariates
+out.formula1 <- as.formula(paste("Length.of.Stay~ ", 
+                               paste(baselinevars, 
+                                     collapse = "+")))
+saveRDS(out.formula1, file = "form1.RDS")
+fit1 <- lm(out.formula1, data = ObsData)
+require(Publish)
+adj.fit1 <- publish(fit1, digits=1)$regressionTable
+
+out.formula1
+
+adj.fit1
+
+```
+
+#### Matriz de diseño
+
+-   Notaciones
+
+    -   n es el número de observaciones
+
+    -   p es el número de covariables
+
+Expande los factores a un conjunto de variables ficticias.
+
+```{r}
+dim(ObsData)
+
+length(attr(terms(out.formula1), "term.labels"))
+
+
+head(model.matrix(fit1))
+
+dim(model.matrix(fit1))
+
+p <- dim(model.matrix(fit1))[2] # intercept + slopes
+p
+```
+
+#### Obtener predicción
+
+```{r}
+obs.y <- ObsData$Length.of.Stay
+summary(obs.y)
+
+# Predict the above fit on ObsData data
+pred.y1 <- predict(fit1, ObsData)
+summary(pred.y1)
+
+n <- length(pred.y1)
+n
+
+plot(obs.y,pred.y1)
+lines(lowess(obs.y,pred.y1), col = "red")
+```
+
+### Medición del error de predicción
+
+El **error de predicción** mide lo bien que el modelo puede predecir el resultado para nuevos datos que **no** se utilizaron en el desarrollo del modelo de predicción.
+
+-   El sesgo se reduce en los modelos con más variables
+-   Las variables sin importancia generan ruido y variabilidad.
+-   Compensación de la varianza del sesgo / necesidad de penalización
+
+#### R2
+
+La información proporcionada describe un contexto estadístico que implica un conjunto de datos de `n` valores, $y_1, ..., y_n$ (denominados $y_i$ o como un vector $y = [y_1,...,y_n]^T$), cada uno emparejado con un valor ajustado $f_1,...,f_n$ (denominado $f_i$ o a veces $\hat{y_i}$, y como un vector $f$). Los residuos, representados como $e_i$, se definen como las diferencias entre los valores observados y los ajustados: \$ e_i = y_i - f_i\$
+
+La media de los datos observados se denota por $$ \bar{y} = \frac{1}{n}\sum_{i=1}^{n}y_i $$
+
+La variabilidad del conjunto de datos puede cuantificarse mediante dos fórmulas de sumas de cuadrados: 1. **Suma de cuadrados residual (SSres)** o `SSE`: Cuantifica la varianza que queda en los datos después de ajustar un modelo, calculada como: $$ SS_{res} = \sum_{i}(y_i - f_i)^2 = \sum_{i}e_i^2 $$ 2. **Suma Total de Cuadrados (SStot)** o `SST`: Representa la varianza total en los datos observados, calculada como: $$ SS_{tot} = \sum_{i}(y_i - \bar{y})^2 $$
+
+El **coeficiente de determinación (R²)** o `R.2`, que proporciona una medida de lo bien que coinciden las predicciones del modelo con los datos observados, se define como: $$ R^2 = 1 - \frac{SS_{res}}{SS_{tot}} $$
+
+En el escenario ideal en el que el modelo se ajusta perfectamente a los datos, tenemos $SS_{res} = 0$ y, por tanto, $R^2 = 1$. Por el contrario, un modelo de referencia, que siempre predice la media $\bar{y}$ de los datos observados, produciría $R^2 = 0$. Los modelos con peores resultados que este modelo de referencia tendrían un valor R² negativo. Esta métrica se utiliza ampliamente en el análisis de regresión para evaluar el rendimiento del modelo, donde un R² más alto indica un mejor ajuste del modelo a los datos.
+
+```{r}
+# Find SSE
+SSE <- sum( (obs.y - pred.y1)^2 )
+SSE
+# Find SST
+mean.obs.y <- mean(obs.y)
+SST <- sum( (obs.y - mean.obs.y)^2 )
+SST
+# Find R2
+R.2 <- 1- SSE/SST
+R.2
+require(caret)
+caret::R2(pred.y1, obs.y)
+```
+
+[ref](https://en.wikipedia.org/wiki/Coefficient_of_determination)
+
+#### RMSE
+
+```{r}
+# Find RMSE
+Rmse <- sqrt(SSE/(n-p)) 
+Rmse
+caret::RMSE(pred.y1, obs.y)
+```
+
+Ver [@anova]
+
+#### R2 ajustado
+
+El estadístico **R²** ajustado modifica el valor $R^2$ para contrarrestar el aumento automático de $R^2$ cuando se añaden variables explicativas adicionales a un modelo, aunque no mejoren el ajuste del modelo. Este ajuste es crucial para garantizar que la métrica ofrezca una indicación fiable del poder explicativo del modelo, especialmente en la regresión múltiple en la que intervienen varios predictores.
+
+La fórmula más utilizada se define como
+
+$$
+\bar{R}^{2} = 1 - \frac{SS_{text{res}} / df_{\text{res}}}{SS_{\text{tot}} / df_{text{tot}}
+$$
+
+Donde:
+
+-   $SS_{\text{res}}$ y $SS_{\text{tot}}$ representan las sumas de cuadrados residual y total respectivamente.
+-   $df_{text{res}}$ y $df_{text{tot}}$ se refieren a los grados de libertad de las sumas de cuadrados residual y total. Normalmente, $df_{text{res}} = n - p$ y $df_{text{tot}} = n - 1$, donde:
+    -   $n$ significa el tamaño de la muestra.
+    -   p\$ indica el número de variables del modelo.
+
+Esta métrica desempeña un papel fundamental en la selección de modelos y evita el sobreajuste al penalizar la inclusión de variables no informativas.
+
+La fórmula alternativa es:
+
+$$
+\bar{R}^2 = 1 - (1 - R^2) \frac{n-1}{n-p-1}
+$$
+
+Esta fórmula modifica el valor $R^2$, teniendo en cuenta el número de predictores y ofreciendo una medida de ajuste del modelo más parsimoniosa.
+
+```{r}
+# Find adj R2
+adjR2 <- 1-(1-R.2)*((n-1)/(n-p-1))
+adjR2
+```
+
+Ver [@coefd]
+
+### Sobreajuste y optimismo
+
+-   El modelo suele funcionar muy bien en los datos empíricos en los que el modelo se ajustó en los mismos datos (optimista)
+-   El modelo funciona mal en los nuevos datos (la generalización no es tan buena)
+
+#### Causas
+
+-   Modelo determinado por los datos disponibles sin la opinión de expertos
+-   Demasiados parámetros del modelo ($edad$, $edad^2$, $edad^3$) / predictores
+-   Conjunto de datos (entrenamiento) demasiado pequeño / datos demasiado ruidosos
+
+#### Consecuencias
+
+-   Sobreestimación de los efectos de los predictores
+-   Reducción del rendimiento del modelo en nuevas observaciones
+
+#### Soluciones propuestas
+
+Generalmente utilizamos procedimientos como
+
+-   Validación interna
+    -   división de muestras
+    -   validación cruzada
+    -   bootstrap
+-   validación externa
+    -   Temporal
+    -   Geográfico
+    -   Diferentes fuentes de datos para calcular la misma variable
+    -   Enfermedad diferente
+
+# **División de datos**
+
+Véase ( [KDnuggets 2023](https://ehsanx.github.io/EpiMethods/machinelearning2.html#ref-datasplit) ; [Kuhn 2023](https://ehsanx.github.io/EpiMethods/machinelearning2.html#ref-datasplit2) )

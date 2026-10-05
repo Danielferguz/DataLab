@@ -1,0 +1,238 @@
+---
+title: "Taller de análisis estadístico con R"
+date: "`r Sys.Date()`"
+author: "Daniel Fernández"
+format: html
+editor: visual
+---
+
+::: callout-note
+### Nota
+
+No podemos llegar a las respuestas con el análisis estadístico, si desconocemos los fundamentos que hay detrás de la pregunta de investigación.
+:::
+
+```{r}
+#| echo = FALSE
+
+setwd("C:/Users/danfe/Dropbox/Proyectos Daniel/Cursos - diplomados - Maestrias/Programa de autoformación en investigación y análisis de datos/Talleres/Taller 1")
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Cargar paquetes :D
+
+```{r}
+
+library(tidyverse)
+library(haven)
+
+```
+
+## Formato de tablas
+
+```{r}
+#| label: Tabla1
+
+
+library(gtsummary)
+
+# tema para redondear porcentajes a un decimal
+set_gtsummary_theme(list(
+  `tbl_summary-fn:percent_fun` = function(x) sprintf("%.1f", x * 100)
+))
+
+theme_gtsummary_compact() 
+
+# formato de digitos
+library(magrittr)
+
+style_percent_1digits <- purrr::partial(gtsummary::style_percent, digits = 1)
+style_number_2digits <- purrr::partial(gtsummary::style_number, digits = 2)
+
+
+```
+
+## 1. Estadística descriptiva
+
+**a) Importar la base de datos**
+
+Para importar utilizaremos el paquete de `haven` que contiene la función `read_dta` que nos ayudará a importar archivos de STATA.
+
+```{r}
+base <- haven::read_dta("base_simulada.dta")
+
+```
+
+**b) Seleccionamos variables a utilizar**
+
+Podemos usar `view(base)` para ver que tenemos una enorme cantidad de datos.
+
+```{r}
+
+dim(base)
+
+```
+
+Observamos que son 1086 observaciones y 231 variables, pero a nosotros solo nos interesan pocas variables, así que seleccionaremos solo las de nuestro interés.
+
+```{r}
+base2 <- base %>% select(edad, sexo, instruccion2, estado_civil2, 
+                         riqueza, etnia, residencia, 
+                         sedendarismo, actividad_fisica_ipaq, 
+                        perim_abd_latam, fumadoractual)
+```
+
+**c) De ser necesario limpieza y creación de variables**
+
+Algunas variables ya tienen etiquetas para sus categorias, estas fueron creadas en STATA. Para que R las reconozca utilizaremos los siguientes comandos:
+
+```{r}
+
+base3 <- base2 %>% mutate(sexo = as_factor(sexo),
+                          instruccion2 = as_factor(instruccion2), 
+                          estado_civil2 = as_factor(estado_civil2), 
+                          riqueza = as_factor(riqueza), 
+                          etnia = as_factor(etnia),
+                          residencia = as_factor(residencia), 
+                         actividad_fisica_ipaq = as_factor(actividad_fisica_ipaq), 
+                         fumadoractual = as_factor(fumadoractual),
+                         
+                         sedendarismo = case_when(sedendarismo>=8 ~"Sí",
+                                                  sedendarismo<8 ~"No")) 
+
+```
+
+***ACTIVIDAD 1*****:** Filtra la base de datos para que tengas una base sin datos perdidos y anota el numero de observaciones antes y despues de eliminar los datos perdidos
+
+```{r eval=FALSE}
+
+naniar::gg_miss_var(base3)
+
+nrow(base3)
+
+base3 <- na.omit(base3)
+
+nrow(base3)
+
+```
+
+Ahora si estamos listos para empezar con el análisis.
+
+***ACTIVIDAD 2*****:** Crea una tabla que presente las caracteristicas descriptivas de la muestra evaluada, no es necesario cambiar las etiquetas
+
+OJO: evaluar si debes presentar media y desviación estandar o mediana y p25-p75
+
+```{r eval=FALSE}
+
+hist(base3$sedendarismo)
+hist(base3$edad)
+
+skimr::skim(data = base3, sedendarismo, edad)
+```
+
+Creamos la tabla!!!!
+
+Cambiar para que se presente un decimal para % y para medidas de tendencia central y dispersión
+
+```{r}
+#| label: Tabla1
+#| tbl-cap: "Características de la muestra"
+
+
+library(gtsummary)
+
+tbl_summary(base3)
+
+```
+
+## 2. Estadística inferencial - pruebas de hipótesis
+
+::: callout-caution
+### Recuerda
+
+**Hipótesis:** estar sentado se asocia con mayor obesidad abdominal en la población peruana.
+:::
+
+***ACTIVIDAD 3*****:** Crea una tabla bivariada en función del desenlace "perimetro abdominal" y presenta los valores p de las pruebas de hipótesis correspondientes (indicar que prueba se utilizó para cada variable.
+
+```{r}
+
+tbl_summary(base3, by="perim_abd_latam",
+                    percent = "row") %>% 
+  add_p()
+
+
+```
+
+## 3. Estadística inferencial - regresiones
+
+***ACTIVIDAD 5*****:** Crea una tabla de regresión lineal simple y ajustada para la relación de agregar sal (variable de exposición dicotómica) y el desenlace "presión arterial media" (PAM)
+
+Considera en el modelo las variables que creas que son confusoras en la relación causal que estas intentando demostrar
+
+Los decimales deben ser 2 para los coeficientes y 3 para el valor p
+
+```{r}
+
+
+# Regression bivariada
+
+bivariado <- base3 %>%                   
+  tbl_uvregression(method = glm,
+      y = perim_abd_latam,
+      method.args = list(family = quasipoisson(link="log")),
+      include = c(edad, sexo, instruccion2, estado_civil2, 
+                         riqueza, etnia, residencia, 
+                         sedendarismo, actividad_fisica_ipaq, 
+                  fumadoractual), 
+      exponentiate = TRUE,conf.int = T,    
+      pvalue_fun = ~style_pvalue(.x, digits = 3))
+
+
+
+
+# Regression multivariable
+  regresion_bi <- glm(perim_abd_latam ~ sedendarismo,
+                                    family = quasipoisson(link="log"), data = base3)
+  
+  regresion_multi <- glm(perim_abd_latam ~ edad + sexo + estado_civil2 + etnia + riqueza + residencia + actividad_fisica_ipaq + fumadoractual + sedendarismo,
+                                    family = quasipoisson(link="log"), data = base3)
+
+multivariable <-   tbl_regression(regresion_multi,
+      exponentiate = TRUE, conf.int = T,     
+      pvalue_fun = ~style_pvalue(.x, digits = 3)) 
+
+
+
+```
+
+Antes de interpretar los coeficientes, evalúa los supuestos solo para la variable de exposición
+
+```{r}
+
+# Evaluamos mejoria del modelo
+library(performance)
+
+compare_performance(regresion_multi, regresion_bi)
+check_model(regresion_multi)
+
+## combinar con resultados univariantes 
+tbl_merge(
+  tbls = list(bivariado, multivariable),                          # combina
+  tab_spanner = c("**Univariate**", "**Multivariable**")) # establece los nombres de las cabeceras
+
+
+```
+
+### Escribe algunas recomendaciones para mejorar el programa
+
+1.  
+
+2.  
+
+3.  
+
+4.  
+
+5.  

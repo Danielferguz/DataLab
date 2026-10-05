@@ -1,0 +1,400 @@
+---
+title: "Modelos de regresión"
+format:
+  html:
+    toc: true
+    toc_float: 
+      collapsed: true
+    embed-resources: true
+    self-contained-math: true
+editor: visual
+---
+
+```{r}
+#| echo = FALSE
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r }
+library(pacman)
+library(tidyverse)
+library(dplyr)
+p_load(rio, gtsummary, naniar, haven, skimr, performance)
+
+```
+
+## Importamos datos
+
+```{r}
+# load the dataset https://hbiostat.org/data/
+
+# ??ATbounds::RHC	
+
+setwd("C:/Users/danfe/Dropbox/Proyectos Daniel/Cursos - diplomados - Maestrias/Programa de autoformación en investigación y análisis de datos/Rmarkdowns/Estadística/Programa de formación/Semana10 resumen")
+
+ObsData <- rio::import("rhc.csv")
+```
+
+## Limpieza
+
+```{r}
+# add column for outcome Y: length of stay 
+# Y = date of discharge - study admission date
+# Y = date of death - study admission date if date of discharge not available
+ObsData$Y <- ObsData$dschdte - ObsData$sadmdte
+ObsData$Y[is.na(ObsData$Y)] <- ObsData$dthdte[is.na(ObsData$Y)] - 
+  ObsData$sadmdte[is.na(ObsData$Y)]
+
+table(ObsData$Y)
+
+table(ObsData$death)
+
+```
+
+```{r}
+# remove outcomes we are not examining in this example
+ObsData <- dplyr::select(ObsData, 
+                         !c(dthdte, lstctdte, dschdte, t3d30, dth30, surv2md1))
+
+
+# remove unnecessary and problematic variables 
+ObsData <- dplyr::select(ObsData, 
+                         !c(sadmdte, ptid, V1, adld3p, urin1, cat2))
+
+# convert all categorical variables to factors 
+factors <- c("cat1", "ca", "cardiohx", "chfhx", "dementhx", "psychhx", 
+             "chrpulhx", "renalhx", "liverhx", "gibledhx", "malighx", 
+             "immunhx", "transhx", "amihx", "sex", "dnr1", "ninsclas", 
+             "resp", "card", "neuro", "gastr", "renal", "meta", "hema", 
+             "seps", "trauma", "ortho", "race", "income")
+
+ObsData[factors] <- lapply(ObsData[factors], as.factor)
+
+
+
+
+# convert our treatment A (RHC vs. No RHC) to a binary variable
+ObsData$A <- ifelse(ObsData$swang1 == "RHC", 1, 0)
+
+ObsData <- ObsData %>% mutate(A = case_when(swang1== "RHC" ~ 1,
+                                              TRUE~ 0))
+
+
+ObsData <- dplyr::select(ObsData, !swang1)
+
+# Categorize the variables to match with the original paper
+ObsData$age <- cut(ObsData$age, 
+                   breaks=c(-Inf, 50, 60, 70, 80, Inf),
+                   right=FALSE)
+
+ObsData$race <- factor(ObsData$race, 
+                       levels=c("white","black","other"))
+
+ObsData$sex <- as.factor(ObsData$sex)
+ObsData$sex <- relevel(ObsData$sex, ref = "Male")
+ObsData$cat1 <- as.factor(ObsData$cat1)
+
+levels(ObsData$cat1) <- c("ARF","CHF","Other","Other","Other",
+                          "Other","Other","MOSF","MOSF")
+ObsData$ca <- as.factor(ObsData$ca)
+levels(ObsData$ca) <- c("Metastatic","None","Localized (Yes)")
+ObsData$ca <- factor(ObsData$ca, levels=c("None",
+                                          "Localized (Yes)","Metastatic"))
+# Rename variables
+names(ObsData) <- c("Disease.category", "Cancer", "death", "Cardiovascular", 
+                    "Congestive.HF", "Dementia", "Psychiatric", "Pulmonary", 
+                    "Renal", "Hepatic", "GI.Bleed", "Tumor", 
+                    "Immunosupperssion", "Transfer.hx", "MI", "age", "sex", 
+                    "edu", "DASIndex", "APACHE.score", "Glasgow.Coma.Score", 
+                    "blood.pressure", "WBC", "Heart.rate", "Respiratory.rate", 
+                    "Temperature", "PaO2vs.FIO2", "Albumin", "Hematocrit", 
+                    "Bilirubin", "Creatinine", "Sodium", "Potassium", "PaCo2", 
+                    "PH", "Weight", "DNR.status", "Medical.insurance", 
+                    "Respiratory.Diag", "Cardiovascular.Diag", 
+                    "Neurological.Diag", "Gastrointestinal.Diag",
+                    "Renal.Diag",
+                    "Metabolic.Diag", "Hematologic.Diag", "Sepsis.Diag", 
+                    "Trauma.Diag", "Orthopedic.Diag", "race", "income", 
+                    "Y", "A")
+
+ #saveRDS(ObsData, file = "rhcAnalytic.RDS")
+
+ObsData2 <- ObsData
+```
+
+## Análisis
+
+Realizamos un análisis descriptivo rápido
+
+```{r}
+skimr::skim(ObsData)
+```
+
+**Evaluamos datos perdidos**
+
+```{r}
+# Porcentaje de TODOS los valores del marco de datos que faltan
+pct_miss(ObsData)
+
+# Porcentaje de filas en las que falta algún valor
+pct_miss_case(ObsData)
+
+# visualización de los missings por variable 
+gg_miss_var(ObsData, show_pct = TRUE)
+
+
+```
+
+En caso tengas datos perdidos de la variable desenlace filtrar sus missings y volver a evaluar patrones
+
+## Análisis descriptivo
+
+Formatos para tablas
+
+```{r}
+library(gtsummary) 
+set_gtsummary_theme(theme_gtsummary_compact())  
+
+# theme to round percentages to one decimal place 
+set_gtsummary_theme(list(`tbl_summary-fn:percent_fun` = function(x) sprintf("%.1f", x * 100)))
+
+# formato de digitos 
+p_load(magrittr, purrr)  
+style_percent_1digits <- purrr::partial(gtsummary::style_percent, digits = 1) 
+style_number_2digits <- purrr::partial(gtsummary::style_number, digits = 2)
+```
+
+### Tabla 1
+
+```{r}
+tbl_summary(ObsData)
+```
+
+### Tabla 2 - Por outcome numérico
+
+En ciencias de la salud es raro encontrarse con variables numéricas que tengan distribución normal.
+
+```{r}
+
+# Evaluar distribucion normal
+
+hist(ObsData$Y)
+
+tbl_summary(ObsData, by = A, 
+            include = Y,
+            statistic =  
+              list(all_continuous() ~ 
+                     "{mean} ± {sd} y {median} ({p25} - {p75})"))%>% 
+  add_p(pvalue_fun = ~ style_pvalue(.x, digits = 3))
+
+
+```
+
+### Tabla 2 - Por outcome dicotómico
+
+```{r}
+tbl_summary(ObsData, by = death, 
+            missing = "no",
+            percent = "row")%>% 
+  add_p(pvalue_fun = ~ style_pvalue(.x, digits = 3))
+
+# Chi2 vs fisher --> <20% de valores esperados son menores de 5 utilizamos Chi2
+
+```
+
+### Tabla 3 - Por exposición
+
+```{r}
+tbl_summary(ObsData, by = A, 
+            missing = "no",
+            percent = "row")%>% 
+  add_p(pvalue_fun = ~ style_pvalue(.x, digits = 3))
+
+```
+
+### Tabla 4 - regresión para desenlace numérico
+
+```{r}
+# adjust the exposure variable (primary interest)
+fit0 <- lm(Y~A, data = ObsData)
+
+
+check_distribution(fit0)
+
+performance(fit0)
+test_performance(fit0)
+
+# LINE
+# Linealidad -- si no cumple 
+#podríamos categorizar la variable independiente, realizar una transformación logarítmica o polinómica de la variable independiente numérica o realizar estandarización de los valores
+check_model(fit0) 
+
+# Independencia -- si no cumple --->  modelos multinivel .. GEE ... 
+
+# Normalidad de los residuos
+# Considerar no hacer regresión lineal y hacer otro tipo de regresión con un desenlace categórico o de conteo.
+# Usar “Bootstrap” en el modelo de regresión lineal
+# Por Teorema del Límite Central, asumir que se cumple con normalidad cuando se tiene tamaño de muestra suficiente.
+# Usar otras correcciones estadísticas, según sea necesario (transformaciones de la variable)
+check_normality(fit0)
+
+# Homocedasticidad-- si no cumple 
+# La más sencilla es usar modelos de regresión lineal con varianza robusta: Convierte los valores extremos, para homogenizar las varianzas
+
+check_homogeneity(fit0)
+
+# MASS::rlm()
+
+# Si cumple todo interpreta los resultados
+tbl_regression(fit0)
+# 
+# A 0 No RHC
+# A 1 Si RHC 
+# 
+# Y tiempo hospitalizacion en dias
+# 
+# En la poblacion de estudio, haber recibido RHC se asocio con un incremento de 5.3 (4.0 a 6.7) días de hospitalización en comparación de no haber recibido RHC, este resultado fue ES
+
+```
+
+Regresión ajustada
+
+```{r}
+baselinevars <- names(dplyr::select(ObsData, 
+                         !c(A,Y, death, Cancer)))
+
+out.formula <- as.formula(paste("Y~ A +", 
+                               paste(baselinevars, 
+                                     collapse = "+")))
+fit1 <- lm(out.formula, data = ObsData)
+
+
+test_performance(fit1)
+
+check_model(fit1)
+
+check_outliers(fit1)
+
+check_normality(fit1)
+
+#check_homogeneity(fit1)
+
+
+check_collinearity(fit1)
+
+tbl_regression(fit1,
+               include = c(A),
+               pvalue_fun = function(x) style_pvalue(x, digits = 3))
+
+
+
+```
+
+### Tabla 4 - regresión para desenlace dicotómico
+
+```{r}
+# La variable de desenlace debe ser numerica  0 y 1
+ObsData$death <- as.numeric(as.factor(ObsData$death))-1
+table(ObsData$death)
+```
+
+Desenlace dicotómico = regresión binomial (link = "log") o poisson con varianza robusta
+
+Desenlace dicotómico infrecuente (\<10%), regresión logistica --\> regresión binomial (link = "logit")
+
+Desenlace dicotómico con sobredispersión = poisson con varianza robusta o binomial negativa
+
+Desenlace dicotómico con infradispersión = regresión zero inflada
+
+Regresion cruda
+
+```{r}
+fit0 <- glm(death ~ A, family = binomial(link = "log"), 
+            data = ObsData)
+
+test_performance(fit0)
+
+check_model(fit0)
+
+check_outliers(fit0)
+
+check_residuals(fit0)
+
+check_overdispersion(fit0)
+
+tbl_regression(fit0, exp = T)
+
+```
+
+Regresion ajustada
+
+```{r}
+baselinevars <- names(dplyr::select(ObsData, 
+                         !c(A,Y, death, Cancer)))
+
+out.formula <- as.formula(paste("death~ A +", 
+                               paste(baselinevars, 
+                                     collapse = "+")))
+fit1 <- glm(out.formula,  family = binomial(link = "logit"), 
+            data = ObsData)
+
+test_performance(fit1)
+
+check_model(fit1)
+
+check_outliers(fit1)
+
+check_residuals(fit1)
+
+check_overdispersion(fit1)
+#check_zeroinflation(fit1)
+check_collinearity(fit1)
+
+
+tbl_regression(fit1, exp =T,
+               pvalue_fun = function(x) style_pvalue(x, digits = 3))
+
+
+```
+
+### Regresión de Poisson con varianza robusta
+
+```{r}
+fit1 <- glm(out.formula,  family = poisson(link = "log"), 
+            data = ObsData)
+
+check_overdispersion(fit1)
+check_zeroinflation(fit1)
+```
+
+Creamos función para realizar estimación sandwich :D
+
+```{r}
+tidy_robust <- function(x, 
+                        exponentiate = FALSE, 
+                        conf.level = 0.95, 
+                        robust = c("HC0", "HC1", "HC2", "HC3", "HC4", "HC4m", "HC5"), 
+                        ...) {
+  robust <- match.arg(robust)
+  
+  jtools::summ(x, confint = TRUE, ci.width = conf.level, 
+               exp = exponentiate, robust = robust) %>%
+    purrr::pluck("coeftable") %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column() %>%
+    setNames(c("term", "estimate", "conf.low", "conf.high", 
+               "statistic", "p.value"))
+}
+
+```
+
+Corremos la regresión
+
+```{r}
+ tbl_regression(
+    fit1, 
+    exponentiate = TRUE, 
+    tidy_fun = tidy_robust,
+    pvalue_fun = function(x) style_pvalue(x, digits = 3) 
+  )
+```

@@ -1,0 +1,589 @@
+---
+title: " "
+format: 
+  html:
+    toc: true
+    toc_float: 
+      collapsed: true
+    embed-resources: true
+    self-contained-math: true
+editor: visual
+css: styles.css
+knitr:
+  opts_chunk:
+    fig.path: "imagenes/"
+---
+
+::: title-container
+<img src="logo_maxima_formacion.jpg" alt="logo_maxima_formacion"/>
+
+<h1>**Trabajo de fin de máster - Máxima formación - AVANCE**</h1>
+
+<p>Daniel Aarón Fernández Guzmán, MD</p>
+
+<p>`r Sys.Date()`</p>
+:::
+
+::: callout-note
+### Título de proyecto:
+
+Asociación entre la historia familiar de eventos cardiovasculares e hipertensión arterial en una muestra de adultos de Perú
+:::
+
+```{r}
+#| echo = FALSE
+
+setwd("C:/Users/danfe/Dropbox/Proyectos Daniel/Cursos - diplomados - Maestrias/Programa de autoformación en investigación y análisis de datos/Talleres/Taller 3 Imputación de datos perdidos")
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+### Objetivo {.unnumbered}
+
+El objetivo del presente estudio fue evaluar la asociación entre historia familiar de eventos cardiovasculares e hipertensión arterial.
+
+## Cargar paquetes :D
+
+```{r}
+
+library(tidyverse)
+library(haven)
+library(survey)
+library(ENDES.PE)
+library(naniar)
+library(mice)
+
+```
+
+## 1. Estadística descriptiva
+
+**a) Importamos la base de datos**
+
+Para importar utilizaremos el paquete de `haven` que contiene la función `read_dta` que nos ayudará a importar archivos de STATA (la base fue entregada en dicho formato).
+
+```{r}
+vianev <- haven::read_dta("base_final_vianev.dta")
+
+```
+
+**b) Seleccionamos variables a utilizar**
+
+Podemos usar `view(base)` para ver que la base de datos .
+
+```{r}
+
+dim(vianev)
+
+```
+
+Observamos que son 1086 observaciones y 231 variables, pero a nosotros solo nos interesan pocas variables, así que seleccionaremos solo las variables planteadas en nuestro [DAG](https://dagitty.net/mfoVghfXD) (confusores utilizados a partir del estudio de [Valerio et al. 2016](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5210427/) y [Kulshreshtha et al. 2015](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4315691/)).
+
+```{r}
+base2 <- vianev %>% select(Edad = edad_aÑos, 
+                         Sexo=sexo, 
+                         Estado_civil = estado_civil2,
+                         Estado_laboral =ocupacion,
+                         Etnia=etnia, 
+                         Riqueza =riqueza, 
+                         Residencia= residencia, 
+                         
+                         Fumadoractual=fumadoractual,
+                         dias_come_fruta, nfrutasentero, nfruta_decimal,
+                         dias_come_verduras, nverduras_entero, nverduras_deci,
+                         
+                         dias_consume_procesados, dias_consume_chatarra,
+                         
+                         sentado_horas, sentado_minutos,
+                         
+                         PAS = resultado_final_sistolica, 
+                         PAD = resultado_final_diastolica,
+                         alguna_vez_dxhta, medicamentohta, 
+                         
+                         hist_familiar_iam, hist_familiar_acv,
+                         
+                         fac_exp, conglome, dominio_rural)
+
+   
+```
+
+**c) Limpieza y creación de variables**
+
+Algunas variables ya tenían etiquetas para sus categorias. Para que R las reconozca utilizamos los siguientes comandos:
+
+```{r}
+
+base3 <- base2 %>% mutate(  # Usamos etiquetas que vienen con la base
+                          Sexo = as_factor(Sexo),
+                          Estado_civil = as_factor(Estado_civil) %>% haven::zap_label(),
+                          Estado_laboral = as_factor(Estado_laboral) %>% haven::zap_label(),
+                          Riqueza = as_factor(Riqueza) %>% haven::zap_label(),
+                          Etnia = as_factor(Etnia) %>% haven::zap_label(),
+                          Residencia = as_factor(Residencia) %>% haven::zap_label(), 
+                          Fumadoractual = as_factor(Fumadoractual)%>% haven::zap_label(),
+                          
+                          hist_familiar_ecv = case_when(hist_familiar_iam==1 |
+                                                          hist_familiar_acv ==1 ~ "Sí",
+                                                        TRUE~"No"),
+                          
+                          hist_familiar_acv=NULL, hist_familiar_iam = NULL,
+                          
+                          # Creamos nuevas variables a partir de variables numéricas
+                          Consumo_frut_dia =  (nfrutasentero + nfruta_decimal/10) *
+                                                     dias_come_fruta/7 ,
+                          Consumo_frut_dia = case_when(is.na(Consumo_frut_dia) &
+                                                       dias_come_fruta ==0 ~
+                                                         0,
+                                                       !is.na(Consumo_frut_dia) ~
+                                                         Consumo_frut_dia),
+                          
+                          Consumo_verdu_dia= (nverduras_entero + nverduras_deci/10)*
+                                                    dias_come_verduras/7,
+                          Consumo_verdu_dia = case_when(is.na(Consumo_verdu_dia) &
+                                                       dias_come_verduras ==0 ~
+                                                         0,
+                                                       !is.na(Consumo_verdu_dia) ~
+                                                         Consumo_verdu_dia),
+                          
+                          
+                          Consumo_frut_verdu_dia = round(Consumo_frut_dia+
+                                                           Consumo_verdu_dia,2),
+                          Consumo_frut_dia= NULL, Consumo_verdu_dia= NULL,
+                         
+                         consumo_procesados = case_when(dias_consume_procesados == 0 &
+                                                        dias_consume_chatarra == 0 ~
+                                                          "No",
+                                                        dias_consume_procesados == 99 &
+                                                        dias_consume_chatarra == 0 ~
+                                                          NA,
+                                                        TRUE ~ "Sí"),
+                         
+                         nfrutasentero = NULL, nfruta_decimal = NULL, 
+                         dias_come_fruta = NULL, nverduras_entero = NULL,
+                         nverduras_deci = NULL, dias_come_verduras = NULL,
+                         dias_consume_procesados = NULL, dias_consume_chatarra = NULL,
+                         
+                         
+                         sentado_minutos =   sentado_minutos/60,
+                         conducta_sedentaria =  case_when(!is.na(sentado_horas) ~
+                                                            sentado_horas,
+                                                          TRUE ~sentado_minutos),
+                         conducta_sedentaria = round(conducta_sedentaria,2),
+                         conducta_sedentaria = case_when(conducta_sedentaria>=6~"sí",
+                                                         conducta_sedentaria=NA ~ NA,
+                                                         TRUE ~ "No"),
+                         
+                         
+                         sentado_horas= NULL, sentado_minutos=NULL, 
+                         
+                         Presion_elevada = case_when(PAS >= 140 | PAD >= 90 ~ 1,
+                                                     PAS = NA~ NA,
+                                                       medicamentohta ==1 | 
+                                                       alguna_vez_dxhta== 1 ~ 1,
+                                                     TRUE ~ 0),
+                         Presion_elevada= Presion_elevada %>% as.factor(),
+                         medicamentohta = NULL, alguna_vez_dxhta= NULL) 
+                         
+```
+
+Visualización de la base de datos limpia
+
+```{r, echo=FALSE}
+
+DT::datatable(base3, rownames = T, options = list(pageLength = 100, scrollY = "200px", scrollX=T), class = 'white-space: nowrap' )
+
+```
+
+Realizamos un análisis descriptivo rápido
+
+```{r}
+skimr::skim(base3)
+```
+
+**d) Evaluamos datos perdidos**
+
+```{r}
+# Porcentaje de TODOS los valores del marco de datos que faltan
+pct_miss(base3)
+
+# Porcentaje de filas en las que falta algún valor
+pct_miss_case(base3)
+
+# visualización de los missings por variable 
+gg_miss_var(base3, show_pct = TRUE)
+
+
+```
+
+Filtramos los missings de la variable desenlace (HTA) incluyendo PAS y PAD
+
+```{r }
+nrow(base3)
+
+base4 <- base3 %>% drop_na(c(9:10,18))
+
+nrow(base4)
+```
+
+Volvemos a evaluar patrones en datos perdidos
+
+```{r }
+# visualización de los missings por variable 
+gg_miss_var(base4, show_pct = TRUE)
+
+# ver por exposición
+base4 %>% 
+  gg_miss_var(show_pct = TRUE, facet = hist_familiar_ecv)
+
+# ver por desenlace
+base4 %>% 
+  gg_miss_var(show_pct = TRUE, facet = Presion_elevada)
+
+# Los datos perdidos son completamente al azar (p>0.05)
+mcar_test(base4)
+```
+
+## Análisis descriptivo
+
+Formatos para tablas
+
+```{r}
+#| label: Tabla1
+#| tbl-cap: "Características de la muestra"
+
+
+library(gtsummary)
+
+# tema para redondear porcentajes a un decimal
+set_gtsummary_theme(list(
+  `tbl_summary-fn:percent_fun` = function(x) sprintf("%.1f", x * 100)
+))
+
+theme_gtsummary_compact() 
+
+# formato de digitos
+library(magrittr)
+
+style_percent_1digits <- purrr::partial(gtsummary::style_percent, digits = 1)
+style_number_2digits <- purrr::partial(gtsummary::style_number, digits = 2)
+```
+
+### Tabla 1
+
+**a) datos no ponderados**
+
+```{r}
+tabla1_sin_ponderar<-  tbl_summary(base4[,-c(11:13)],missing = "no",
+                                    statistic=all_categorical() ~ "{n}")
+
+# Exportar la tabla a Excel 
+# tabla_df <- as.data.frame(tabla1_sin_ponderar)
+# xlsx::write.xlsx2(tabla_df, file="tablas_finales.xlsx", sheetName="Tabla1_sin_pond",append = T)
+#  
+ 
+ tabla1_sin_ponderar
+
+```
+
+**b) datos ponderados**
+
+```{r}
+# diseño muestral complejo
+diseño <- svydesign(id =~ conglome, strata =~ dominio_rural, weights=~ fac_exp, 
+                    data=base4, nest=TRUE) 
+options(survey.lonely.psu = "certainty")
+
+
+tabla1_ponderada <-diseño %>% 
+  tbl_svysummary(statistic=all_categorical() ~ "{p}", missing = "no",
+                 include = c(names(base4[,-c(11:13)]))) %>%
+    add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}")
+
+
+# Exportar la tabla a Excel 
+# tabla_df <- as.data.frame(tabla1_ponderada)
+#  xlsx::write.xlsx2(tabla_df, file="tablas_finales.xlsx", sheetName="Tabla1_pond",append = T)
+ 
+ tabla1_ponderada
+
+```
+
+## Estadística inferencial - pruebas de hipótesis
+
+### Tabla 2 - Por outcome
+
+**a) datos no ponderados**
+
+```{r}
+tabla2_sin_ponderar<- tbl_summary(base4[,-c(11:13)],missing = "no", 
+                                  by="Presion_elevada",
+                                  statistic=all_categorical() ~ "{n}",
+                                  percent = "row")
+
+# Exportar la tabla a Excel 
+# tabla_df <- as.data.frame(tabla2_sin_ponderar)
+#  xlsx::write.xlsx2(tabla_df, file="tablas_finales.xlsx", sheetName="Tabla2_outc_sin_pond",append = T)
+ 
+ 
+ tabla2_sin_ponderar
+
+```
+
+**b) datos ponderados**
+
+```{r}
+# diseño muestral complejo
+
+tabla2_ponderada <-diseño %>% 
+  tbl_svysummary(statistic=all_categorical() ~ "{p}", by ="Presion_elevada",
+                                  percent = "row", 
+                 missing = "no",
+                 include = c(names(base4[,-c(11:13)]))) %>%
+    add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}") %>% 
+  add_p(pvalue_fun = ~ style_pvalue(.x, digits = 3))
+
+
+# Exportar la tabla a Excel 
+# tabla_df <- as.data.frame(tabla2_ponderada)
+#  xlsx::write.xlsx2(tabla_df, file="tablas_finales.xlsx", sheetName="Tabla2_outc_pond",append = T)
+ 
+ tabla2_ponderada
+
+```
+
+### Tabla 3 - Por exposición
+
+**a) datos no ponderados**
+
+```{r}
+tabla3_sin_ponderar<- tbl_summary(base4[,-c(11:13)],missing = "no",
+                                  by="hist_familiar_ecv",
+                                  percent = "row",
+                                  statistic=all_categorical() ~ "{n}")
+
+# Exportar la tabla a Excel 
+# tabla_df <- as.data.frame(tabla3_sin_ponderar)
+#  xlsx::write.xlsx2(tabla_df, file="tablas_finales.xlsx", sheetName="Tabla3_expo_sin_pond",append = T)
+ 
+ 
+ tabla3_sin_ponderar
+
+```
+
+**b) datos ponderados**
+
+```{r}
+# diseño muestral complejo
+
+tabla3_ponderada <-diseño %>% 
+  tbl_svysummary(statistic=all_categorical() ~ "{p}", by ="hist_familiar_ecv",
+                                  percent = "row",
+                 missing = "no",
+                 include = c(names(base4[,-c(11:13)]))) %>%
+    add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}") %>% 
+  add_p(pvalue_fun = ~ style_pvalue(.x, digits = 3))
+
+
+# Exportar la tabla a Excel 
+# tabla_df <- as.data.frame(tabla3_ponderada)
+#  xlsx::write.xlsx2(tabla_df, file="tablas_finales.xlsx", sheetName="Tabla3_expo_pond",append = T)
+ 
+ tabla3_ponderada
+
+```
+
+## Tabla 4 -
+
+### Regresiones con data imputada y ponderada
+
+```{r}
+
+base4$Presion_elevada<- as.numeric(base4$Presion_elevada)-1
+
+library(mice, warn.conflicts = FALSE)
+
+# show the missing data pattern
+md.pattern(base4)
+
+# multiple impute the missing values
+imp <- suppressWarnings(mice::mice(base4, maxit = 20, m = 5, seed = 123))
+
+library(survey)
+library(mitools)
+imp_list <- imputationList(lapply(1:imp$m, function(n) mice::complete(imp, action = n)))
+summary(imp_list)
+
+
+# diseño muestral complejo
+diseño <- svydesign(id =~ conglome, strata =~ dominio_rural, weights=~ fac_exp, 
+                    data=imp_list, nest=TRUE) 
+options(survey.lonely.psu = "certainty")
+```
+
+Modelo crudo
+
+```{r}
+# Modelo crudo
+model <- with(diseño, svyglm(Presion_elevada ~ hist_familiar_ecv, 
+                             family = quasipoisson(link = "log"))) 
+
+results <- pool(model)
+
+summary(results, conf.int = TRUE, exp = TRUE) %>% 
+  select(term, RP = estimate,"2.5 %","97.5 %", p.value) %>% 
+  filter(term!= "(Intercept)") %>% 
+  mutate(across(2:4, ~ round(., 2)))%>% 
+  mutate(across(5, ~ round(., 3)))
+```
+
+Modelo ajustado
+
+```{r}
+# Modelo ajustado
+
+model <- with(diseño, svyglm(Presion_elevada ~ hist_familiar_ecv + Edad + Sexo + Estado_civil + Estado_laboral + Etnia + Riqueza + Residencia +  Fumadoractual + Consumo_frut_verdu_dia + consumo_procesados+ conducta_sedentaria, 
+                             family = quasipoisson(link = "log"))) 
+
+results <- pool(model)
+
+summary(results, conf.int = TRUE, exp = TRUE) %>% 
+  select(term, RP = estimate,"2.5 %","97.5 %", p.value) %>% 
+  filter(term!= "(Intercept)") %>% 
+  mutate(across(2:4, ~ round(., 2)))%>% 
+  mutate(across(5, ~ round(., 3)))
+
+library(jtools)
+plot_summs(results, exp=T)
+
+
+
+```
+
+### Regresiones con data ponderada, pero sin imputar
+
+Crudo
+
+```{r}
+# diseño muestral complejo
+diseño <- svydesign(id =~ conglome, strata =~ dominio_rural, weights=~ fac_exp, 
+                    data=base4, nest=TRUE) 
+options(survey.lonely.psu = "certainty")
+
+bivariado <- diseño %>%                   
+  tbl_uvregression(
+      method = survey::svyglm,
+      y = Presion_elevada,
+      method.args = list(family = quasipoisson(link="log")),
+      include = c( hist_familiar_ecv , Edad, Sexo, Estado_civil,
+                   Estado_laboral, Etnia, Riqueza , Residencia,
+                   Fumadoractual, Consumo_frut_verdu_dia,
+                   consumo_procesados, conducta_sedentaria),
+      exponentiate = TRUE,    
+      pvalue_fun = ~style_pvalue(.x, digits = 3))
+
+```
+
+Ajustado
+
+```{r}
+# Regression multivariable
+  regresion_multi <- survey::svyglm(Presion_elevada ~ hist_familiar_ecv + Edad + 
+                                      Sexo + Estado_civil + Estado_laboral + 
+                                      Etnia + Riqueza + Residencia +  
+                                      Fumadoractual + Consumo_frut_verdu_dia +
+                                      consumo_procesados+ conducta_sedentaria, 
+                                    family = quasipoisson(link="log"), 
+                                    design = diseño)
+
+multivariable <-   tbl_regression(regresion_multi,
+      exponentiate = TRUE, 
+      pvalue_fun = ~style_pvalue(.x, digits = 3)) 
+
+
+## combinar con resultados univariantes 
+tbl_merge(
+  tbls = list(bivariado, multivariable),                          # combina
+  tab_spanner = c("**Univariate**", "**Multivariable**")) # establece los nombres de las cabeceras
+```
+
+### Regresion con imputación, pero sin ponderacion
+
+Crudo
+
+```{r}
+suppressWarnings(mice::mice(base4, m = 5)) %>%
+    with(glm(Presion_elevada ~ hist_familiar_ecv,
+             family = quasipoisson(link="log"))) %>%
+    tbl_regression(exponentiate = TRUE,
+                    pvalue_fun = function(x) style_pvalue(x, digits = 3) )
+
+```
+
+Ajustado
+
+```{r}
+suppressWarnings(mice::mice(base4, m = 5)) %>%
+    with(glm(Presion_elevada ~ hist_familiar_ecv + Edad + Sexo + Estado_civil + Estado_laboral + Etnia + Riqueza + Residencia +  Fumadoractual + Consumo_frut_verdu_dia + consumo_procesados+ conducta_sedentaria, family = quasipoisson(link="log"))) %>%
+    tbl_regression(exponentiate = TRUE,
+                    pvalue_fun = function(x) style_pvalue(x, digits = 3) )
+```
+
+### Regresion sin ponderacion ni imputación
+
+```{r}
+tidy_robust <- function(x, 
+                        exponentiate = FALSE, 
+                        conf.level = 0.95, 
+                        robust = c("HC0", "HC1", "HC2", "HC3", "HC4", "HC4m", "HC5"), 
+                        ...) {
+  robust <- match.arg(robust)
+  
+  jtools::summ(x, confint = TRUE, ci.width = conf.level, 
+               exp = exponentiate, robust = robust) %>%
+    purrr::pluck("coeftable") %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column() %>%
+    setNames(c("term", "estimate", "conf.low", "conf.high", 
+               "statistic", "p.value"))
+}
+```
+
+Crudo
+
+```{r}
+base4 %>% 
+with(glm(Presion_elevada ~ hist_familiar_ecv 
+         , family = poisson(link="log"))) %>%
+    tbl_regression(exponentiate = TRUE,
+                    tidy_fun = tidy_robust,
+                    pvalue_fun = function(x) style_pvalue(x, digits = 3) )
+```
+
+Ajustado
+
+```{r}
+base4 %>% 
+with(glm(Presion_elevada ~ hist_familiar_ecv + Edad + Sexo + Estado_civil + Estado_laboral + Etnia + Riqueza + Residencia +  Fumadoractual + Consumo_frut_verdu_dia + consumo_procesados+ conducta_sedentaria, family = poisson(link="log"))) %>%
+    tbl_regression(exponentiate = TRUE,
+                    tidy_fun = tidy_robust,
+                    pvalue_fun = function(x) style_pvalue(x, digits = 3) )
+
+
+library(performance)
+
+model_d <- glm(Presion_elevada ~ hist_familiar_ecv + Edad + Sexo + 
+                    Estado_civil + Estado_laboral + Etnia + Riqueza + 
+                    Residencia +  Fumadoractual + Consumo_frut_verdu_dia +
+                    consumo_procesados + conducta_sedentaria, 
+                  family = quasipoisson(link = "log"), 
+                  data = base4)
+
+check_model(model_d)
+
+
+```

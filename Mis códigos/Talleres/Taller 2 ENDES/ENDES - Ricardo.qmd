@@ -1,0 +1,1076 @@
+---
+title: "Taller ENDES"
+date: "`r Sys.Date()`"
+author: ""
+format: 
+  html:
+    toc: true
+    toc_float: 
+      collapsed: true
+    embed-resources: true
+    self-contained-math: true
+editor: visual
+---
+
+```{r echo = FALSE}
+#| echo = FALSE
+
+# Cambiar directorio con Control + shift + h
+
+setwd("C:/Users/danfe/Dropbox/Proyectos Daniel/Cursos - diplomados - Maestrias/Programa de autoformación en investigación y análisis de datos/Talleres/Taller 2 ENDES")
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Paso 1: Importación de las bases
+
+```{r}
+library(tidyverse)
+library(haven)
+library(survey)
+```
+
+```{r echo = FALSE}
+library(ENDES.PE)
+```
+
+descarga las bases de datos de microdatos de INEI <https://proyectos.inei.gob.pe/microdatos/>
+
+Cargamos las bases de datos de la ENDES 2023 con la función read_sav(), cambiar data por el directorio en el que se encuentre cada base)
+
+```{r}
+SALUD     <- read_sav("data/CSALUD01_2023.sav")
+MUJER_OBS <- read_sav("data/RE223132_2023.SAV")
+MUJER_LAC <- read_sav("data/REC42_2023.SAV")
+MUJER_ANT <- read_sav("data/RECH5_2023.SAV")
+PERSONA   <- read_sav("data/RECH1_2023.SAV")
+VIVIENDA  <- read_sav("data/RECH23_2023.SAV")
+HOGAR     <- read_sav("data/RECH0_2023.SAV")
+Niño_ira_edas <- read_sav("data/REC43_2023.sav")  
+Niño_salud <- read_sav("data/RECH6_2023.SAV")
+SALUD_niño2 <- read_sav("data/CSALUD08_2023.sav") 
+REC0111 <- read_sav("data/REC0111_2023.sav")
+REC91<- read_sav("data/REC91_2023.sav")
+RE516171<- read_sav("data/RE516171_2023.sav")
+RE758081<- read_sav("data/RE758081_2023.sav")
+
+```
+
+```{r }
+names(SALUD)[1:10]   #"HHID","QSNUMERO"            # SALUD1
+names(PERSONA)[1:10] #"HHID"                       # RECH1
+names(VIVIENDA)[1:10]#"HHID"                       # RECH23
+names(HOGAR)[1:10]#"HHID"                          # RECH0
+names(MUJER_OBS)[1:10]#"CASEID"                    # RE223132
+names(MUJER_LAC)[1:10]#"CASEID"                    # REC42
+names(MUJER_ANT)[1:10]#"HHID","QSNUMERO"           # RECH05
+names(Niño_salud)[1:10]#HHID                       # RECH06
+names(Niño_ira_edas)[1:10]#QHNUMBER                  # REC43
+names(SALUD_niño2)[1:10]#QHNUMBER                  # CSALUD08
+
+```
+
+## Parte 1
+
+3 - Prevalencia de IRA y EDA en niños/as menores de 5 años por quintil de riqueza
+
+5 - Prevalencia de IRA y EDA en niños/as menores de 5 años según nivel educativo de la madre
+
+6- Prevalencia de IRA y EDA en niños/as menores de 5 años por autoidentificación étnica y por lengua materna
+
+**Definiciones**
+
+-   IRA: Los niños que sufrieron tos, acompañada de tiraje en el pecho, falta de aire y respiración rápida fueron diagnosticados con una infección respiratoria aguda, de acuerdo con la definición de caso clínico de la OMS
+
+    -   **H31:** En los últimos 14 días, es decir, entre el \_\_\_ y el día de ayer, ¿(NOMBRE) ha tenido tos? 2. Si 0. No 8. No sabe
+
+    -   **H31B:** Cuando (NOMBRE) estuvo enfermo con tos, ¿respiraba más rápido que de costumbre, con respiraciones cortas y agitadas? 1. Si 2. No 8. No sabe
+
+    -   **H31C:** ¿La repiración rápida o difícil era por un problema en el pecho o porque tenía la nariz tupida? 1. Pecho 2. Nariz tupida 3. Ambos 6. Otro(especifique) 8. No sabe
+
+-   EDA: Se define como diarrea la deposición, tres o más veces al día (o con una frecuencia mayor que la normal para la persona), de heces sueltas o líquidas
+
+    -   **H11:** En los últimos 14 días, es decir, entre el \_\_\_\_ y el día de ayer, ¿(NOMBRE) ha tenido diarrea? 1. Si 2. No 8. No sabe
+
+    -   **H11B:** ¿Había sangre en las deposiciones (caquita) de (NOMBRE)? 1. Si 2. No 8. No sabe
+
+-   Nivel educativo madre
+
+    -   **HC61:** ¿Cuál fue el año o grado de estudios más alto que aprobó? 0. Inicial/pre-escolar 1. Primaria 2. Secundaria 3. Superior no universitario 4. Superior universitario 5. Postgrado
+
+-   Etnia
+
+    -   **QS25BB**: Por sus antepasados y de acuerdo a sus costumbres ¿Usted se siente o se considera: archivo: *CSALUD01* – 1 Quechua 2 Aimara 3 Nativo o indígena de la amazonia 4 Perteneciente o parte de otro pueblo 5 Negro/moreno/zambo/mulato/pueblo afroperuano o afrodescendie 6 Blanco 7 Mestizo 8 Otro 98 No sabe/No responde
+
+    -   **QS25AA:** ¿Cuál es el idioma o lengua materna que aprendió hablar en su niñez: 1. Quechua? 2.Aymara? 3. Asháninka? 4. Awajún/Aguaruna? 5. Shipibo/Conibo? 6. Shawi/Chayahuita? 7. Matsigenka/Machiguenga? 8. Achuar? 9. Otra lengua nativa u originaria? 10. Castellano? 11. Portugués? 12. Otra lengua extrangera?
+
+-   Riqueza:
+
+    -   **HV270**: Índice de riqueza (HV270) Archivo: *RECH23* 1 Los más pobres 2 Pobre 3 Medio 4 Rico 5 Más rico
+
+**Union de bases**
+
+```{r}
+# Unimos base 
+
+library(glue)
+
+SALUD_niño2 <- SALUD_niño2 %>% filter(QS802D < 5)  
+
+SALUD_niño2$CASEID <- str_glue("{SALUD_niño2$HHID}  {SALUD_niño2$QS802}")
+SALUD_niño2$CASEID2 <- str_glue("{SALUD_niño2$HHID}  {SALUD_niño2$QS801}")
+
+Niño_salud$CASEID2 <- str_glue("{Niño_salud$HHID}  {Niño_salud$HC0}")
+
+Niño_ira_edas$CASEID<- str_glue("{Niño_ira_edas$CASEID}")
+
+base_1 <- left_join(Niño_ira_edas, SALUD_niño2, by = "CASEID")
+base_1 <- left_join(base_1, Niño_salud, by = "CASEID2")
+
+
+VIVIENDA <- VIVIENDA %>%  select(HHID, HV270)
+SALUD <- SALUD %>%  select(HHID, QSNUMERO, QS25AA, QS25BB)
+
+base_1$HHID<- base_1$HHID.x
+
+base_1 <- left_join(base_1, SALUD, by = "HHID")
+base_1 <- left_join(base_1, VIVIENDA, by = "HHID")
+base_1 <- left_join(base_1, HOGAR, by = "HHID")
+
+
+
+```
+
+**Limpieza**
+
+```{r}
+library(tidyverse)
+
+base_limpia <- base_1  %>%   
+  mutate(
+    # IRA
+    IRA = case_when(H31 ==2 & H31B ==1 ~ "Sí",
+                    H31 ==8 ~ NA,
+                    TRUE~"No"),
+    # EDA
+    EDA = case_when(H11==1 | H11==2~ "Sí",
+                    H11 ==8 ~ NA,
+                    TRUE~"No"),
+    
+    # Otras variables categóricas
+    #etnia
+    etnia = case_when(QS25BB == 3 ~ "Nativo/indigena amazonia",
+                      QS25BB %in% c(1:2) ~ "Nativo/indigena amazonia",
+                      QS25BB == 3 ~ "Nativo/indigena amazonia",
+                      QS25BB %in% c(4,8) ~ "Otro",
+                      QS25BB ==5 ~ "Negro/moreno/zambo",
+                      QS25BB == 6 ~ "Blanco",
+                      QS25BB == 7 ~ "Mestizo",
+                      QS25BB == 98 ~ NA),
+    
+    lengua_materna = case_when(QS25AA == 10 ~ "Castellano",
+                               QS25AA %in% c(3:9) ~ "Nativo",
+                               QS25AA %in% c(1,2) ~ "Quechua_aymara",
+                               QS25BB %in% c(11:12) ~ "Otro"),
+    # Educacion_madre
+    nivel_educ_madre = as_factor(HC61) %>% haven::zap_label() %>% 
+      factor(levels = c("Sin educación", "Primaria", 
+                        "Secundaria", "Superior"),
+             labels = c("Sin_educ_o_primaria", "Sin_educ_o_primaria", 
+                        "Secundaria", "Superior")),
+    
+    # Quintil de riqueza
+    QUINTIL_BIENESTAR = as_factor(HV270) %>% haven::zap_label(),
+    
+    # Diseño de encuesta
+    CONGLOMERADO = QHCLUSTER,
+    ESTRATO = HV022,
+    PONDERACION = Pesomen12 / 1000000 ) 
+  
+# Generamos la base de datos final solo con las variables necesarias
+
+ENDES <- dplyr::select(base_limpia, 
+                CONGLOMERADO = HV001, 
+                ESTRATO = HV022, 
+                PONDERACION = PONDERACION,
+                IRA , EDA ,
+                etnia, lengua_materna,  
+                nivel_educ_madre, QUINTIL_BIENESTAR, 
+                Edad = HC1)  %>% 
+  filter(!is.na(PONDERACION)) 
+
+
+```
+
+**Análisis**
+
+**A) Descriptivo**
+
+```{r echo=FALSE}
+library(gtsummary)
+
+# tema para redondear porcentajes a un decimal
+set_gtsummary_theme(list(
+  `tbl_summary-fn:percent_fun` = function(x) sprintf("%.1f", x * 100)
+))
+
+theme_gtsummary_compact() 
+
+# formato de digitos
+library(magrittr)
+
+style_percent_1digits <- purrr::partial(gtsummary::style_percent, digits = 1)
+style_number_2digits <- purrr::partial(gtsummary::style_number, digits = 2)
+```
+
+NO PONDERADO
+
+```{r echo = FALSE}
+
+tbl_summary(ENDES,missing = "no",
+              statistic=all_categorical() ~ "{n}") %>% 
+  add_n()
+
+
+```
+
+Ponderado
+
+```{r}
+diseño <- svydesign(id =~ CONGLOMERADO, strata =~ ESTRATO, weights=~ PONDERACION, 
+                    data=ENDES, nest=TRUE) 
+options(survey.lonely.psu = "certainty")
+```
+
+```{r echo = FALSE}
+diseño %>% 
+  tbl_svysummary(statistic=all_categorical() ~ "{p} ", missing = "no",
+                 include = c(names(ENDES[c(4:9)]))) %>%
+    add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}")
+```
+
+coeficiente de variacion
+
+```{r }
+
+cv(svymean(~IRA,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~EDA,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~etnia,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~lengua_materna,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~nivel_educ_madre,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~QUINTIL_BIENESTAR,design = diseño, na = TRUE)) %>% round(3)
+
+
+```
+
+**B) Descriptivo por caracteristica**
+
+IRA
+
+```{r echo = FALSE}
+# IRA
+tbl_summary(ENDES, missing = "no", 
+                                  by=IRA,
+                                  include = c(names(ENDES[,c(6:9)])),
+                                  statistic=all_categorical() ~ "{n}",
+                                  percent = "row")
+
+diseño %>% 
+  tbl_svysummary(statistic=all_categorical() ~ "{p}", by =IRA,
+                                  percent = "row", 
+                 missing = "no",
+                 include = c(names(ENDES[,c(6:9)]))) %>% 
+    add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}") %>% 
+  add_p(pvalue_fun = ~ style_pvalue(.x, digits = 3))
+```
+
+EDA
+
+```{r echo = FALSE}
+#EDA
+
+tbl_summary(ENDES, missing = "no", 
+                                  by=EDA,
+                                  include = c(names(ENDES[,c(6:9)])),
+                                  statistic=all_categorical() ~ "{n}",
+                                  percent = "row")
+
+diseño %>% 
+  tbl_svysummary(statistic=all_categorical() ~ "{p}", by =EDA,
+                                  percent = "row", 
+                 missing = "no",
+                 include = c(names(ENDES[,c(6:9)]))) %>%
+    add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}") %>% 
+  add_p(pvalue_fun = ~ style_pvalue(.x, digits = 3))
+```
+
+## Parte 2
+
+4- Prevalencia de anemia en niñas y niños de 6 a 59 meses de edad, por quintil de riqueza
+
+7- Prevalencia de anemia en niñas y niños de 6 a 59 meses de edad, según nivel educativo de la madre
+
+8- Prevalencia de anemia en niños y niñas menores de 5 años según sexo (o de 6 a 59 meses)
+
+9- Prevalencia de anemia en niñas y niños de 6 a 59 meses de edad, por autoidentificación étnica y por lengua materna (de la madre)
+
+**Definiciones**
+
+-   anemia: hemogolbina por dbajo del límite: \<12g/dl en MEF (15-49 años) \<11g/dl en niños (6-59 meses) y MEF gestante.
+
+```         
+-   **HC57:** 1 Grave 2 Moderar 3 Leve 4 Sin anemia
+```
+
+-   Riqueza:
+
+    -   ver arriba
+
+-   Nivel educativo madre
+
+    -   **HC61:** ¿Cuál fue el año o grado de estudios más alto que aprobó? 0. Inicial/pre-escolar 1. Primaria 2. Secundaria 3. Superior no universitario 4. Superior universitario 5. Postgrado
+
+-   Sexo:
+
+    -   **HC27:** 1 Hombre 2 Mujer
+
+-   Etnia
+
+    -   **QS25BB**: Por sus antepasados y de acuerdo a sus costumbres ¿Usted se siente o se considera: archivo: CSALUD01
+
+**Union de bases**
+
+```{r }
+# VER ANTERIOR  
+```
+
+**Limpieza**
+
+```{r }
+
+base_limpia2<- base_limpia %>% mutate(anemia = case_when(HC57==4~"No",
+                                                         TRUE~"Sí"),
+                                      Sexo = as_factor(HC27) %>% 
+                                        haven::zap_label())
+
+ENDES <- dplyr::select(base_limpia2, 
+                CONGLOMERADO = HV001, 
+                ESTRATO = HV022, 
+                PONDERACION = PONDERACION,
+                anemia,Sexo,
+                etnia, lengua_materna,  
+                nivel_educ_madre, QUINTIL_BIENESTAR, Edad = HC1)  %>% 
+  filter(!is.na(PONDERACION))%>% 
+  subset(Edad>=6)
+
+```
+
+**Análisis**
+
+**A) Descriptivo**
+
+NO PONDERADO
+
+```{r echo = FALSE}
+# NO PONDERADO
+
+tbl_summary(ENDES,missing = "no",
+              statistic=all_categorical() ~ "{n}") %>% 
+  add_n()
+```
+
+Ponderado
+
+```{r echo = FALSE}
+# Ponderado
+
+diseño <- svydesign(id =~ CONGLOMERADO, strata =~ ESTRATO, weights=~ PONDERACION, 
+                    data=ENDES, nest=TRUE) 
+options(survey.lonely.psu = "certainty")
+
+diseño %>% 
+  tbl_svysummary(statistic=all_categorical() ~ "{p} ", missing = "no",
+                 include = c(names(ENDES[c(4:9)]))) %>%
+    add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}")
+```
+
+coeficiente de variacion
+
+```{r }
+
+cv(svymean(~anemia,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~Sexo,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~etnia,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~lengua_materna,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~nivel_educ_madre,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~QUINTIL_BIENESTAR,design = diseño, na = TRUE)) %>% round(3)
+```
+
+**B) Descriptivo por caracteristica**
+
+anemia
+
+```{r echo = FALSE}
+# anemia
+tbl_summary(ENDES, missing = "no", 
+                                  by=anemia,
+                                  include = c(names(ENDES[,c(5:9)])),
+                                  statistic=all_categorical() ~ "{n}",
+                                  percent = "row")
+
+diseño %>% 
+  tbl_svysummary(statistic=all_categorical() ~ "{p}", by =anemia,
+                                  percent = "row", 
+                 missing = "no",
+                 include = c(names(ENDES[,c(5:9)]))) %>% 
+    add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}") %>% 
+  add_p(pvalue_fun = ~ style_pvalue(.x, digits = 3))
+
+
+```
+
+## Parte 3
+
+11- Prevalencia de desnutrición crónica en niños y niñas según nivel educativo madre
+
+12- Prevalencia de desnutrición crónica y aguda en niños y niñas según sexo
+
+13- Prevalencia de desnutrición crónica en niños y niñas por autoidentificación étnica y por lengua materna (de la madre)
+
+14- Prevalencia de sobrepeso y obesidad en niños y niñas según sexo
+
+**Definiciones**
+
+-   Desnutrición Crónica: De acuerdo a la Organización Mundial de la Salud(OMS) Desnutrición crónica: (talla baja) se define como talla para la edad menor a -2 DE (desviaciones estándar) de la mediana de la población de referencia y refleja la falla del crecimiento adecuado.
+
+    -   **HC70 y HC5**: Talla/Edad Desviación Estándar de la mediana de referencia (según la OMS) - 9996 Altura fuera de los límites plausibles. 9997 Edad en días fuera de límites plausibles 9998 Casos marcados —— dividir entre 100 o poner \< -200
+
+-   Sobrepeso y obesidad
+
+    -   **HC72 y HC11**: Peso/Talla Desviación Estándar de la mediana de referencia (según la OMS) - 9996 Altura fuera de los límites plausibles. 9997 Edad en días fuera de límites plausibles 9998 Casos marcados —— dividir entre 100 o poner \> 200
+
+-   Nivel educativo madre
+
+    -   **HC61:** ¿Cuál fue el año o grado de estudios más alto que aprobó? 0. Inicial/pre-escolar 1. Primaria 2. Secundaria 3. Superior no universitario 4. Superior universitario 5. Postgrado
+
+-   Sexo:
+
+    -   **HC27:** 1 Hombre 2 Mujer
+
+**Union de bases**
+
+```{r echo = FALSE}
+# VER ARRIBA
+```
+
+**Limpieza**
+
+```{r}
+
+base_limpia2<- base_limpia %>% mutate(desnutric_cronica =
+                                        case_when(HC5 < -200~ "Sí",
+                                                 HC5 >900 ~ NA,
+                                                 TRUE~"No"),
+                                      sobrepeso_obesidad = 
+                                        case_when(HC11 >= 200 &
+                                                   HC11 <300~ "Sobrepeso",
+                                                  HC11 >= 300 &
+                                                   HC11 <900~ "Obesidad",
+                                                   HC11 >900 ~ NA,
+                                                   TRUE~"No"),
+                                      desnutric_aguda =
+                                        case_when(HC8 < -200~ "Sí",
+                                                 HC8 >900 ~ NA,
+                                                 TRUE~"No"),
+                                      Sexo = as_factor(HC27) %>% 
+                                        haven::zap_label())
+
+ENDES <- dplyr::select(base_limpia2, 
+                CONGLOMERADO = HV001, 
+                ESTRATO = HV022, 
+                PONDERACION = PONDERACION,
+                desnutric_cronica, desnutric_aguda,
+                sobrepeso_obesidad,  Sexo,
+                etnia, lengua_materna,  
+                nivel_educ_madre, QUINTIL_BIENESTAR)  %>% 
+  filter(!is.na(PONDERACION))
+```
+
+**Análisis descriptivo**
+
+NO PONDERADO
+
+```{r echo = FALSE}
+# NO PONDERADO
+
+tbl_summary(ENDES,missing = "no",
+              statistic=all_categorical() ~ "{n}") %>% 
+  add_n()
+```
+
+Ponderado
+
+```{r echo = FALSE}
+# Ponderado
+
+diseño <- svydesign(id =~ CONGLOMERADO, strata =~ ESTRATO, weights=~ PONDERACION, 
+                    data=ENDES, nest=TRUE) 
+options(survey.lonely.psu = "certainty")
+
+diseño %>% 
+  tbl_svysummary(statistic=all_categorical() ~ "{p} ", missing = "no",
+                 include = c(names(ENDES[c(4:11)]))) %>%
+    add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}")
+```
+
+coeficiente de variacion
+
+```{r}
+# coeficiente de variacion
+cv(svymean(~desnutric_cronica,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~desnutric_aguda,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~sobrepeso_obesidad,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~Sexo,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~etnia,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~lengua_materna,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~nivel_educ_madre,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~QUINTIL_BIENESTAR,design = diseño, na = TRUE)) %>% round(3)
+```
+
+**Análisis descriptivo por caracteristicas**
+
+desnutric_cronica
+
+```{r echo = FALSE}
+# desnutric_cronica
+tbl_summary(ENDES, missing = "no", 
+                                  by=desnutric_cronica,
+                                  include = c(names(ENDES[,c(6:11)])),
+                                  statistic=all_categorical() ~ "{n}",
+                                  percent = "row")
+
+diseño %>% 
+  tbl_svysummary(statistic=all_categorical() ~ "{p}", by =desnutric_cronica,
+                                  percent = "row", 
+                 missing = "no",
+                 include = c(names(ENDES[,c(6:11)]))) %>% 
+    add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}") %>% 
+  add_p(pvalue_fun = ~ style_pvalue(.x, digits = 3))
+```
+
+desnutric_aguda
+
+```{r echo = FALSE}
+# desnutric_aguda
+tbl_summary(ENDES, missing = "no", 
+                                  by=desnutric_aguda,
+                                  include = c(names(ENDES[,c(6:11)])),
+                                  statistic=all_categorical() ~ "{n}",
+                                  percent = "row")
+
+diseño %>% 
+  tbl_svysummary(statistic=all_categorical() ~ "{p}", by =desnutric_aguda,
+                                  percent = "row", 
+                 missing = "no",
+                 include = c(names(ENDES[,c(6:11)]))) %>% 
+    add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}") %>% 
+  add_p(pvalue_fun = ~ style_pvalue(.x, digits = 3))
+```
+
+sobrepeso_obesidad
+
+```{r echo = FALSE}
+# sobrepeso_obesidad
+tbl_summary(ENDES, missing = "no", 
+                                  by=sobrepeso_obesidad,
+                                  include = c(names(ENDES[,c(6:11)])),
+                                  statistic=all_categorical() ~ "{n}",
+                                  percent = "row")
+
+diseño %>% 
+  tbl_svysummary(statistic=all_categorical() ~ "{p}", by =sobrepeso_obesidad,
+                                  percent = "row", 
+                 missing = "no",
+                 include = c(names(ENDES[,c(6:11)]))) %>% 
+    add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}") %>% 
+  add_p(pvalue_fun = ~ style_pvalue(.x, digits = 3))
+
+
+```
+
+## Parte 4
+
+1-TASA GLOBAL DE FECUNDIDAD SEGÚN QUINTIL DE RIQUEZA
+
+2- FECUNDIDAD DESEADA Y OBSERVADA SEGÚN QUINTIL DE RIQUEZA
+
+**Definiciones**
+
+-   La tasa general de fecundidad (denominada también la tasa de fecundidad) es el número de nacimientos vivos por cada grupo de 1.000 mujeres entre las edades de 15 a 49 durante un año determinado.
+
+-   "Un nacimiento se considera deseado si el número de hijos sobrevivientes en el momento del embarazo es menor que el número ideal de hijos tal como lo informó la entrevistada.
+
+-La tasa de fecundidad deseada está basada en los nacimientos ocurridos en los 36 meses anteriores a la encuesta, excluyendo el mes de la entrevista, y expresa el nivel de fecundidad que teóricamente resultaría si todos los nacimientos no deseados pudiesen ser prevenidos". Es decir. si una mujer embarazada declara que el número ideal de hijos es 2 y tiene en ese momento un solo hijo, entonces ese futuro nacimiento es deseado. Pero si ya tiene 2 hijos nacidos, entonces ese futuro nacimiento no ha sido planificado y los 3 hijos formarán parte de su fecundidad total. (fecundidad deseada 2 y fecundidad total 3).
+
+**Union de bases**
+
+```{r}
+names(SALUD)[1:10]   #"HHID","QSNUMERO"            # SALUD1
+names(PERSONA)[1:10] #"HHID"                       # RECH1
+names(VIVIENDA)[1:10]#"HHID"                       # RECH23
+names(HOGAR)[1:10]#"HHID"                          # RECH0
+names(MUJER_OBS)[1:10]#"CASEID"                    # RE223132
+names(MUJER_LAC)[1:10]#"CASEID"                    # REC42
+names(MUJER_ANT)[1:10]#"HHID","QSNUMERO"           # RECH05
+names(REC0111)[1:10]#"CASEID"                      # 
+names(REC91)[1:10]   #"CASEID"                     # 
+names(RE516171)[1:10]  #"CASEID"                   # 
+names(RE758081)[1:10]  #"CASEID"                   # 
+```
+
+```{r}
+# RECH0 = HOGAR
+# RECH23 = VIVIENDA
+# RECH05 = MUJER_ANT
+# REC0111 = 
+# REC91 =
+# RE516171 = 
+# RECH1 = PERSONA
+# RE223132 = MUJER_OBS
+
+# Unimos base 
+base_2 <- unir_endes(base1 = MUJER_ANT, base2 = SALUD, 
+                               tipo_union = "individual") %>% 
+   unir_endes(base2 = VIVIENDA, tipo_union = "hogar")  %>% 
+  unir_endes(base2 = HOGAR, tipo_union = "hogar") %>% 
+   unir_endes(base2 = PERSONA, tipo_union = "individual") %>% 
+  unir_endes(base2 = MUJER_LAC, tipo_union = "individual") %>% 
+   unir_endes(base2 = MUJER_OBS, tipo_union = "individual") %>% 
+  unir_endes(base2 = REC0111, tipo_union = "individual") %>% 
+  unir_endes(base2 = REC91, tipo_union = "individual") %>% 
+  unir_endes(base2 = RE516171, tipo_union = "individual") %>% 
+  unir_endes(base2 = RE758081, tipo_union = "individual")
+
+
+```
+
+**Limpieza**
+
+```{r}
+
+base_limpia2<- base_2 %>%  
+  mutate(
+  # Otras variables categóricas
+    # EDAD
+    edad = HA1,# HV105 V012
+    edad_12_24años = case_when(HA1>=12 & HA1<=24 ~ "Sí",
+                               TRUE~"No"),
+    edad_15_49años=case_when(HA1>=15 & HA1<=49 ~ "Sí",
+                               TRUE~"No"),
+    
+    # Sexo 
+    Sexo = as_factor(HV104) %>% haven::zap_label(),
+    
+    #Anemia
+    anemia = case_when(HA56/10 <11 & HA54 ==1 ~"Sí",
+                       HA56/10 <12 & HA54 ==0 ~"Sí",
+                       TRUE ~ "No"),
+    
+    # Actualmente embarazada
+    embarazada = as_factor(HA54) %>% haven::zap_label(), # V454 V213
+    
+    # Duracion de embarazo actual
+    duracion_embarazo = V214,
+    
+    #Total de niños nacidos
+    total_niños_nac = V201,
+    
+    # Número total de hijos nacidos vivos 
+    numero_hijos_vivos = V224 ,
+    
+    # Nacimientos en los últimos tres años
+    nacimientos_ultimos_3años = case_when(V238 =="0"~ 0,
+                                          V238 =="1"~ 1,
+                                          V238 =="2"~ 2,
+                                          V238 =="3"~ 3), 
+    
+    # Embarazo actual deseado
+    embarazo_deseado = as_factor(V225) %>% haven::zap_label(),
+    
+    # Deseo de tener otro hijo
+    deseo_de_mas_hijos = case_when(V602==1~"Sí",
+                                     TRUE~"No"), 
+    
+    # Sexualmente activo
+    sexual_activa = case_when(V536==1~"Sí",
+                                     TRUE~"No"), 
+    
+    # no seguro salud
+    No_seguro_salud = case_when(S229B1==3~"No_seguro",
+                                     TRUE~"Si_seguro"),
+    
+    # Uso actual por tipo de método
+    uso_meto_moderno =  case_when(V313==3~"Sí",
+                                     TRUE~"No"), 
+    
+    # condon_primera_relacion 
+    condon_primera_relacion = case_when(V820==1 & V525>0~"Sí",
+                                        V820==8~NA,
+                                        V525==0~NA,
+                                     TRUE~"No"),
+    
+    # necesidad insatisfecha
+    necesidad_insatisfecha_planif = case_when(
+      sexual_activa == "Sí" & 
+      deseo_de_mas_hijos == "No" & 
+      uso_meto_moderno == "No" & 
+      No_seguro_salud == "No_seguro" ~ "Sí",
+      TRUE ~ "No"),
+    
+    # Estado civil
+    estado_civil = case_when(V501 %in% c(1,2)~"Casada-conviviente",
+                             TRUE~"No pareja"),
+  
+    #etnia
+    etnia = case_when(QS25BB == 3 ~ "Nativo/indigena amazonia",
+                      QS25BB %in% c(1:2) ~ "Nativo/indigena amazonia",
+                      QS25BB == 3 ~ "Nativo/indigena amazonia",
+                      QS25BB %in% c(4,8) ~ "Otro",
+                      QS25BB ==5 ~ "Negro/moreno/zambo",
+                      QS25BB == 6 ~ "Blanco",
+                      QS25BB == 7 ~ "Mestizo",
+                      QS25BB == 98 ~ NA),
+    
+    lengua_materna = case_when(QS25AA == 10 ~ "Castellano",
+                               QS25AA %in% c(3:9) ~ "Nativo",
+                               QS25AA %in% c(1,2) ~ "Quechua_aymara",
+                               QS25BB %in% c(11:12) ~ "Otro"),
+    # Educacion_madre  # HC61  HV106
+    nivel_educ_madre = as_factor(HA66) %>% haven::zap_label() %>% 
+      factor(levels = c("Sin educación", "Primaria", 
+                        "Secundaria", "Superior"),
+             labels = c("Sin_educ_o_primaria", "Sin_educ_o_primaria", 
+                        "Secundaria", "Superior")),
+    
+    # Quintil de riqueza
+    QUINTIL_BIENESTAR = as_factor(HV270) %>% haven::zap_label(),
+    
+    # Diseño de encuesta
+    CONGLOMERADO = V001,
+    ESTRATO = V022,
+    PONDERACION = V005 / 1000000)
+
+ENDES <- dplyr::select(base_limpia2, 
+                CONGLOMERADO = HV001, 
+                ESTRATO = HV022, 
+                PONDERACION = PONDERACION,
+                uso_meto_moderno, 
+                condon_primera_relacion,
+                total_niños_nac,
+                embarazada, embarazo_deseado, 
+                anemia, 
+                edad_12_24años, edad_15_49años,
+                estado_civil,
+                etnia, lengua_materna,  
+                nivel_educ_madre, QUINTIL_BIENESTAR,
+                nacimientos_ultimos_3años, deseo_de_mas_hijos,
+                sexual_activa, necesidad_insatisfecha_planif,
+                No_seguro_salud, numero_hijos_vivos)  %>% 
+  filter(!is.na(PONDERACION)) %>% subset(edad_15_49años=="Sí")
+```
+
+**Tasa Global de Fecundidad**
+
+```{r}
+library(dplyr)
+
+diseño <- svydesign(id =~ CONGLOMERADO, strata =~ ESTRATO, 
+                    weights=~ PONDERACION, 
+                    data=ENDES, nest=TRUE) 
+options(survey.lonely.psu = "certainty")
+
+
+diseño  %>% 
+  tbl_svysummary(statistic=list(all_categorical() ~ "{p} ",
+                                all_continuous()~ "{mean} ({sd})"), 
+                 missing = "no",
+                 type = list(numero_hijos_vivos ~ "continuous"),
+                 include = c(names(ENDES["numero_hijos_vivos"]))) %>%
+    add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}")
+
+diseño %>% 
+  tbl_svysummary(statistic=list(all_categorical() ~ "{p} ",
+                                all_continuous()~ "{mean} ({sd})"),
+                 by =QUINTIL_BIENESTAR,
+                                  percent = "col", 
+                 missing = "no",
+                 type = list(numero_hijos_vivos ~ "continuous"),
+                 include = c(names(ENDES[,"numero_hijos_vivos"]))) %>% 
+    add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}") %>% 
+  add_p(pvalue_fun = ~ style_pvalue(.x, digits = 3))
+
+```
+
+**Análisis descriptivo**
+
+NO PONDERADO
+
+```{r echo = FALSE}
+# NO PONDERADO
+
+tbl_summary(ENDES,missing = "no",
+              statistic=all_categorical() ~ "{n}") %>% 
+  add_n()
+```
+
+Ponderado
+
+```{r echo = FALSE}
+# Ponderado
+
+diseño <- svydesign(id =~ CONGLOMERADO, strata =~ ESTRATO, weights=~ PONDERACION, 
+                    data=ENDES, nest=TRUE) 
+options(survey.lonely.psu = "certainty")
+
+diseño %>% 
+  tbl_svysummary(statistic=all_categorical() ~ "{p} ", missing = "no",
+                 include = c(names(ENDES[c(4:21)]))) %>%
+    add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}")
+```
+
+coeficiente de variacion
+
+```{r}
+# coeficiente de variacion
+cv(svymean(~uso_meto_moderno,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~condon_primera_relacion,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~total_niños_nac,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~embarazada,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~embarazo_deseado,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~anemia,design = diseño, na = TRUE)) %>% round(3)
+#cv(svymean(~edad_12_24años,design = diseño, na = TRUE)) %>% round(3)
+#cv(svymean(~edad_15_49años,design = diseño, na = TRUE)) %>% round(3)
+
+cv(svymean(~etnia,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~lengua_materna,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~nivel_educ_madre,design = diseño, na = TRUE)) %>% round(3)
+cv(svymean(~QUINTIL_BIENESTAR,design = diseño, na = TRUE)) %>% round(3)
+```
+
+**Análisis descriptivo por caracteristicas**
+
+FECUNDIDAD DESEADA
+
+```{r echo = FALSE}
+# fecundidad
+tbl_summary(ENDES, missing = "no", 
+                                  by=QUINTIL_BIENESTAR,
+                                  include = c(names(ENDES[,c(6:8)])),
+                                  statistic=all_categorical() ~ "{n}",
+                                  percent = "col")
+
+diseño %>% 
+  tbl_svysummary(statistic=all_categorical() ~ "{p}", by =QUINTIL_BIENESTAR,
+                                  percent = "col", 
+                 missing = "no",
+                 include = c(names(ENDES[,c(6:8)]))) %>% 
+    add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}") %>% 
+  add_p(pvalue_fun = ~ style_pvalue(.x, digits = 3))
+```
+
+## Parte 5
+
+10- Prevalencia de anemia en mujeres de 15 a 49 años de edad, según nivel educativo
+
+15- Mujeres de 15 a 49 años de edad actualmente unidas que usan algún método moderno de planificación familiar, según nivel educativo
+
+16- Mujeres de 15 a 49 años de edad actualmente unidas que usan algún método moderno de planificación familiar, por autoidentificación étnica y por lengua materna
+
+19- Mujeres de 15 a 49 años de edad con necesidad insatisfecha de planificación familiar, según nivel educativo
+
+**Definiciones**
+
+**Union de bases**
+
+```{r }
+# VER ARRIBA
+```
+
+**Limpieza**
+
+```{r}
+# VER ARRIBA
+ENDES_12 <- dplyr::select(base_limpia2, 
+                CONGLOMERADO = HV001, 
+                ESTRATO = HV022, 
+                PONDERACION = PONDERACION,
+                uso_meto_moderno, 
+                condon_primera_relacion,
+                total_niños_nac,
+                embarazada, embarazo_deseado, 
+                anemia, 
+                edad_12_24años, edad_15_49años,
+                estado_civil,
+                etnia, lengua_materna,  
+                nivel_educ_madre, QUINTIL_BIENESTAR,
+                nacimientos_ultimos_3años, deseo_de_mas_hijos,
+                sexual_activa, necesidad_insatisfecha_planif,
+                No_seguro_salud, numero_hijos_vivos)  %>% 
+  filter(!is.na(PONDERACION)) %>% subset(edad_12_24años=="Sí")
+ENDES_15 <-  dplyr::select(base_limpia2, 
+                CONGLOMERADO = HV001, 
+                ESTRATO = HV022, 
+                PONDERACION = PONDERACION,
+                uso_meto_moderno, 
+                condon_primera_relacion,
+                total_niños_nac,
+                embarazada, embarazo_deseado, 
+                anemia, 
+                edad_12_24años, edad_15_49años,
+                estado_civil,
+                etnia, lengua_materna,  
+                nivel_educ_madre, QUINTIL_BIENESTAR,
+                nacimientos_ultimos_3años, deseo_de_mas_hijos,
+                sexual_activa, necesidad_insatisfecha_planif,
+                No_seguro_salud, numero_hijos_vivos)  %>% 
+  filter(!is.na(PONDERACION)) %>% subset(edad_15_49años=="Sí")
+
+```
+
+**Análisis descriptivo**
+
+NO PONDERADO
+
+```{r echo = FALSE}
+# VER ARRIBA
+```
+
+Ponderado
+
+```{r echo = FALSE}
+# VER ARRIBA
+```
+
+coeficiente de variacion
+
+```{r}
+# VER ARRIBA
+```
+
+**Análisis descriptivo por caracteristicas**
+
+ANEMIA
+
+```{r echo = FALSE}
+tbl_summary(ENDES_15, missing = "no", 
+                                  by=anemia,
+                                  include = c(names(ENDES[,c(15)])),
+                                  statistic=all_categorical() ~ "{n}",
+                                  percent = "row")
+
+diseño <- svydesign(id =~ CONGLOMERADO, strata =~ ESTRATO, weights=~ PONDERACION, 
+                    data=ENDES_15, nest=TRUE) 
+
+
+diseño %>% 
+  tbl_svysummary(statistic=all_categorical() ~ "{p}", by =anemia,
+                                  percent = "row", 
+                 missing = "no",
+                 include = c(names(ENDES[,c(15)]))) %>% 
+    add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}") %>% 
+  add_p(pvalue_fun = ~ style_pvalue(.x, digits = 3))
+```
+
+Metodo moderno
+
+```{r echo = FALSE}
+ENDES_15 <- ENDES %>% filter(edad_15_49años=="Sí" & 
+                               estado_civil =="Casada-conviviente")
+
+
+tbl_summary(ENDES_15, missing = "no", 
+                                  by=uso_meto_moderno,
+                                  include = c(names(ENDES[,c(13:15)])),
+                                  statistic=all_categorical() ~ "{n}",
+                                  percent = "row")
+
+diseño <- svydesign(id =~ CONGLOMERADO, strata =~ ESTRATO, weights=~ PONDERACION, 
+                    data=ENDES_15, nest=TRUE) 
+
+
+diseño %>% 
+  tbl_svysummary(statistic=all_categorical() ~ "{p}", by =uso_meto_moderno,
+                                  percent = "row", 
+                 missing = "no",
+                 include = c(names(ENDES[,c(13:15)]))) %>% 
+    add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}") %>% 
+  add_p(pvalue_fun = ~ style_pvalue(.x, digits = 3))
+```
+
+17- Mujeres de 12 a 24 años de edad que usaron condón en su primera relación sexual, según nivel educativo
+
+18- Mujeres de 12 a 24 años de edad que usaron condón en su primera relación sexual, por autoidentificación étnica y por lengua materna
+
+Condon en primera relación
+
+```{r echo = FALSE}
+tbl_summary(ENDES_12, missing = "no", 
+                                  by=condon_primera_relacion,
+                                  include = c(names(ENDES[,c(13:15)])),
+                                  statistic=all_categorical() ~ "{n}",
+                                  percent = "row")
+
+diseño <- svydesign(id =~ CONGLOMERADO, strata =~ ESTRATO, weights=~ PONDERACION, 
+                    data=ENDES_12, nest=TRUE) 
+
+diseño %>% 
+  tbl_svysummary(statistic=all_categorical() ~ "{p}", 
+                 missing = "no",
+                 include = c(names(ENDES[,c(13:15,5)]))) %>% 
+    add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}") 
+
+
+diseño %>% 
+  tbl_svysummary(statistic=all_categorical() ~ "{p}", by =condon_primera_relacion,
+                                  percent = "row", 
+                 missing = "no",
+                 include = c(names(ENDES[,c(13:15)]))) %>% 
+    add_ci(style_fun = list(all_categorical() ~ style_percent_1digits,
+                            all_continuous() ~ style_number_2digits),
+           statistic=all_categorical() ~ "{conf.low} - {conf.high}") %>% 
+  add_p(pvalue_fun = ~ style_pvalue(.x, digits = 3))
+
+
+```

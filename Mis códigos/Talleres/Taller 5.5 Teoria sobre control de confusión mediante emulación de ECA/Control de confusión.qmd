@@ -1,0 +1,332 @@
+---
+title: "Control de confusión"
+format: 
+  html:
+    toc: true
+    toc_float: 
+      collapsed: true
+    embed-resources: true
+    self-contained-math: true
+    tabsets: true
+editor: visual
+author: Daniel F
+---
+
+```{r echo = FALSE}
+
+setwd("C:/Users/danfe/Dropbox/Proyectos Daniel/Cursos - diplomados - Maestrias/Programa de autoformación en investigación y análisis de datos/Talleres/Taller 5.5 Teoria sobre control de confusión mediante emulación de ECA")
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+```
+
+# Matching
+
+```{r}
+#install.packages("ccoptimalmatch")
+library(ccoptimalmatch)
+
+```
+
+En este paquete tenemos dos conjuntos de datos: el conjunto de datos “not_processed” y el conjunto de datos “being_processed”. El conjunto de datos “not_processed”, como su nombre lo indica, es un conjunto de datos sin procesar que contiene los casos, los controles, el ID del paciente y otras variables relevantes. Después de diferentes pasos de preprocesamiento, llegamos a los datos “being_processed”, que son los que se utilizan en el algoritmo.
+
+## Datos sin procesar
+
+Para ver las primeras 6 filas de los datos “no_procesados”:
+
+```{r}
+library(kableExtra)
+
+data(not_processed)
+
+kable(head(not_processed[295:400,],10), format = "pipe", align = "c")
+```
+
+```{r}
+library(tidyverse)
+library(dplyr)
+
+table(not_processed$case_control)
+
+controles_unicos <- not_processed %>% filter(case_control=="control")
+length(unique(controles_unicos$Patient_Id))
+```
+
+```{r}
+library(gtsummary)
+tbl_summary(not_processed[,2:9], by= case_control) %>% 
+  add_p()
+```
+
+Se puede observar que tenemos 202 casos y 45.817 controles disponibles para agrupar. Los controles pueden estar duplicados, ya que un control puede aparecer hasta 6 veces, desde 2010 hasta 2015. Los controles únicos para agrupar son 13.491.
+
+## Paso 1: Coincidencia exacta de varias variables
+
+Comenzamos definiendo los subconjuntos. Para ello, filtramos por los “casos”, tomamos la combinación distinta de variables exactas (Género, JCG y Practice_Id) y creamos la nueva variable “subconjunto”. Finalmente, seleccionamos solo 4 variables relevantes (Género, JCG, Practice_Id, subconjunto):
+
+```{r}
+create_subset <- not_processed %>% 
+                 filter(case_control =="case") %>%
+                 arrange(Practice_Id, Gender, JCG) %>%
+                 distinct(Gender, JCG, Practice_Id, .keep_all = TRUE) %>%
+                 mutate(subset = 1:n()) %>%
+                 select(Gender, JCG, Practice_Id, subset)
+```
+
+Se crearon n (=26) subconjuntos, donde un subconjunto se define como una combinación factorial de las variables exactas. Por ejemplo, el subconjunto 1 contiene mujeres que visitaron el consultorio 1 en el año 2010, el subconjunto 2 contiene mujeres que visitaron el consultorio 1 en el año 2011, el subconjunto 3 contiene mujeres que visitaron el consultorio 1 en el año 2012 hasta el subconjunto n, que es la última combinación factorial de las variables exactas:
+
+```{r}
+kable(head(create_subset,10), format = "pipe", align = "c")
+```
+
+Fusionamos los datos que contienen la variable “subconjunto” con los datos que contienen únicamente los casos:
+
+```{r}
+case_with_subset <- not_processed %>% 
+                          filter(case_control =="case") %>%
+                           full_join(create_subset, by = c("Gender", "JCG", "Practice_Id"))
+```
+
+Fusionamos los datos que contienen la variable “subconjunto” con los datos que contienen únicamente los controles:
+
+```{r}
+control_with_subset <- not_processed %>% 
+                             filter(case_control =="control") %>%
+                             right_join(create_subset, 
+                                        by = c("Gender", "JCG", "Practice_Id"))
+```
+
+Finalmente enlazamos los casos y los controles, que ahora tendrán la nueva variable “subconjunto”:
+
+```{r}
+not_processed <- rbind(case_with_subset,control_with_subset)
+
+```
+
+Tabulemos nuevamente la variable “case_control”:
+
+```{r}
+table(not_processed$case_control)
+
+controles_unicos <- not_processed %>% filter(case_control=="control")
+length(unique(controles_unicos$Patient_Id))
+
+```
+
+Como observamos, el número de controles ha disminuido a 36.518 y los controles únicos a 12.643. La ventaja de la correspondencia exacta es que al trasladar el análisis de un gran conjunto de datos a varios subconjuntos pequeños, la carga computacional disminuye sustancialmente. Hubo 13.491-12.643 = 848 controles que no pudieron ser emparejados con ninguno de los casos, por lo que se excluyeron.
+
+## Paso 2: Crear observaciones artificiales y seleccionar el rango de variables
+
+En primer lugar, dividimos el conjunto de datos en casos y controles y creamos una variable “cluster_case” para representar los casos por separado. La variable “cluster_case” tendrá tantos niveles como el número total de casos, es decir, 202 en nuestro ejemplo. Para ello, la variable “cluster_case” estará vacía en el conjunto de datos de los controles, pero tendrá los nombres de los casos en el conjunto de datos de los casos:
+
+```{r}
+bdd_controls <- not_processed %>% filter(case_control=="control")
+bdd_controls$cluster_case <- 0
+bdd_cases <- not_processed %>% filter(case_control=="case")
+bdd_cases$cluster_case <- paste("case",1:nrow(bdd_cases),sep = "_")
+```
+
+A continuación, vinculamos los casos y los controles, que ahora tendrán la nueva variable “cluster_case” y creamos la variable age:
+
+```{r}
+not_processed <- rbind(bdd_cases,bdd_controls)
+not_processed$age <- not_processed$JCG - not_processed$Birth_Year 
+```
+
+Después de crear la variable “cluster_case”, dividimos nuevamente los casos y controles en dos conjuntos de datos diferentes:
+
+```{r}
+bdd_cases <- not_processed %>% filter(case_control=="case")
+bdd_control <- not_processed %>% filter(case_control=="control")
+```
+
+A continuación, creamos un marco de datos vacío y una lista única de la variable “cluster_case”:
+
+```{r}
+bdd_temp <- data.frame()
+list_p <- unique(bdd_cases$cluster_case)
+```
+
+A continuación se muestra el bucle para generar las pseudoobservaciones para los controles, que se explicarán en detalle. Comenzamos por identificar a qué subconjunto pertenece cada caso. A continuación, verificamos qué controles están en el mismo subconjunto y vinculamos esos controles al caso. Por ejemplo, el subconjunto 1 tiene 2 casos y 1523 controles. Al crear pseudoobservaciones para los controles, el subconjunto 1 tendrá 2 casos y 3046 controles. Finalmente, seleccionamos el rango para la edad y el seguimiento. Para fines de demostración, decidimos que una diferencia absoluta de edad menor a 2 es aceptable y que el tiempo de seguimiento entre los casos y los controles es exacto. Dado que los 2 casos son diferentes en el subconjunto 1 en términos de edad y seguimiento, cada caso terminará con un número diferente de controles disponibles para agrupar:
+
+```{r}
+for(i in 1:length(list_p)){
+ temp <- bdd_cases[bdd_cases$cluster_case==list_p[i],]
+ subset_identified <- temp$subset
+ temp0 <- bdd_control[bdd_control$subset==temp$subset,]
+ temp_final <- rbind(temp,temp0)
+ temp_final$cluster_case <- list_p[i]
+ temp_final=temp_final %>%
+            group_by(cluster_case) %>%
+            mutate(age_diff = abs(age - age[case_control=="case"]),
+            fup_diff = foll_up - foll_up[case_control=="case"])
+ temp_final$age_fup <- ifelse(temp_final$age_diff<=2&temp_final$fup_diff==0,"accept","delete")
+ temp_final <- temp_final[temp_final$age_fup=="accept",]
+ temp_final$age_fup <- NULL
+ bdd_temp <- rbind(bdd_temp,temp_final)
+}
+```
+
+Tabulemos nuevamente la variable “case_control”:
+
+```{r}
+table(bdd_temp$case_control)
+controles_unicos <- bdd_temp %>% filter(case_control=="control")
+length(unique(bdd_temp$Patient_Id))
+```
+
+El número de casos ha disminuido a 202 y los controles a 10.462. Ahora, todos los controles restantes son aquellos que tienen como máximo 2 años de diferencia con el caso en el mismo subconjunto, y además tienen el seguimiento exacto.
+
+## Paso 3: Crear las variables “total de controles por caso” y “frecuencia de controles”
+
+Creamos la variable “total de controles por caso”, que representa el total de controles disponibles para cada caso. También creamos la variable “case_ind” que toma el valor 1 si el paciente es un caso y 0 si el paciente es un control. Por último, seleccionamos solo las variables relevantes:
+
+```{r}
+bdd_temp = bdd_temp %>% 
+  group_by(cluster_case) %>% 
+  mutate(total_control_per_case = n()-1)
+
+bdd_temp$case_ind <- ifelse(bdd_temp$case_control=="case",1,0)
+
+bdd_temp <- subset(bdd_temp, select=c(cluster_case, Patient_Id, case_control, case_ind,
+                      JCG, entry_year, CI, age_diff, fup_diff, total_control_per_case))
+```
+
+La variable “frecuencia de controles” representa cuántas veces se asigna un control a un caso:
+
+```{r}
+bdd_temp = bdd_temp %>% group_by(Patient_Id) %>% mutate(freq_of_controls = n())
+
+```
+
+Echemos un vistazo a los datos observando las primeras 10 filas:
+
+```{r}
+kable(head(bdd_temp,10), format = "pipe", align = "c")
+```
+
+Se pueden extraer algunas primeras conclusiones:
+
+1.  Para los controles, observe el control “Paciente_13330”. Su frecuencia es 3, lo que indica que está disponible para 3 casos y también que aparece en el conjunto de datos 3 veces. Esto es importante porque los controles con la frecuencia más baja se emparejarán primero, dejando así disponibles los controles con la frecuencia más alta para los siguientes casos.
+
+2.  Observamos que el ordenamiento aún no es el más óptimo ya que los controles no están tan cerca como deberían de los casos en términos de “diferencia de edad” y “frecuencia de controles”, lo que nos lleva al siguiente paso.
+
+## Paso 4: Ordenar las variables
+
+Es de suma importancia ordenar las variables en el orden correcto. Para simplificar, supongamos que hay tres variables, a saber, “diferencia de edad”, “diferencia de seguimiento” y “frecuencia de controles”. El conjunto de datos debe ordenarse por las variables “caso”, “control”, “diferencia de seguimiento”, “diferencia de edad” y, por último, por “frecuencia de controles”. La variable “diferencia de seguimiento” aparece antes de “diferencia de edad”, ya que la “diferencia de seguimiento” tiene más peso (importancia) que la “diferencia de edad”.
+
+```{r}
+bdd_temp<-bdd_temp[order(bdd_temp$cluster_case,
+                         bdd_temp$case_control,
+                         bdd_temp$fup_diff,                          
+                         bdd_temp$age_diff,
+                         bdd_temp$freq_of_controls),]
+```
+
+Al revisar las primeras 10 filas, podemos ver que los controles más cercanos están ordenados después del caso, lo que indica que son óptimos (tienen la misma diferencia de edad). Además, observamos que la “frecuencia de controles” está ordenada, lo que permite que el control con la frecuencia más baja se empareje primero:
+
+```{r}
+kable(head(bdd_temp,10), format = "pipe", align = "c")
+```
+
+## Análisis de los datos
+
+Ya tenemos los datos listos para ser utilizados en el algoritmo. La función “optimal_matching” genera un emparejamiento óptimo entre casos y controles de forma iterativa y computacionalmente eficiente. Para fines de demostración, seleccionamos 4 controles para emparejar y realizamos el análisis sin reemplazo:
+
+```{r}
+final_data <- optimal_matching(bdd_temp, n_con = 4, 
+                               
+                               cluster_case, # variable que contiene un caso con todos los
+                                             # controles disponibles que se van a agrupar
+                               Patient_Id, 
+                               total_control_per_case, # número total de controles
+                                                       # disponibles para cada caso
+                               case_control = case_control, 
+                               with_replacement = FALSE)
+```
+
+A continuación resumimos los pasos que explican cómo funciona el algoritmo.
+
+1.  Inicio de la ronda 1. Seleccionamos un control por caso por iteración. Seleccionamos el primer control que sea el más cercano, es decir, el más óptimo.
+
+2.  Divida entre controles duplicados y únicos, y asigne los controles duplicados al caso que tenga menos controles disponibles para agrupar.
+
+3.  Excluir los casos que ya tienen al menos un control. Excluir también los controles que coinciden con un caso.
+
+4.  Repita los pasos 1 a 3 hasta que todos los casos tengan al menos 1 control (cuando corresponda).
+
+5.  Fin de la ronda 1. Continuar con la ronda 2 hasta la ronda n, donde n son los controles que el usuario quiere hacer coincidir. Si se necesitan 4 controles, entonces tenemos 4 rondas, si se necesitan 10 controles, tenemos 10 rondas.
+
+Podemos ver las primeras 20 filas:
+
+```{r}
+final_data <- final_data %>% arrange(cluster_case)
+kable(head(final_data,20), format = "pipe", align = "c")
+```
+
+Si queremos ver cuántos controles coinciden para cada caso, entonces:
+
+```{r}
+final_data = final_data %>% group_by(cluster_case) %>% mutate(total_control_matched = n()-1)
+
+table(final_data$case_control,final_data$total_control_matched)
+```
+
+16 casos tienen solo 1 control, 9 casos tienen 2 controles, 6 casos tienen 3 controles y finalmente 161 casos tienen 4 controles, utilizando los criterios anteriores.
+
+## Regresión logística condicional para datos de casos y controles emparejados
+
+Algunos estudios de casos y controles emplean el emparejamiento en un intento de asegurar que los controles sean comparables a los casos en las variables de confusión. Sin embargo, el emparejamiento debe tenerse en cuenta en el método de análisis. Los datos de casos y controles emparejados se pueden analizar de forma válida utilizando **la regresión logística condicional** que estratifica el análisis por grupos definidos por las combinaciones únicas de las variables coincidentes. Para llevar a cabo una regresión logística condicional en R, utilice la `clogit()`función ( [Gail, Lubin y Rubinstein 1981](https://www.bookdown.org/rwnahhas/RMPH/blr-conditional.html#ref-gail_likelihood_1981) ; [Logan 1983](https://www.bookdown.org/rwnahhas/RMPH/blr-conditional.html#ref-logan_multivariate_1983) ) en la `survival`biblioteca ( [Therneau 2023](https://www.bookdown.org/rwnahhas/RMPH/blr-conditional.html#ref-R-survival) ) con las variables coincidentes enumeradas como `strata`en el modelo. `clogit()`espera que el resultado sea numérico con valores posibles 0 y 1, y la salida no contiene una intersección.
+
+El modelo logit condicional no estima asociaciones entre las `strata`variables y el resultado. Sin embargo, dado que su propósito era controlar la confusión, esto no suele ser un problema.
+
+::: callout-note
+### Nota: **el ejemplo anterior no tenia un desenlace. **
+
+Se creó un conjunto de datos de casos y controles emparejados de nacimientos a partir de un subconjunto del conjunto de datos de enseñanza de Natalidad de EE. UU. de 2018, que contenía 195 nacimientos que fueron seguidos por un ingreso a la unidad de cuidados intensivos neonatales ( `AB_NICU`) y 1375 nacimientos que no lo fueron, emparejados por educación materna ( `MEDUC`) y edad ( `MAGER`). Evalúe la asociación entre el ingreso a la unidad de cuidados intensivos neonatales y el parto prematuro previo ( `RF_PPTERM`), teniendo en cuenta el emparejamiento en el análisis.
+:::
+
+```{r}
+
+load("natality_CC_rmph.Rdata")
+
+# clogit() expects a 0/1 outcome
+# Convert from No/Yes to 0/1
+natality_CC <- natality_CC %>% 
+  mutate(NICU = as.numeric(AB_NICU == "Yes"))
+
+# Check derivation
+table(natality_CC$AB_NICU, natality_CC$NICU, useNA = "ifany")
+```
+
+A continuación, verifique que las distribuciones de las variables coincidentes sean las mismas para los casos y los controles.
+
+```{r}
+tbl_summary(natality_CC, by=NICU) %>% 
+  add_p()
+```
+
+La correspondencia no siempre es perfecta. Las distribuciones no son idénticas entre casos y controles, pero son bastante parecidas.
+
+Por último, ajuste el modelo logit condicional y examine el resultado.
+
+```{r}
+library(survival)
+fit.clr <- clogit(NICU ~ RF_PPTERM + strata(MEDUC, MAGER),
+                  data = natality_CC)
+
+
+tbl_regression(fit.clr, exp=T)
+```
+
+**Conclusión** : El parto prematuro previo se asocia significativamente con el ingreso a la UCIN (p \< .001). Los bebés nacidos de madres con un parto prematuro previo tienen 3,1 veces más probabilidades de ser ingresados ​​en la UCIN (OR = 3,07; IC del 95% = 1,65, 5,71; p \< .001).
+
+Compara con la regresión logistica clásica
+
+```{r}
+fit.logr <- glm(NICU ~ RF_PPTERM + MEDUC+ MAGER, family = binomial(link="logit"),
+                  data = natality_CC)
+
+
+tbl_regression(fit.logr, exp=T)
+```

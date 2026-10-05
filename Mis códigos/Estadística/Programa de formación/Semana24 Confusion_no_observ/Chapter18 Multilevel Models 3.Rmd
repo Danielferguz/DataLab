@@ -1,0 +1,248 @@
+---
+title: "Chapter 18: Testing the Assumptions of Multilevel Models"
+author: "Michael Palmeri"
+output:
+  html_document:
+    theme: cerulean
+    highlight: textmate
+    fontsize: 8pt
+    toc: true
+    number_sections: true
+    code_download: true
+    toc_float:
+      collapsed: false
+---
+
+NOTE ON PACKAGES: I use the following packages in this chapter.  If you do not have these packages installed, you may use the script below to install them and load their libraries (just remove the "#" before the package you need to install).
+
+```{r, message=FALSE, warning=FALSE} 
+
+#install.packages("lme4")
+#install.packages("ggplot2")
+#install.packages("HLMdiag")
+#install.packages("DHARMa")
+#install.packages("car")
+
+#load the libraries so you have access to them in your workflow
+
+library("lme4")
+library("ggplot2")
+library("HLMdiag")
+library("DHARMa")
+library("car") #for the Levene test which we will not discuss here
+library("Matrix")
+```
+
+#Preface 
+It is important to work within the same file environment so that data and code can be easily linked. To do so, let's set the working directory
+```{r}
+#setwd("set locations") 
+```
+
+# CAVEAT
+The following information is a best approximation of how to test assumptions of mixed and multilevel models as of November 2016. Much of the procedures described have been piecemeal put together through the concatenation of multiple sources (both refereed and not). There is by no means any sort of consensus within the field of statistics and the R community as a whole as to how to approach this topic systematically. I've attempted to pull in as many different ideas as feasible in my little chapter. As such, we will be using the *lmer* as opposed to the *lme* package. The *lmer* package is better suited for mixed designs and thus is more amenable to many different kinds of data. Unfortunately, unlike the *lme* package, *lmer* DOES NOT include a way to easily run model diagnostics. Some would suggest that if your model is a standard Multilevel Model (i.e. not mixed designs) to then just use the *lme* package to streamline the model building process.
+
+
+# Overview
+As with any statistical manipulation, there are a specific set of assumptions under which we operate when conducting multilevel models (MLM). These assumptions are identical to those of ordinary multiple regression analyses, but the way in which we test them is quite different. In this chapter, we will examine the three most important (and most frequently violated) assumptions of MLM. To do so, let's take a look at some sample data, fit a model, and run through how to test each assumption.
+
+# Build a Dataframe
+Let's create a sample dataframe with which we will run our multilevel model and then test our assumptions. Let's say there are 10 subjects with 4 temporal-based observations (one every year) in this hypothetical scenario. Each person will have data for age, sex, average number of cigarettes smoked each week, level of nicotine dependence from the Fagerstrom Test of Nicotine Dependence (FTND), ratings of depressive symptoms from the Beck Depression Inventory (BDI), and a count variable for the total number of lifetime major depressive episodes suffered up to that point of data collection.
+```{r}
+#Create vectors for each of the variables
+Subjects <- c(rep.int(1,4),rep.int(2,4),rep.int(3,4),rep.int(4,4),rep.int(5,4),rep.int(6,4),rep.int(7,4),rep.int(8,4),rep.int(9,4),rep.int(10,4)) 
+Time <- c(rep(1:4,10)) #this is for illustrative purposes only - these models are much more helpful with many different data points per subject
+Age <- c(18:21, 19:22, 18:21, 20:23, 19:22, 22:25, 21:24, 19:22, 20:23, 20:23)
+Sex <- c(rep("M",8),rep("F",4),rep("M",4),rep("F",12),rep("M",4),rep("F",8))
+Cigarettes <- c(10,12,14,0,20,20,20,20,10,20,25,40,12,9,8,8,4,4,8,20,10,10,10,10,10,20,30,60,0,0,0,0,0,1,2,3,0,0,0,30)
+Fagerstrom <- c(6,8,8,0,10,10,10,10,8,9,9,10,6,8,10,12,7,7,6,7,2,2,3,8,9,9,9,9,10,10,12,13,0,0,0,0,0,0,0,12)
+BDI <- c(7,7,8,9,4,5,6,8,2,2,2,2,3,4,7,8,12,14,14,17,22,22,10,9,7,5,6,8,12,15,6,18,12,14,8,4,3,2,2,1)
+Depression <- c(1,1,2,3,2,3,3,3,0,1,1,1,2,2,2,2,4,5,6,6,3,3,4,5,2,2,2,2,1,1,1,1,3,3,4,5,1,1,2,2)
+
+#Combine the vectors into a single data frame
+Cigarette.Study<-data.frame(
+  subjectID = Subjects,
+  Time = Time,
+  Sex = Sex,
+  Age = Age,
+  Cigs = Cigarettes,
+  FTND = Fagerstrom,
+  BDI = BDI,
+  Depression = Depression)
+
+Cigarette.Study$Sex.I<-ifelse(Cigarette.Study$Sex=="M",0,1) #creates a numerical value "Sex" that we can run analyses on
+
+Cigarette.Study
+
+
+#Check the structure of that data frame
+str(Cigarette.Study)
+```
+
+# Run a Multilevel Model with our Data
+Skipping all of the requisite model building steps, say we find a model predicting cigarette use based on self-reported symptoms of depression (BDI), Time, BDI by Time interaction (BDI*Time), FTND score, with a random intercept for each person, an independently varying FTND score for each person, and depressive episodes by sex fits the data the best and explains the most amount of variance.
+```{r}
+Model.F<-lmer(Cigs ~ Time*BDI+FTND
+                +(1|subjectID) + (0+FTND|subjectID), #random effects for subject ID and (+) FTND by (|) subject, which are allowed to vary independently from eachother (the 1 and 0 notation)
+              data=Cigarette.Study, REML=FALSE)
+```
+
+
+## Examine results, what do they mean?
+```{r}
+summary(Model.F) #summarizes the results of the model - somehow in the "knitting process" significance stars have been lost - R code suggests a significant effect of time and FTND score
+ranef(Model.F) #examines the random effects (i.e things that are allowed to vary across units, in this case each representing our subject-level effect of FTND for our 10 participants)
+```
+The first thing to note is that p values are not reported by default. This is because the *lme* and *lmer* packages were written in large part by Doug Bates from the University of Wisconsin-Madison. Dr. Bates is not a fan of p value and subsequently chose not to display it in his packages. Our results suggest that both time and Fagerstrom scores are predictive of cigarette use .... But, given our small sample size (and see Maas & Hox 2005 for an exhaustive discussion on minimal sample sizes), can we be assured that the assumptions under which we operate to conduct such analyses are being met?
+
+# Assumptions
+## Assumption 1 - Linearity
+A regression analysis is meant to fit the best rectilinear line that explains the most data given your set of parameters. Therefore, the base models rely on the assumption that your data follows a straight line (though the models can be expanded to handle curvilinear data).
+
+###How do you test this assumption?
+Graphically, plotting the model residuals (the difference between the observed value and the model-estimated value) vs the predictor is one simple way to test. If a pattern emerges (anything that looks non-random), a higher order term may need to be included or you may need to mathematically transform a predictor/response. In R, we'll use the simple plot function to compare the model-predicted values to the observed ones.
+```{r}
+Plot.Model.F.Linearity<-plot(resid(Model.F),Cigarettes) #resid() calls for the residuals of the model, Cigarettes was our initial outcome variables - we're plotting the residuals vs observered
+```
+
+Looks pretty random so we probably haven't violated this assumption (see Fox 2008 for a discussion about the utility of significance vs visual testing; essentially they argue that significance tests don't offer you additional information that your naked eye can't already detect). Let's look at assumption #2
+
+## Assumption 2 Homogeneity of Variance
+Regression models assume that variance of the residuals is equal across groups. In this case, the groups we're referring to are at the individual (i.e. subject) level.  
+
+###How do you test this assumption?
+R is an excellent program for extracting and storing your model residuals. After we have them in place, we can do a simple ANOVA to determine if they're different for each person. This procedure is a variation of "Levene's Test". Essentially, we'll extract the residuals from the model, place them in our original table, take their absolute value, and then square them (for a more robust analysis with respect to issues of normality, see Glaser 2006). Finally we'll take a look at the ANOVA of the between subjects residuals. Let's give it a shot below:
+```{r}
+#for this portion of the analysis, we need to revisit about statistical significance - since the assumption is that the variance is not going to differ, we would hope to see NO STATISTICAL DIFFERENCES in the following procedure (i.e. p>0.05) to confirm that -
+
+
+Cigarette.Study$Model.F.Res<- residuals(Model.F) #extracts the residuals and places them in a new column in our original data table
+Cigarette.Study$Abs.Model.F.Res <-abs(Cigarette.Study$Model.F.Res) #creates a new column with the absolute value of the residuals
+Cigarette.Study$Model.F.Res2 <- Cigarette.Study$Abs.Model.F.Res^2 #squares the absolute values of the residuals to provide the more robust estimate
+Levene.Model.F <- lm(Model.F.Res2 ~ subjectID, data=Cigarette.Study) #ANOVA of the squared residuals
+anova(Levene.Model.F) #displays the results
+```
+###What do the results mean?
+Since the p value is greater than 0.05, we can say that the variance of the residuals is equal and therefore the assumption of homoscedasticity is met
+Note: R does have built-in or package made Levene (and less the flexible Bartlett) tests, but I couldn't figure out how to implement them with respect to *lmer*. Feel free to explore these options on your own.
+
+
+###How about a visual solution?
+```{r}
+Plot.Model.F <- plot(Model.F) #creates a fitted vs residual plot
+Plot.Model.F
+```
+There seems to be even spread around the centered line, but I prefer the Levene's test as I'm not entirely sure what this graph is supposed to look like
+
+
+## Assumption 3: The residuals of the model are normally distributed.
+Regression models don't require that outcome variables need to be normally distributed (see: Logistic or Poisson regression models), however MLM assume that the residuals of the analysis ARE normally distributed.
+
+###How do you test this assumption?
+QQ plots (which are easily obtained in standard regression modeling in R) can provide an estimation of where the standardized residuals lie with respect to normal quantiles. Strong deviation from the provided line indicates that the residuals themselves are not normally distributed.
+```{r}
+##qq plot (similar to a diagnostic plot provided by the lm function) for an estimation of the linearity of the residuals
+require("lattice")
+qqmath(Model.F, id=0.05) #id: identifies values that may be exerting undue influence on the model (i.e. outliers)
+```
+
+There is some deviation from from the expected normal line towards the tails, but overall the line looks straight and therefore pretty normal and suggests that the assumption is not violated. See http://data.library.virginia.edu/diagnostic-plots/ and https://www.r-bloggers.com/model-validation-interpreting-residual-plots/ for more information regarding these visual tests.
+
+# What if the assumption of normality is violated?
+## Transform!
+Transformations can be done to improve the relative normality of the data. Most commonly used transformations are log/ln. Let's create log(10) transformed outcome variables to see if it improves the normality of the residuals.
+```{r}
+Cigarette.Study$Cig.Plus.1 <- Cigarettes+1
+Cigarette.Study$Cig.Log <- log10(Cigarette.Study$Cig.Plus.1)
+
+str(Cigarette.Study)
+
+
+Model.F.2<-lmer(Cig.Log ~ Time*BDI+FTND
+                +(1|subjectID) + (0+FTND|subjectID),
+              data=Cigarette.Study, REML=FALSE)
+
+summary(Model.F.2) #summarizes the results of the model
+
+ranef(Model.F.2) #examines the random effects
+```
+Notice we have lost the effects of FTND and Time due to the transformation.. Not looking good!
+
+Let's take a look at the QQ plot with the new model
+```{r}
+qqmath(Model.F.2, id=0.05) #id: identifies values that may be exerting undue influence on the model (i.e. outliers)
+```
+
+Made it much worse... You can try other transformations (natural log, square root, etc), but there is ongoing debate as to whether or not these values should be transformed as it makes interpretation of results very difficult. In this case, since we lost the effect of FTND, it may be ok to leave as is.
+
+# Additional tools at your disposal 
+## "HLMdiag" 
+
+https://cran.rstudio.com/web/packages/HLMdiag/index.html
+
+HLMdiag is the dissertation of Adam Loy and is a useful to assess not only leverage and traditional deletion diagnostics (Cook's distance, covratio, covtrace, and MDFFITS) but also convenience functions and graphics for residual analysis. At this time, only 2-level models are supported and it has not been updated since November of 2015, so if the other packages it requires are changed, you may have difficulties using this going forward. I'll briefly discuss select functions below:
+```{r}
+#case_delete() #iteratively delete groups corresponding to the levels of a hierarchical linear model, using lmer to fit the models for each deleted case
+
+#covratio() #calculate measures of the change in the covariance matrices for the fixed effects based on the deletion of an observation, or group of observations,
+
+#diagnostics() #is used to compute deletion diagnostics for a hierarchical linear model based on the building blocks returned by case_delete.
+
+#HLMresid() #extracts residuals from a hierarchical linear model fit using lmer. Can provide a variety of different types of residuals based upon the specifications when you call the function
+
+#leverage() #calculates the leverage of a hierarchical linear model fit
+
+#mdffits() #calculate measures of the change in the fixed effects estimates based on the deletetion of an observation, or group of observations
+```
+
+## "DHARMa" 
+
+https://cran.r-project.org/web/packages/DHARMa/vignettes/DHARMa.html
+
+DHARMa was created by Florian Hartig in 2016 and creates readily interpretable residuals for *generalized* linear (mixed) models that are standardized to values between 0 and 1, and that can be interpreted as intuitively as residuals for the linear model. This is achieved by a simulation-based approach, similar to the Bayesian p-value or the parametric bootstrap, that tranforms the residuals to a standardized scale. I'll provide some basic functions and their purposes below:
+```{r}
+#simulateResiduals() #creates scaled (quantile) residuals through a default 250 simulations (which can be modified)
+
+#plotSimulatedResiduals #provides qqplot and residuals vs predicted plots to determine deviations from normality
+
+#Goodness of fit tests:
+#testUniformity()
+#testOverdispersion()
+#testZeroinflation()
+#testTemporalAutocorrelation()
+#testSpatialAutocorrelation()
+
+```
+
+
+#13.7 References
+
+These have been excellent resources in illuminating theory and then implementing procedures
+
+1. Baayen, R. H., Davidson, D. J., & Bates, D. M. (2008). Mixed-effects modeling with crossed random effects for subjects and items. Journal of Memory and Language, 59(4), 390-412. doi:10.1016/j.jml.2007.12.005
+2. Barr, D. J., Levy, R., Scheepers, C., & Tily, H. J. (2013). Random effects structure for confirmatory hypothesis testing: Keep it maximal. Journal of Memory and Language, 68(3), 255-278.
+3. Bartlett, M. S. (1937). Properties of sufficiency and statistical tests. Proceedings of the Royal Society of London Series A 160, 268â282.
+4. Bates, D. M. (2006). [R] lmer, p-values and all that. https://stat.ethz.ch/pipermail/r-help/2006-May/094765.html
+5. Bates, D. M. (2008). [R-sig-ME] mcmcsamp can't handle random effects syntax. https://stat.ethz.ch/pipermail/r-sig-mixed-models/2008q3/001409.html
+6. Dunn, K. P., and Smyth, G. K. (1996). Randomized quantile residuals. Journal of Computational and Graphical Statistics 5, 1-10.
+7. Fox, J. (2008). Applied Regression Analysis and Generalized Linear Models 2nd Edition. Thousand Oaks, CA: SAGE.
+8. Gelman, A., & Hill, J. (2007). Data analysis using regression and multilevel/hierarchical models. New York: Cambridge University Press.
+9. Glaser, R. E. (2006). Levene's Robust Test of Homogeneity of Variances. Encyclopedia of Statistical Sciences. 6.
+10. Gurka, M. J., Edwards, L. J., Muller, K. E. and Kupper, L. L. (2006), Extending the BoxâCox transformation to the linear mixed model. Journal of the Royal Statistical Society: Series A (Statistics in Society), 169: 273â288. doi:10.1111/j.1467-985X.2005.00391.x
+11. Maas, C. J. M., & Hox, J. J. (2005). Sufficient sample sizes for multilevel modeling. Methodology, 1(3), 86-92
+12. Pinheiro, J. C., Bates, D. M., (2000). Mixed-effects models in S and S-plus. New York, NY: Springer.
+13. Snijders, T. A. B., & Bosker, R. J. (1999). Multilevel analysis: An introduction to basic and advanced multilevel modeling. London: Sage.
+14. van der Laan, M., & Rose, S. (2010). Statistics ready for a revolution. Amstat News. Retrieved October 7, 2011, from http://magazine.amstat.org/blog/2010/09/01/statrevolution/
+15. Verbeke, G., & Lesaffre, E. (1997). The effect of misspecifying the random-effects distribution in linear mixed models for longitudinal data. Computational Statistics & Data Analysis, 23, 541-556.
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-98878793-1', 'auto');
+  ga('send', 'pageview');
+
+</script>
+

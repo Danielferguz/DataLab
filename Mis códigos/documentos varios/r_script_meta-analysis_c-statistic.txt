@@ -1,0 +1,67 @@
+
+#Example script to perform a meta-analysis of c-statistic
+#For problems, questions and suggestions, contact Anneke Damen via CochranePMG@umcutrecht.nl
+#Based on https://doi.org/10.1186/s12916-019-1340-7
+
+#The input for this script is a dataframe called df
+#This dataset can be downloaded via https://methods.cochrane.org/prognosis/tools
+#df contains the following columns:
+#Authoryear - the author and publication year of the validation study
+#Samplesize - number of participants included in the study
+#N_events - number of events included in the study
+#Cstat - c-statistic
+#Cstat95LB - c-statistic 95 lower bound
+#Cstat95UB - c-statistic 95 upper bound
+#CstatSE - standard error of c-statistic
+#OE - OE ratio
+#OE95LB - OE ratio 95 lower bound
+#OE95UB - OE ratio 95 upper bound
+#N_expected - number of expected events (based on the prediction model)
+
+#Load packages
+library(metamisc)
+library(metafor)
+
+###load dataframe df###
+#Example data: validation studies of Pooled Cohort Equations for predicting cardiovascular disease in general population
+df<-read.csv("Example dataset PCE men.csv",header=T)
+
+#Restore all missing information for c-statistic
+df.cstat<-ccalc(cstat=Cstat,cstat.cilb=Cstat95LB,cstat.ciub=Cstat95UB,cstat.se=CstatSE,
+                 N=Samplesize,O=N_events,data=df,
+                 slab=Authoryear)
+#Change column names
+df.cstat$Authoryear<-rownames(df.cstat) #Add column to match
+#Add restored information c-statistic to original df
+df<-merge.data.frame(df,df.cstat,by="Authoryear")
+
+
+#Plot results to inspect results
+metafor::forest(df$theta, ci.lb=df$theta.cilb,ci.ub=df$theta.ciub ,
+                slab=df$Authoryear, xlab = "C-statistic", refline = 0.5, cex = 1.0,
+                alim=(c(0.2,1)),steps=5,xlim=(c(-0.8,2)), psize=1,
+                main = "Title of forest plot")
+
+#Perform a meta-analysis of the c-statistic
+fit1 <- with(df, valmeta(cstat=theta, cstat.se=theta.se,
+                         N=Samplesize, O=N_events, slab=Authoryear))
+
+#Plot results and add meta-analysis results
+metafor::forest(df$theta, ci.lb=df$theta.cilb,ci.ub=df$theta.ciub ,
+                slab=df$Authoryear, xlab = "C-statistic", refline = 0.5, cex = 1.0,
+                alim=(c(0.4,1)),steps=7,xlim=(c(-0.4,2)), psize=1,
+                ylim=c(1,nrow(df)+5),rows=c(3:(nrow(df)+2)),
+                main = "Title of forest plot")
+#Add pooled estimate
+addpoly(x = fit1$est, ci.lb=fit1$ci.lb, ci.ub=fit1$ci.ub, rows=2, font=2)
+addpoly(x = fit1$est, ci.lb=fit1$pi.lb, ci.ub=fit1$pi.ub, rows=1, font=2) #Add prediction interval
+#Add sample size and number of events to plot
+text(1.2,c((nrow(df)+2):1),df$N_events,pos=2)
+text(1.2,c((nrow(df)+2):1),df$Samplesize,pos=4)
+text(1.24,c((nrow(df)+2):1),rep("/",nrow(df)),pos=2)
+#Add labels above plot
+par(cex=1, font=2)
+text(c(-0.4,1.2,1.24,1.2,2),nrow(df)+4,c("Reference","N events","/","total N","C-statistic [95% CI]"),
+     pos=c(4,2,2,4,2))
+text(-0.4,c(2,1), c("Confidence interval","Prediction interval"), pos=4)
+par(cex=1, font=1)

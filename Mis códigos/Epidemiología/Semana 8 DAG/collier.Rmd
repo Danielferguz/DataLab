@@ -1,0 +1,300 @@
+---
+title: "Un ejemplo de colisionador en un contexto médico"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: cerulean
+    highlight: textmate
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    df_print: paged
+    toc_float:
+      collapsed: false
+---
+
+```{r echo = FALSE}
+setwd("C:/Users/danfe/Dropbox/Proyectos Daniel/Cursos - diplomados - Maestrias/Programa de autoformación en investigación y análisis de datos/Rmarkdowns/Estadística/Programa de formación/Semana14")
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                         fig.show = "asis", results = "show",
+                      fig.align='center',
+                      fig.path = "figures/",  # Configura el directorio donde se guardan los gráficos
+  dev = "png")
+```
+
+
+
+Este artículo recorre un ejemplo médico específico de un posible colisionador, basándose en el ejemplo expuesto por Luque-Fernández et al (2019) en [*Efecto colisionador paradójico en el análisis de datos epidemiológicos de enfermedades no transmisibles: una ilustración reproducible y una aplicación web*](https://doi.org/10.1093/ije/dyy275). Aquí, utilizamos los conjuntos de datos `causal_collider` y `causal_collider_time`, pero supongamos que la `exposición` es la ingesta de sodio, el `desenlace` es la presión arterial sistólica (PAS) y la `covariable` es la excreción urinaria de proteínas (proteinuria).
+
+## Configuración
+
+**Pregunta causal**: ¿Cuál es el efecto medio del tratamiento de la ingesta de sodio en la dieta durante 24 horas (en gramos) sobre la presión arterial sistólica? 
+
+**Datos disponibles**: Tenemos un conjunto de datos con tres variables `exposición` (ingesta de sodio en gramos), `desenlace` (presión arterial sistólica) y `covariable` (excreción de proteínas urinarias en 24 horas, proteinuria).
+
+**La verdad**: Como se trata de datos simulados, conocemos la verdadera relación entre la ingesta de sodio y la presión arterial sistólica. En este caso, el efecto medio estimado del tratamiento debería ser *1*. 
+
+Empecemos examinando los datos. Cargaremos adicionalmente el paquete `tidyverse`, que utilizaremos para la visualización y manipulación de los datos.
+
+
+```{r}
+#| message: false
+#| warning: false
+library(quartets)
+library(tidyverse)
+
+causal_collider
+```
+
+Para ayudarnos aún más a permanecer en el ejemplo del mundo real, podemos suponer que se trata de versiones normalizadas de estas variables (ya que de otro modo los valores negativos no tendrían sentido). 
+
+## Análisis
+
+Podemos examinar el efecto crudo de la exposición sobre el resultado mediante un diagrama de dispersión.
+
+```{r}
+#| label: scatterplot
+ggplot(causal_collider, aes(x = exposure, y = outcome)) +
+  geom_point() + 
+  geom_smooth(method = "lm", formula = "y ~ x") + 
+  labs(x = "Sodium intake", y = "Systolic blood pressure")+
+  theme_test()
+```
+
+Observamos una relación positiva entre la ingesta de sodio en 24 horas no ajustada y la presión arterial sistólica.
+
+¿Cómo debemos estimar este efecto promedio del tratamiento? El primer paso es dibujar el diagrama causal propuesto. Como explica el artículo, "los niveles elevados de excreción de proteínas urinarias en 24 horas (proteinuria) están causados por una PAS [presión arterial sistólica] elevada de forma sostenida y una mayor ingesta de sodio en la dieta en 24 horas. Por lo tanto, `la proteinuria actúa como un colisionador`. En un escenario realista, uno podría controlar la proteinuria si los factores fisiológicos que influyen en la PAS no son completamente comprendidos por el investigador, las relaciones entre las variables no se representan en un DAG o la proteinuria se conceptualiza como un factor de confusión. Controlar la proteinuria introduce un sesgo de confusión". (Luque-Fernández et al 2019).
+
+Supongamos que inicialmente creemos erróneamente que la proteinuria es un *confusor*, es decir, creemos que debe ajustarse por ella en el análisis. Para exposiciones continuas, la correlación entre la exposición y el posible factor de confusión es una forma recomendada de evaluar el equilibrio ([Zhu et al. 2014](https://doi.org/10.1515/jci-2014-0022)). Examinemos la correlación previa al ajuste entre la `exposición` y la `covariable`.
+
+
+```{r}
+causal_collider |>
+  summarise(cor(exposure, covariate))
+```
+
+Observamos una fuerte correlación positiva entre la ingesta de sodio y la proteinuria. Esto está muy por encima de la regla general para lograr el equilibrio de |0,1| ([Zhu et al. 2014](https://doi.org/10.1515/jci-2014-0022)).
+
+Existen varios métodos para estimar los efectos medios del tratamiento de exposiciones continuas, como la ponderación de probabilidad inversa o el método g. Utilicemos la ponderación de probabilidad inversa. Comenzaremos creando estas ponderaciones.
+
+El primer paso es calcular el modelo de puntuación de propensión, que se utilizará en el denominador de la ponderación. Es decir, estamos construyendo un modelo para predecir la ingesta de sodio a partir de la proteinuria (`denominator_model`). A continuación, introducimos los valores ajustados del modelo en una densidad gaussiana junto con la desviación estándar residual, como se ve en la segunda parte del código a continuación.
+
+```{r}
+denominator_model <- lm(
+  exposure ~ covariate, 
+  data = causal_collider
+)
+
+denominators <- causal_collider %>% 
+  mutate(
+    propensity_score = predict(denominator_model),
+    denominator = dnorm(
+      exposure, 
+      propensity_score, 
+      sigma(denominator_model)
+    )) %>% 
+  pull(denominator) 
+```
+
+A continuación, ajustamos el numerador de las ponderaciones en función de la estabilidad. El valor medio de la exposición se introduce en una densidad gaussiana junto con la desviación típica residual, como se ve en la segunda parte del código siguiente.
+
+```{r}
+numerator_model <- lm(
+  exposure ~ 1, 
+  data = causal_collider
+)
+
+numerators <- causal_collider %>% 
+  mutate(
+    mean_exposure = predict(numerator_model),
+    numerator = dnorm(
+      exposure, 
+      mean_exposure, 
+      sigma(numerator_model)
+    )) %>% 
+  pull(numerator) 
+
+causal_collider_wts <- causal_collider %>% 
+  mutate(swts = numerators / denominators)
+```
+
+Podemos examinar la distribución de estos pesos:
+
+```{r}
+#| label: wts
+ggplot(causal_collider_wts, aes(x = swts)) + 
+  geom_histogram(bins = 30)+
+  theme_test()
+```
+
+
+A continuación, podemos examinar la correlación ponderada para evaluar el equilibrio tras incorporar la ponderación de la puntuación de propensión.
+
+```{r}
+causal_collider_wts |>
+  summarise(
+    exposure_w = sum(swts * exposure) / sum(swts),
+    covariate_w = sum(swts * covariate) / sum(swts),
+    numerator = sum(swts * (exposure - exposure_w) * (covariate - covariate_w)),
+    denom = sqrt(sum(swts * (exposure - exposure_w)^2) * sum(swts * (covariate - covariate_w)^2)),
+    weighted_cor = numerator/denom
+  ) |>
+  select(weighted_cor)
+```
+
+Ahora la correlación ponderada es -0,2 (no menos que el objetivo, |0,1|, pero mejor que la correlación no ajustada de 0,7 y lo mejor que podemos hacer con estos datos). 
+
+Ahora que hemos evaluado el equilibrio, vamos a ajustar nuestro modelo de resultados y estimar el efecto medio del tratamiento de la ingesta de sodio sobre la presión arterial sistólica.
+
+```{r}
+lm(outcome ~ exposure, data = causal_collider_wts, weight = swts)
+```
+¡Oh, no! Esto afirma que el efecto medio estimado del tratamiento es 0,34 (sabemos que el verdadero efecto debería ser 1).
+
+## Análisis que incorpora datos variables en el tiempo
+
+Por suerte, tenemos algunos datos que incluyen el *momento* de nuestras mediciones. Sabemos que sólo deberíamos ajustar los factores que se midieron *antes de la exposición* (es decir, queremos ajustar la proteinuria en la *línea de base* no en el *seguimiento*). Veamos el conjunto de datos de variación temporal:
+
+
+```{r}
+causal_collider_time
+```
+
+Supongamos que seguimos pensando erróneamente que la proteinuria es un factor de confusión, pero que la ajustamos cuidadosamente sólo en la línea de base. Comencemos examinando el equilibrio.
+
+```{r}
+causal_collider_time |>
+  summarise(cor(exposure_baseline, covariate_baseline))
+```
+
+Seguimos observando una relación positiva superior a nuestra regla empírica (|0,1|). Ahora vamos a crear nuestras ponderaciones de puntuación de propensión.
+
+```{r}
+denominator_model <- lm(
+  exposure_baseline ~ covariate_baseline, 
+  data = causal_collider_time
+)
+
+denominators <- causal_collider_time %>% 
+  mutate(
+    propensity_score = predict(denominator_model),
+    denominator = dnorm(
+      exposure_baseline, 
+      propensity_score, 
+      sigma(denominator_model)
+    )) %>% 
+  pull(denominator) 
+
+numerator_model <- lm(
+  exposure_baseline ~ 1, 
+  data = causal_collider_time
+)
+
+numerators <- causal_collider_time %>% 
+  mutate(
+    mean_exposure = predict(numerator_model),
+    numerator = dnorm(
+      exposure_baseline, 
+      mean_exposure, 
+      sigma(numerator_model)
+    )) %>% 
+  pull(numerator) 
+
+causal_collider_wts <- causal_collider_time %>% 
+  mutate(swts = numerators / denominators)
+```
+
+Podemos examinar de nuevo la distribución de estos pesos:
+
+```{r}
+#| label: wts-2
+ggplot(causal_collider_wts, aes(x = swts)) + 
+  geom_histogram(bins = 30)+
+  theme_test()
+```
+
+A continuación, podemos examinar la correlación ponderada para evaluar el equilibrio después de incorporar la ponderación de la puntuación de propensión.
+
+```{r}
+causal_collider_wts |>
+  summarise(
+    exposure_w = sum(swts * exposure_baseline) / sum(swts),
+    covariate_w = sum(swts * covariate_baseline) / sum(swts),
+    numerator = sum(swts * (exposure_baseline - exposure_w) * (covariate_baseline - covariate_w)),
+    denom = sqrt(sum(swts * (exposure_baseline - exposure_w)^2) * sum(swts * (covariate_baseline - covariate_w)^2)),
+    weighted_cor = numerator/denom
+  ) |>
+  select(weighted_cor)
+```
+Estupendo. Hemos logrado el equilibrio (es decir, la correlación ponderada es inferior a la regla general, |0,1|).
+
+Ahora que hemos evaluado el equilibrio, vamos a ajustar nuestro modelo de resultados y estimar el efecto medio del tratamiento de la ingesta de sodio sobre la presión arterial sistólica. Nótese que tenemos cuidado de utilizar la medida de *seguimiento* para el resultado.
+
+```{r}
+lm(outcome_followup ~ exposure_baseline, data = causal_collider_wts, weight = swts)
+```
+
+¡Y maravilloso! Aunque ajustamos *erróneamente* por proteinuria (¡en realidad no es un factor de confusión!), puesto que era la medición *de referencia*, ya no inducimos el sesgo del colisionador.
+
+
+
+
+
+
+
+```{r}
+library(visreg) # load package to visualize regression output
+
+library(ggplot2)# load package to visualize regression output
+
+N <- 1000 # sample size
+
+set.seed(777)
+
+W <- rnorm(N) # confounder
+
+A <- 0.5 * W + rnorm(N) # exposure
+
+Y <- 0.3 * A+0.4 * W + rnorm(N) # outcome
+
+fit1 <- lm(Y ~ A) # crude model
+
+fit2 <- lm(Y ~ A+W) # adjusted model
+
+# visualize crude and adjusted models
+
+visreg(fit1, "A", gg = TRUE, line = list(col = "blue"),
+
+points = list(size = 2, pch = 1, col = "black")) + theme_classic()
+
+visreg(fit2, "A", gg = TRUE, line = list(col = "blue"),
+
+points = list(size = 2, pch = 1, col = "black")) + theme_classic()
+
+```
+```{r}
+N <- 1000 # sample size
+
+set.seed(777)
+
+A <- rnorm(N) # exposure
+
+Y <- 1.2 * A + rnorm(N) # outcome
+
+C <- 1 * A + 1 * Y + rnorm(N) # collider
+
+fit3 <- lm(Y ~ A) # crude model
+
+fit4 <- lm(Y ~ A + C) # adjusted model
+
+# visualize adjusted model
+
+g2 <- visreg(fit4, "A", gg = TRUE, line = list(col = "red"),
+points = list(size = 2, pch = 1, col = "black")) + theme_classic()+
+coord_cartesian(ylim = c(-4, 4)) +
+ggtitle("Figure 2B")
+
+g2
+```
+
