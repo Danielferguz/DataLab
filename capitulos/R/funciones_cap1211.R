@@ -39,7 +39,7 @@ ampliar_x <- function(x) {
 aprendiz_lasso <- function(x, y, ampliar = TRUE) {
   xe <- if (ampliar) ampliar_x(x) else x
   fam <- if (es_binario(y)) "binomial" else "gaussian"
-  m <- glmnet::cv.glmnet(xe, y, family = fam, alpha = 1, nfolds = 5)
+  m <- glmnet::cv.glmnet(xe, y, family = fam, alpha = 1, nfolds = 5, nlambda = 30, thresh = 1e-5)
   function(nuevo) as.numeric(predict(m, if (ampliar) ampliar_x(nuevo) else nuevo, s = "lambda.1se", type = "response"))
 }
 

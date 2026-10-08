@@ -42,7 +42,7 @@ simular_dag <- function(tipo = c("confusor", "mediador", "colisionador", "sesgo_
   if (tipo == "confusor") {
     uacr_basal <- rnorm(n)                                          # log-UACR basal (estandarizada)
     x <- rbinom(n, 1, plogis(-0.3 + 0.9 * uacr_basal))              # más albuminuria => más probabilidad de recibir iSGLT2
-    y <- generar_y(base + efecto * x + dano * 1.2 * uacr_basal)     # y a más albuminuria, peor pendiente
+    y <- generar_y(base + efecto * x + dano * 0.8 * uacr_basal)     # y a más albuminuria, peor pendiente
     d <- tibble(x, y, uacr_basal)
   }
   if (tipo == "mediador") {

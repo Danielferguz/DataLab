@@ -48,7 +48,9 @@ cols_oraculo_ps <- c("u_trat", "u_y", "u_ite", "rural", "p_trat", "y0", "y1", "i
 guardar_ps_encuesta <- function(carpeta = "Bases") {
   pob <- simular_poblacion_ps()
   m <- muestrear_bietapico(pob, conglom = c(Urbano = 20, Rural = 40), por_cluster = 40, semilla = 1211)
-  readr::write_csv(dplyr::select(m, -dplyr::all_of(cols_oraculo_ps)), file.path(carpeta, "ps_encuesta_erc.csv"))
+  m <- m |> dplyr::select(-dplyr::all_of(cols_oraculo_ps), -tam.x) |> dplyr::rename(tam = tam.y)
+  readr::write_csv(dplyr::select(m, id, cluster, area, peso, tam, N_conglom, edad, sexo, tfg, luacr, isglt2, pendiente_tfg),
+                   file.path(carpeta, "ps_encuesta_erc.csv"))
   invisible(m)
 }
 
