@@ -220,6 +220,27 @@ avg_comparisons(m1, variables = "isglt2")
 
 Con este modelo lineal sin interacciones, el resultado coincide con el coeficiente (`r sprintf("%.2f", coef(m1)["isglt2"])`). Con modelos con interacción o no lineales (8.3 a 8.5) se diferencian, y `avg_comparisons()` sigue entregando **el efecto promedio en la población**.
 
+### ¿Promediar sobre quién?
+
+Si el efecto **depende de la albuminuria** (interacción, ver 8.4), "el efecto promedio" depende de **a qué pacientes promedies**. Con `marginaleffects` eliges la población con `newdata` (la misma idea que ATE, ATT y ATU del Capítulo 3.2). Centramos `luacr` para que el coeficiente de `isglt2` sea el efecto en la albuminuria promedio:
+
+```{r}
+#| label: marginal-82-donde
+ckd <- ckd |> mutate(luacr_c = luacr - mean(luacr))
+m_int <- lm(pendiente_tfg ~ isglt2 * luacr_c + I(edad / 10) + sexo + hba1c + pas + tfg_basal + ecv, data = ckd)
+
+tibble(
+  poblacion = c("Todos los pacientes", "Solo los que reciben iSGLT2", "Solo con UACR ≥ 300 mg/g"),
+  efecto = c(
+    avg_comparisons(m_int, variables = "isglt2")$estimate,
+    avg_comparisons(m_int, variables = "isglt2", newdata = filter(ckd, isglt2 == 1))$estimate,
+    avg_comparisons(m_int, variables = "isglt2", newdata = filter(ckd, uacr >= 300))$estimate
+  )
+) |> mutate(efecto = round(efecto, 2))
+```
+
+El efecto estimado es `r sprintf("%.2f", avg_comparisons(m_int, variables = "isglt2")$estimate)` en toda la población, `r sprintf("%.2f", avg_comparisons(m_int, variables = "isglt2", newdata = filter(ckd, isglt2 == 1))$estimate)` entre los tratados y `r sprintf("%.2f", avg_comparisons(m_int, variables = "isglt2", newdata = filter(ckd, uacr >= 300))$estimate)` entre quienes tienen UACR ≥ 300 mg/g: **no hay "un" efecto**, hay uno por población. (Recuerda que este modelo **no** incluye la fragilidad, así que todos están inflados respecto de la verdad de 0.93; aquí solo importa la comparación entre filas.)
+
 ::: {.callout-warning}
 ## ⚠️ El modelo no es el DAG
 

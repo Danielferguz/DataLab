@@ -9,7 +9,7 @@ Qué hay en cada repositorio de referencia, en qué capítulo del libro conviene
 | EpiMethods, TMLE workshop, Intro2ML (E. Karim) | **CC0 1.0** (dominio público) | Se puede adaptar libremente. Se cita igualmente. |
 | *Causal Inference in R* (r-causal) | **CC BY-NC-SA 4.0** | Adaptar texto o código obliga a atribuir, no comercial y **compartir igual**. Mientras el libro no tenga esa licencia, usar **ideas y estructura** y escribir código propio. |
 | `kathoffman/steroids-trial-emulation` | **sin archivo de licencia** | No copiar código. Reimplementar el flujo con datos propios y citar el artículo (Hoffman et al., *JAMA Netw Open*, 2022). |
-| Andrew Heiss («Códigos imprescindibles quarto») | no consultada | **Pendiente**: la carpeta no está en tu repositorio ni en tu Drive (ver §5). |
+| Andrew Heiss (`Mis códigos/Andrew Heiss.txt`, 9 entradas de blog) | no indicada en el archivo | Se usan **ideas y estructura** con código y datos propios; no se copian tablas ni código. Ver §6. |
 
 ## 1. Qué hay en cada repositorio
 
@@ -64,5 +64,20 @@ Leyenda de esfuerzo: 🟢 pequeño ajuste · 🟡 subcapítulo nuevo o ampliaci�
 
 ## 5. Pendiente de tu parte
 
--   **Andrew Heiss / «Códigos imprescindibles quarto»**: no está en `danielferguz/datalab` (ni en `main` ni en la rama), ni en tu Drive. Dime la URL del repositorio o súbelo a `Mis códigos/` y lo integro en el Capítulo 3.2. Sus datos no se reutilizarían: se adaptaría el **flujo de trabajo** al caso de nefrología.
--   Confirmar si quieres los **subcapítulos nuevos** de §3.
+-   Confirmar la licencia/atribución que quieres para las ideas tomadas de Heiss y de *Causal Inference in R* (el libro las cita como «lectura recomendada por el autor»).
+-   Revisar las citas escritas de memoria (ver `REVISION_EDITORIAL.md`).
+
+## 6. Andrew Heiss: qué contiene el archivo y dónde se usó
+
+`Mis códigos/Andrew Heiss.txt` reúne nueve entradas de su blog (texto Quarto con código). Los datos que usa (p. ej. mosquiteros y malaria simulados) **no** se reutilizan; el libro aplica las ideas a la base `ckd_isglt2`.
+
+| Entrada | Idea aprovechada | Dónde |
+|---|---|---|
+| *Demystifying causal inference estimands: ATE, ATT, and ATU* | Traducir cada estimando a una pregunta de política; ATE = π·ATT + (1−π)·ATU; sesgo de selección; pacientes «raros» y pesos por estimando | **3.2** (Pasos 9-11), ya integrado |
+| *Marginalia* (efectos marginales) | AME vs. MEM vs. efectos en valores representativos; `newdata` para elegir la población | **8.2** (¿Promediar sobre quién?) y **8.3** (recuadro AME vs. MEM), ya integrado |
+| *Marginal and conditional effects for GLMMs with {marginaleffects}* | Efecto condicional («conglomerado típico») vs. marginal (promedio poblacional) | **14.4** ya lo cubre con simulación; falta la versión con `marginaleffects` |
+| *How to use Bayesian propensity scores and IPW* | El PS se estima: su incertidumbre debe propagarse | **12.11** (nota), opcional un cuadro bayesiano |
+| *Generating inverse probability weights for marginal structural models with TSCS data* y *MSM for panel data with GEE and multilevel models* | Pesos para MSM con tratamientos que cambian en el tiempo | **19.2** (por escribir) |
+| *Guide to country-year panel data and Bayesian multilevel models* | Intercepto y pendiente aleatorios por país a lo largo del tiempo | **14.2-14.3** (ya cubierto con otro caso) |
+| *Multilevel multinomial conjoint analysis* | Logit multinomial con efectos aleatorios | Fuera de alcance; idea para **8.7** (multinomial) |
+| *Visualizing dplyr's mutate(), summarize(), group_by()…* | Animaciones didácticas de verbos de `dplyr` | **5.2** (opcional) |
