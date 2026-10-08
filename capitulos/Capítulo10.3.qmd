@@ -1,25 +1,57 @@
 # Sesgo de información y error de medición
 
-## Medir mal también sesga
+> **La pregunta de esta herramienta:** *¿medí lo que quería medir, y lo medí igual en todos?*
 
-El **sesgo de información** aparece cuando la **exposición, el desenlace o un confusor** se miden con error. En nefrología es muy frecuente: la **TFGe** se estima con una fórmula, la **albuminuria** varía de un día a otro, las **comorbilidades** se toman de códigos administrativos, y la **adherencia** se informa de memoria.
+::: {.callout-note}
+## 🩺 Escenario
+
+Estudias si la albuminuria predice eventos renales, pero en tu centro la albuminuria se mide muchas veces con **tira reactiva** y una sola muestra de orina; la TFGe se **estima** con una fórmula; las comorbilidades salen de **códigos administrativos**. Ninguna medida es perfecta. ¿Cuánto cambia tu conclusión? Depende de **cómo** se equivoca la medición, no solo de cuánto.
+:::
+
+**Lo que vamos a hacer**
+
+-   Distinguir el error **no diferencial** del **diferencial** con DAGs y simulaciones.
+-   **Corregir** un error de clasificación cuando conoces la sensibilidad y la especificidad.
+-   Ver por qué un confusor mal medido deja **confusión residual**.
+-   Reconocer la **regresión a la media**.
+
+## Paso 1: tipos de error y sus efectos
 
 | Error | Qué pasa | Efecto sobre un OR/RR/HR |
 |---|---|---|
-| **No diferencial** (igual en casos y no casos, o en expuestos y no expuestos) | Mezcla de grupos al azar | Tiende a **atenuar** hacia el nulo (con una exposición binaria) |
-| **Diferencial** (depende del desenlace o de la exposición) | Clasificación sesgada | **Cualquier dirección**: acentúa, atenúa o invierte |
+| **No diferencial** (igual en casos y no casos) | Mezcla de grupos al azar | Tiende a **atenuar** hacia el nulo (exposición binaria) |
+| **Diferencial** (depende del desenlace o de la exposición) | Clasificación sesgada | **Cualquier dirección** |
 | **Error en un confusor** | Ajuste incompleto | **Confusión residual** |
 | **Regresión a la media** | Valores extremos se acercan al promedio | **Mejoría aparente** sin tratamiento |
 
-## Error de clasificación no diferencial de una exposición
+En un DAG, el error de medición es una **flecha extra**: la exposición verdadera ($A$) causa la exposición *medida* ($A^*$), junto con un error ($U$). Si el **desenlace** ($Y$) también influye en cómo se mide la exposición, el error es **diferencial**:
 
-Simulamos **100 000 pacientes**; la **verdad** es que la albuminuria (≥ 30 mg/g) **multiplica por 2.2 las odds** de un evento renal ($\beta = 0.8$). La albuminuria se **mide** con una **sensibilidad del 80 %** y una **especificidad del 90 %** (una tira reactiva o una sola muestra de orina).
+```{r}
+#| label: dag-medicion
+#| fig-width: 9
+#| fig-height: 3
+library(tidyverse)
+source("R/funciones_epi.R")
+theme_set(theme_minimal(base_size = 12))
+
+nodos <- tribble(~nombre, ~x, ~y, ~etiqueta, ~rol,
+                 "A", 1, 1.4, "Albuminuria\nverdadera", "exposicion",
+                 "Y", 4, 1.4, "Evento renal", "desenlace",
+                 "M", 1, 0.2, "Albuminuria\nmedida (tira)", "otro",
+                 "U", 2.8, 0.2, "Error de\nmedición", "no medido")
+p_nd <- dibujar_dag(nodos, tribble(~de, ~a, "A", "Y", "A", "M", "U", "M"), tam_texto = 3, encoger = 0.22, expandir = c(0.25, 0.3)) +
+  labs(title = "No diferencial") + theme(legend.position = "none", plot.title = element_text(face = "bold", size = 11))
+p_d <- dibujar_dag(nodos, tribble(~de, ~a, "A", "Y", "A", "M", "U", "M", "Y", "M"), tam_texto = 3, encoger = 0.22, expandir = c(0.25, 0.3)) +
+  labs(title = "Diferencial (el desenlace influye en la medición)") + theme(legend.position = "none", plot.title = element_text(face = "bold", size = 11))
+patchwork::wrap_plots(p_nd, p_d, nrow = 1)
+```
+
+## Paso 2: error no diferencial de una exposición
+
+Simulamos **100 000 pacientes**. La **verdad**: la albuminuria (≥ 30 mg/g) **multiplica por 2.2 las odds** de un evento renal ($\beta = 0.8$, OR = 2.23). Pero **medimos** la albuminuria con una **sensibilidad del 80 %** y una **especificidad del 90 %** (tira reactiva, una sola muestra).
 
 ```{r}
 #| label: setup-103
-library(tidyverse)
-source("R/funciones_epi.R")
-
 set.seed(10)
 n <- 100000
 d <- tibble(alb = rbinom(n, 1, 0.30)) |>                       # albuminuria verdadera
@@ -29,15 +61,16 @@ sens <- 0.80; esp <- 0.90
 d <- d |> mutate(alb_medida = ifelse(alb == 1, rbinom(n, 1, sens), rbinom(n, 1, 1 - esp)))
 
 or <- function(x, y) unname(exp(coef(glm(y ~ x, family = binomial))[2]))
-c(`OR verdadero` = exp(0.8), `OR con albuminuria verdadera` = or(d$alb, d$evento),
-  `OR con albuminuria medida` = or(d$alb_medida, d$evento)) |> round(2)
+ors <- c(`OR verdadero` = exp(0.8), `OR con albuminuria verdadera` = or(d$alb, d$evento),
+         `OR con albuminuria medida` = or(d$alb_medida, d$evento))
+round(ors, 2)
 ```
 
-Con un error **no diferencial**, el OR cae de 2.2 a ~1.8: **atenuación hacia el nulo**. Un estudio con una exposición mal medida tiende a **subestimar** asociaciones reales.
+**Qué vemos.** Con un error **no diferencial**, el OR cae de `r round(ors[1], 1)` a **`r round(ors[3], 1)`**: **atenuación hacia el nulo**. Una exposición mal medida tiende a **subestimar** asociaciones reales. Esto suele describirse como un "sesgo conservador", pero eso es un consuelo frágil (ver más abajo).
 
-## Error diferencial: el peligro
+## Paso 3: error diferencial, el peligroso
 
-Si la **forma de medir depende del desenlace** (por ejemplo, a quienes ya tuvieron un evento se les pregunta o examina con más insistencia, o recuerdan mejor), el error es **diferencial** y el sesgo puede ir en **cualquier dirección**:
+Si la **forma de medir depende del desenlace** (a quienes ya tuvieron un evento se les busca o recuerda con más insistencia), el error es **diferencial** y el sesgo puede ir en **cualquier dirección**:
 
 ```{r}
 #| label: diferencial
@@ -46,26 +79,27 @@ d <- d |>
                           rbinom(n, 1, ifelse(evento == 1, 0.95, 0.80)),      # los casos "recuerdan/detectan" más
                           rbinom(n, 1, ifelse(evento == 1, 0.25, 0.10))))
 
-c(`OR con error diferencial` = or(d$alb_dif, d$evento)) |> round(2)
+or_dif <- or(d$alb_dif, d$evento)
+round(or_dif, 2)
 ```
 
-El OR sube a ~3.1: **sobrestima** la asociación. No hay manera de saber la dirección del sesgo sin conocer cómo se midió.
+El OR sube a **`r round(or_dif, 1)`**: **sobrestima** la asociación (la verdad es `r round(exp(0.8), 1)`). Sin saber cómo se midió, no puedes conocer la dirección del sesgo.
 
 ::: {.callout-warning}
 ## ⚠️ "Error no diferencial = sesgo hacia el nulo" no siempre es cierto
 
-La regla vale para una exposición **binaria**, con error independiente y en promedio. Con **más de dos categorías**, con errores correlacionados, o con **confusores mal medidos**, el sesgo puede ir en cualquier dirección. No uses la regla como excusa para ignorar el problema.
+La regla vale para una exposición **binaria**, con error independiente y **en promedio**. Con **más de dos categorías**, con errores correlacionados entre variables, o con **confusores** mal medidos, el sesgo puede ir en cualquier dirección. No la uses como excusa para ignorar el problema.
 :::
 
-### Corregir el sesgo si conoces la sensibilidad y la especificidad
+## Paso 4: corregir si conoces la sensibilidad y la especificidad
 
-Si se dispone de una **submuestra de validación** que permita estimar la sensibilidad y la especificidad, se **corrigen** los conteos observados:
+Si tienes una **submuestra de validación** (por ejemplo, albuminuria medida con ACR en laboratorio en una parte de los pacientes) que permita estimar la sensibilidad y la especificidad, se **corrigen** los conteos observados. La idea: de los "positivos" que veo, una parte son falsos positivos; la fracción que corresponde se despeja con la sensibilidad y la especificidad.
 
 $$
 A = \frac{a - (1-Sp)\,(a + c)}{Se + Sp - 1}
 $$
 
-(donde $a$ = expuestos medidos con evento; $A$ = expuestos verdaderos con evento; y análogamente para los demás cuadros).
+donde $a$ = expuestos *medidos* con evento y $A$ = expuestos *verdaderos* con evento (y de forma análoga para los demás cuadros).
 
 ```{r}
 #| label: corregir-clasif
@@ -78,17 +112,34 @@ corregir <- function(expuestos, no_exp, se, sp) {      # devuelve los expuestos 
 A <- corregir(a, c_, sens, esp); C <- (a + c_) - A
 B <- corregir(b, d_, sens, esp); D <- (b + d_) - B
 
-c(`OR observado` = (a / c_) / (b / d_), `OR corregido` = (A / C) / (B / D), `OR verdadero` = exp(0.8)) |> round(2)
+or_corr <- c(`OR observado` = (a / c_) / (b / d_), `OR corregido` = (A / C) / (B / D), `OR verdadero` = exp(0.8))
+round(or_corr, 2)
 ```
 
-La corrección recupera el OR verdadero (2.2). Lo que no se puede hacer es **adivinar** la sensibilidad y la especificidad: se necesitan **datos de validación** o valores plausibles de la literatura **con análisis de sensibilidad** (10.6).
+La corrección recupera el OR verdadero (`r round(or_corr[2], 2)` frente a `r round(or_corr[3], 2)`). Lo que **no** puedes hacer es **adivinar** Se y Sp: necesitas datos de validación, o valores plausibles de la literatura **con análisis de sensibilidad** (10.6).
 
-## Error de medición en un **confusor**: confusión residual
+::: {.callout-tip}
+## 💡 Con el paquete {episensr} (no se ejecuta aquí)
 
-Si un confusor se mide con error, **ajustar por él no basta**. Veamos un ejemplo de **gravedad clínica** que influye en recibir un fármaco y en morir, donde el fármaco tiene un efecto protector real (HR = 0.86):
+El paquete `episensr` (usado por el autor en su curso) hace esta corrección directamente. La tabla debe tener los casos en la primera fila y los expuestos en la primera columna; `bias_parms` = sensibilidad en casos y no casos, y especificidad en casos y no casos (revisa `?misclassification` para la versión que instales):
+
+```{r}
+#| label: episensr-clasif
+#| eval: false
+library(episensr)
+tabla <- matrix(c(a, c_, b, d_), nrow = 2, byrow = TRUE,
+                dimnames = list(c("Evento", "Sin evento"), c("Albuminuria", "Sin albuminuria")))
+misclassification(tabla, type = "exposure", bias_parms = c(0.80, 0.80, 0.90, 0.90))
+```
+:::
+
+## Paso 5: error en un confusor, o por qué ajustar no basta
+
+Si un **confusor** se mide con error, ajustar por él **no basta**. Simulamos un fármaco con efecto **protector real** (HR = 0.86) y una **gravedad** clínica que influye en recibir el fármaco y en morir:
 
 ```{r}
 #| label: confusor-error
+library(survival)
 set.seed(4)
 n <- 20000
 gravedad <- rnorm(n)                                              # confusor verdadero
@@ -99,32 +150,23 @@ d2 <- tibble(farmaco, gravedad,
              gravedad_med = gravedad + rnorm(n, 0, 1),            # medida con ruido (fiabilidad ~0.5)
              evento = as.integer(t_evento <= 36), tiempo = pmin(t_evento, 36))
 
-library(survival)
 hr <- function(f) unname(exp(coef(coxph(f, data = d2))[1]))
-c(`Verdad` = exp(-0.15),
-  `Sin ajustar` = hr(Surv(tiempo, evento) ~ farmaco),
-  `Ajustando por la gravedad verdadera` = hr(Surv(tiempo, evento) ~ farmaco + gravedad),
-  `Ajustando por la gravedad medida con error` = hr(Surv(tiempo, evento) ~ farmaco + gravedad_med)) |> round(2)
+hrs <- c(`Verdad` = exp(-0.15),
+         `Sin ajustar` = hr(Surv(tiempo, evento) ~ farmaco),
+         `Ajustando por la gravedad verdadera` = hr(Surv(tiempo, evento) ~ farmaco + gravedad),
+         `Ajustando por la gravedad medida con error` = hr(Surv(tiempo, evento) ~ farmaco + gravedad_med))
+round(hrs, 2)
 ```
 
--   **Sin ajustar**: el fármaco parece **dañino** (HR ≈ 1.9) por **sesgo de indicación**: se da más a los más graves.
--   **Ajustando por la variable verdadera**: se recupera casi el efecto (≈ 0.9; el resto es azar de muestreo y no colapsabilidad del HR).
--   **Ajustando por la medida con ruido**: el HR sigue en ≈ 1.4: **confusión residual**. Se corrigió solo una parte.
+-   **Sin ajustar**: el fármaco parece **dañino** (HR `r round(hrs[2], 1)`) por **sesgo de indicación**: se da más a los más graves.
+-   **Ajustando por la variable verdadera**: se recupera casi el efecto (`r round(hrs[3], 2)`; el resto es azar de muestreo y no colapsabilidad del HR).
+-   **Ajustando por la medida con ruido**: el HR sigue en `r round(hrs[4], 1)`: **confusión residual**. Se corrigió solo una parte.
 
-::: {.callout-tip}
-## 💡 Qué hacer con un confusor mal medido
+Qué hacer: usar la **mejor medida** disponible o **combinar** varias (promedio de 2-3 mediciones de TFGe o albuminuria); medir el error (repeticiones, submuestra de validación) y aplicar **calibración de la regresión** o **SIMEX**; y declarar y **cuantificar** la confusión residual (10.6). Los diagnósticos administrativos suelen tener baja sensibilidad: úsalos con cautela.
 
--   Usa la **mejor medida disponible**, o **combina** varias (promedio de 2-3 mediciones de TFGe/albuminuria).
--   Mide el **error** (repetición, submuestra de validación) y aplica **calibración de la regresión** o **SIMEX** (métodos de corrección).
--   Declara la **confusión residual** como limitación y cuantifícala (10.6).
--   Si tu confusor son **diagnósticos administrativos**, es probable que tengan baja sensibilidad: úsalos con cautela.
-:::
+## Paso 6: regresión a la media
 
-## Regresión a la media
-
-Un fenómeno que enamora a los clínicos: seleccionar pacientes por tener un valor **extremo** en una variable **medida con variabilidad** y ver que **mejoran sin hacer nada**.
-
-Simulamos 20 000 pacientes cuya **TFGe verdadera estable** se distribuye con media 50 y DE 10. Cada medición tiene un error de ±6 (variabilidad biológica y analítica). Seleccionamos a quienes tuvieron una **primera TFGe < 35** (candidatos a "derivación urgente") y los volvemos a medir:
+Un fenómeno que enamora a los clínicos: seleccionar pacientes por un valor **extremo** en una variable **medida con variabilidad** y ver que **mejoran sin hacer nada**. Simulamos 20 000 pacientes con una **TFGe verdadera estable** (media 50, DE 10). Cada medición tiene un error de ±6 (variabilidad biológica y analítica). Elegimos a quienes tuvieron una **primera TFGe < 35** ("derivación urgente") y los volvemos a medir:
 
 ```{r}
 #| label: rtm
@@ -135,32 +177,23 @@ e1 <- tfg_real + rnorm(m, 0, 6)       # primera medición
 e2 <- tfg_real + rnorm(m, 0, 6)       # segunda medición (sin ninguna intervención)
 
 sel <- e1 < 35
-c(pacientes_seleccionados = sum(sel),
-  TFGe_primera_medicion = mean(e1[sel]),
-  TFGe_segunda_medicion = mean(e2[sel]),
-  mejoria_aparente = mean(e2[sel]) - mean(e1[sel])) |> round(1)
+rtm <- c(pacientes_seleccionados = sum(sel),
+         TFGe_primera_medicion = mean(e1[sel]),
+         TFGe_segunda_medicion = mean(e2[sel]),
+         mejoria_aparente = mean(e2[sel]) - mean(e1[sel]))
+round(rtm, 1)
 ```
 
-Los pacientes "mejoran" ~5 unidades **sin ningún tratamiento**: algunos tenían un valor bajo **por azar** y en la segunda medición regresan hacia su verdadero nivel.
-
-::: {.callout-warning}
-## ⚠️ Dónde acecha la regresión a la media
-
--   Seleccionar pacientes por una **medición alta o baja** (creatinina > 2, PAS > 180, hemoglobina < 9) y concluir que una intervención "funcionó".
--   Estudios **antes-después** sin grupo control.
--   **Estratificar por el valor basal** y comparar cambios (los extremos cambian más).
-
-**Solución**: grupo de comparación seleccionado **igual** (otro grupo que cumplió el mismo criterio sin intervención), **ECA**, o **ajustar por el valor basal** (ANCOVA, Cap. 11).
-:::
+Los pacientes "mejoran" ~**`r round(rtm[4], 1)` unidades sin ningún tratamiento**: algunos tenían un valor bajo **por azar** y en la segunda medición regresan hacia su verdadero nivel. Por eso estudios **antes-después sin grupo control**, o comparar cambios **según el valor basal**, engañan. La solución: un grupo de comparación seleccionado **igual**, un **ECA** o **ajustar por el valor basal** (ANCOVA, Cap. 11).
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
--   El **error de medición no diferencial** de una exposición binaria suele **atenuar** el efecto; el **diferencial** puede ir en **cualquier dirección**.
+-   El **error no diferencial** de una exposición binaria suele **atenuar** el efecto; el **diferencial** puede ir en **cualquier dirección**.
 -   El error en un **confusor** deja **confusión residual**: ajustar por una variable mal medida no basta.
--   Con **sensibilidad y especificidad conocidas**, se pueden **corregir** los conteos.
+-   Con **sensibilidad y especificidad conocidas** puedes **corregir** los conteos (no las adivines).
 -   La **regresión a la media** crea "mejoría" en quienes se seleccionan por valores extremos: necesitas un **control**.
--   La TFGe y la albuminuria tienen **alta variabilidad intraindividual**: confirma con **dos mediciones** (como exigen las definiciones de ERC).
+-   TFGe y albuminuria varían mucho entre días: confirma con **dos mediciones** (como piden las definiciones de ERC).
 :::
 
 ## Ejercicio

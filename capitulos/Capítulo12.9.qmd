@@ -1,37 +1,44 @@
-# Comparador activo y diseño de nuevo usuario
+# Diseñar para reducir la confusión: comparador activo y nuevo usuario
 
-## Dos decisiones de diseño que valen más que cualquier modelo
+::: {.callout-note}
+## 🩺 Escenario
 
-Los métodos de ajuste (PS, IPW, AIPW) corrigen **lo medido**. Pero el **diseño** puede reducir la confusión **que no se mide**. Dos decisiones, conocidas como el **diseño de comparador activo y nuevo usuario** (*active comparator, new-user design*), son las más eficaces:
+Quieres evaluar un iSGLT2 y comparar con "no tratar". Pero quien **no recibe nada** suele ser distinto: más frágil, con contraindicaciones, con menos acceso. En cambio, si lo comparas con otro fármaco **para la misma indicación** (por ejemplo, un iDPP4 en diabetes), los pacientes que reciben uno u otro se parecen mucho más. Y si solo incluyes a quienes **empiezan** el fármaco durante el estudio, evitas mezclar a los que llevan años tomándolo (y que, por haber sobrevivido, son un grupo "seleccionado").
+:::
 
-1.  **Comparador activo**: comparar el fármaco de interés con **otro fármaco para la misma indicación**, en vez de con "no tratar".
-2.  **Nuevo usuario**: incluir solo a pacientes que **inician** el tratamiento durante el estudio, excluyendo a los usuarios prevalentes (10.5).
+Los métodos de ajuste (PS, IPW, AIPW) corrigen lo **medido**. Pero el **diseño** puede reducir la confusión que **no se mide**, y por eso vale más que cualquier modelo. Son dos decisiones, que juntas forman el diseño de **comparador activo y nuevo usuario** (*active comparator, new-user design*):
 
-## Por qué un comparador activo reduce la confusión
+1.  **Comparador activo**: comparar el fármaco de interés con **otro fármaco para la misma indicación**, no con "no tratar". Es como comparar a quien toma **té** con quien toma **café**, no con quien no desayuna.
+2.  **Nuevo usuario**: incluir solo a quienes **inician** el tratamiento durante el estudio, con un tiempo previo "limpio" (lavado), excluyendo a los usuarios prevalentes (10.5).
 
-Quien **no recibe ningún** tratamiento difiere mucho de quien lo recibe: puede estar **demasiado frágil**, con **contraindicaciones**, con **menos acceso**. Entre dos pacientes que **reciben un fármaco para la misma indicación**, las razones de la prescripción son **más parecidas**.
+**Lo que vamos a hacer**
 
-En nuestra simulación, la **fragilidad** reduce la probabilidad de recibir el iSGLT2 cuando el comparador es "nada" (coeficiente −0.70). Con un comparador activo (por ejemplo, un iDPP4, también para diabetes), la fragilidad influye **mucho menos** en la elección (coeficiente −0.15):
+-   Medir **cuánto sesgo** se evita al cambiar el comparador (porque conocemos la verdad).
+-   Construir una cohorte de **nuevos usuarios** a partir de despachos de farmacia (datos hipotéticos).
+-   Cerrar el capítulo con el **flujo completo** de un análisis observacional.
+
+## Paso 1: por qué un comparador activo reduce la confusión
+
+En la simulación, la **fragilidad** (no medida) reduce la probabilidad de recibir el iSGLT2 cuando el comparador es "no tratar" (peso −0.70 en la decisión de tratar). Con un comparador activo la fragilidad influye **mucho menos** en la elección (−0.15): los médicos prescriben uno u otro, no "tratan o no tratan". Simulamos los dos escenarios con el mismo simulador del libro, cambiando solo ese peso (las bases son simuladas):
 
 ```{r}
 #| label: setup-129
 library(tidyverse)
 source("R/funciones_epi.R")
+source("R/funciones_extra_cap1213.R")
 source("R/simular_ckd.R")
 
-x <- "I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv"
+x <- confusores_medidos
 preparar <- function(d) d |> mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")), luacr = log(uacr))
 
-## Escenario A: comparador = no tratar  (fragilidad pesa -0.70 en la decisión)
-a <- preparar(simular_ckd(peso_fragilidad = 0.70))
-## Escenario B: comparador activo (fragilidad pesa -0.15 en la decisión)
-b <- preparar(simular_ckd(peso_fragilidad = 0.15))
+a <- preparar(simular_ckd(peso_fragilidad = 0.70))    # Escenario A: comparador = no tratar
+b <- preparar(simular_ckd(peso_fragilidad = 0.15))    # Escenario B: comparador activo
 
-ate_v <- mean(a$ite)          # mismos resultados potenciales: la verdad no cambia
-c(ATE_verdadero = ate_v)
+ate_v <- mean(a$ite)     # mismos resultados potenciales: la verdad no cambia
+c(ATE_verdadero = ate_v) |> round(2)
 ```
 
-Medimos el **sesgo** de cada análisis (crudo y ajustado por IPW) en ambos escenarios:
+Medimos el **sesgo** (estimación − verdad) del análisis crudo y del ajustado por IPW en ambos escenarios:
 
 ```{r}
 #| label: comparar-escenarios
@@ -45,31 +52,32 @@ analizar <- function(d, nombre) {
          verdad = mean(d$ite)) |>
     mutate(sesgo_crudo = crudo - verdad, sesgo_ajustado = ajustado_IPW - verdad)
 }
-bind_rows(analizar(a, "Comparador: no tratar"), analizar(b, "Comparador activo")) |>
-  mutate(across(where(is.numeric), \(x) round(x, 2)))
+comp <- bind_rows(analizar(a, "Comparador: no tratar"), analizar(b, "Comparador activo"))
+comp |> mutate(across(where(is.numeric), \(x) round(x, 2)))
 ```
 
--   El desbalance de la fragilidad entre grupos (**DEM**) baja de **−0.78** a **−0.30**.
--   El **sesgo del estimador crudo** baja de **+0.57** a **+0.25**.
--   El **sesgo del estimador ajustado** baja de **+0.41** a **+0.10**.
+**Qué vemos:**
 
-El **comparador activo no elimina** el sesgo, pero lo **reduce 4 veces**, **sin medir nada más**. Es una forma de **diseñar** la comparabilidad.
+-   El desbalance de la fragilidad entre grupos (**DEM**) baja de **`r round(comp$DEM_fragilidad[1], 2)`** a **`r round(comp$DEM_fragilidad[2], 2)`**.
+-   El **sesgo del estimador crudo** baja de **`r sprintf("%.2f", comp$sesgo_crudo[1])`** a **`r sprintf("%.2f", comp$sesgo_crudo[2])`**.
+-   El **sesgo del estimador ajustado** baja de **`r sprintf("%.2f", comp$sesgo_ajustado[1])`** a **`r sprintf("%.2f", comp$sesgo_ajustado[2])`**.
+
+El comparador activo **no elimina** el sesgo, pero lo **reduce unas `r round(comp$sesgo_ajustado[1] / comp$sesgo_ajustado[2])` veces** (en el estimador ajustado) **sin medir nada más**. Es una forma de **diseñar** la comparabilidad.
 
 ::: {.callout-warning}
 ## ⚠️ Lo que cambia con un comparador activo
 
 -   El **estimando** es el efecto **relativo al comparador** (iSGLT2 **vs. iDPP4**), no vs. nada. Si el comparador tiene efecto propio (beneficio o daño), se mezcla.
--   Requiere que existan **ambos fármacos** con **indicación compartida** (si no hay un comparador razonable, no se puede).
--   **Equipoise clínico**: los médicos deben **considerar** ambos fármacos como opciones, no uno como "último recurso".
+-   Requiere que existan **ambos fármacos con indicación compartida**; si no hay un comparador razonable, no se puede.
+-   Hace falta **equipoise clínico**: los médicos deben considerar ambos fármacos como opciones reales, no uno como "último recurso".
 :::
 
-## Diseño de nuevo usuario con datos de dispensación
+## Paso 2: el diseño de nuevo usuario
 
-Un **nuevo usuario** es quien **inicia** el fármaco **sin haberlo usado en una ventana previa** (el periodo de **lavado**, típicamente 6-12 meses). El **tiempo cero** es la **fecha del primer despacho** (índice). Se construye así con **código**:
+Un **nuevo usuario** es quien **inicia** el fármaco **sin haberlo usado durante un periodo previo** (el **lavado**, típicamente 6-12 meses). Su **tiempo cero** es la **fecha del primer despacho** (fecha índice). Lo hacemos con **datos hipotéticos de dispensación** de dos fármacos (cada fila es un despacho):
 
 ```{r}
 #| label: nuevos-usuarios
-## Datos hipotéticos de dispensaciones de dos fármacos (cada fila = un despacho)
 set.seed(42)
 disp <- tibble(
   id = rep(1:12, times = c(3, 1, 2, 4, 1, 2, 3, 1, 2, 1, 3, 2)),
@@ -84,7 +92,7 @@ nuevos_usuarios <- function(disp, lavado_dias = 180, inicio_obs, fin_inclusion) 
     arrange(fecha, .by_group = TRUE) |>
     slice(1) |>                                         # primer despacho de cualquiera de los dos
     ungroup() |>
-    filter(fecha >= inicio_obs + lavado_dias,           # al menos 'lavado' de observación sin ninguno
+    filter(fecha >= inicio_obs + lavado_dias,           # el primer despacho observado NO cae en el lavado
            fecha <= fin_inclusion) |>
     transmute(id, fecha_indice = fecha, estrategia = farmaco)
 }
@@ -94,54 +102,66 @@ indice
 count(indice, estrategia)
 ```
 
-Cada paciente entra **una vez**, en la **fecha de su primer despacho**, con su estrategia; **ese día es el tiempo cero**. Después se construyen los **confusores medidos antes de esa fecha** y se siguen los desenlaces **a partir** de ella. Un paciente con **despachos previos** durante el lavado (usuario prevalente) **no entra**.
+**Qué vemos:** de los 12 pacientes con despachos, **`r nrow(indice)`** cumplen el diseño. Cada uno entra **una sola vez**, en la fecha de su **primer despacho**, con la estrategia que inició; **ese día es el tiempo cero**. Los demás tienen su primer despacho **dentro del lavado** (no sabemos si ya usaban el fármaco antes: podrían ser prevalentes) o después del cierre de la inclusión. Lo vemos en un gráfico:
+
+```{r}
+#| label: graf-nuevos-usuarios
+#| fig-width: 8.5
+#| fig-height: 4
+primeros <- disp |> group_by(id) |> slice_min(fecha, n = 1, with_ties = FALSE) |> ungroup() |>
+  mutate(entra = id %in% indice$id)
+
+ggplot(disp, aes(fecha, id)) +
+  annotate("rect", xmin = inicio_observacion, xmax = inicio_observacion + 180, ymin = -Inf, ymax = Inf,
+           fill = "#E69F00", alpha = 0.25) +
+  annotate("text", x = inicio_observacion + 90, y = 12.9, label = "Lavado", size = 3.4, color = "#B07800") +
+  geom_vline(xintercept = as.Date("2023-06-30"), linetype = "dashed", color = "grey40") +
+  annotate("text", x = as.Date("2023-06-30"), y = 12.9, label = "Cierre de inclusión", size = 3.2, hjust = 1.05, color = "grey30") +
+  geom_point(aes(color = farmaco), size = 2.4) +
+  geom_point(data = primeros, aes(shape = entra), size = 5, stroke = 1) +
+  scale_shape_manual(values = c(`TRUE` = 1, `FALSE` = 4), labels = c(`TRUE` = "Entra (nuevo usuario)", `FALSE` = "No entra"), name = "Primer despacho") +
+  scale_color_manual(values = c(iSGLT2 = "#0072B2", iDPP4 = "#999999"), name = "Fármaco") +
+  scale_y_continuous(breaks = 1:12) +
+  labs(x = "Fecha de despacho", y = "Paciente", caption = "Datos hipotéticos.") +
+  theme_minimal(base_size = 11) + theme(legend.position = "bottom", panel.grid.minor = element_blank())
+```
+
+**Qué vemos:** la zona sombreada es el lavado. Un paciente cuyo **primer** despacho observado cae ahí (cruz) **no entra**: podría llevar años usando el fármaco. Tampoco entra quien empieza **después** del cierre de la inclusión (línea punteada). Los que entran (círculo) tienen un primer despacho dentro de la ventana, con la seguridad de que **antes no usaban ninguno**.
 
 ::: {.callout-tip}
 ## 💡 Reglas del diseño de nuevo usuario
 
-1.  Define una **ventana de lavado** sin exposición a *ninguno* de los fármacos comparados.
+1.  Define un **lavado** sin exposición a *ninguno* de los fármacos comparados.
 2.  El **tiempo cero** es la **fecha índice** del primer despacho.
-3.  Mide los **confusores antes** del tiempo cero (nunca después: serían mediadores).
-4.  Incluye **una sola vez** a cada paciente (primer inicio) o usa **ensayos anidados** si puede iniciar en distintos momentos.
-5.  Analiza **desde el inicio** (no desde que ya llevan meses tomándolo).
-6.  Define el **seguimiento** (ITT: sin importar si cambian de fármaco; o *per protocol* con censura y ponderación, Cap. 19).
+3.  Mide los **confusores antes** del tiempo cero (después serían mediadores).
+4.  Incluye a cada paciente **una sola vez** (primer inicio) o usa **ensayos anidados** si puede iniciar en distintos momentos.
+5.  Analiza **desde el inicio**, no desde que ya llevan meses tomándolo.
+6.  Define el **seguimiento**: ITT (sin importar si cambian de fármaco) o *per protocol* con censura y ponderación (Cap. 19).
 :::
 
-## Resumen del Cap. 12: el flujo de un análisis observacional
+## El capítulo en seis pasos
 
-```{r}
-#| label: flujo
-#| echo: false
-#| fig-width: 9
-#| fig-height: 3.4
-cajas <- tribble(
-  ~x, ~texto,
-  1, "1. Pregunta\ny protocolo del\nensayo objetivo",
-  2.5, "2. DAG y\nconjunto de\najuste",
-  4, "3. Diseño:\ncomparador activo,\nnuevo usuario",
-  5.5, "4. PS y balance\n(emparejar\no ponderar)",
-  7, "5. Estimar\n(IPW, fórmula g,\nAIPW) + IC",
-  8.5, "6. Sensibilidad:\nE-value, control\nnegativo"
-)
-ggplot(cajas, aes(x, 0)) +
-  geom_segment(data = tibble(x = cajas$x[-6] + 0.5, xend = cajas$x[-1] - 0.5), aes(x = x, xend = xend, y = 0, yend = 0),
-               arrow = arrow(length = unit(0.15, "cm")), inherit.aes = FALSE) +
-  geom_label(aes(label = texto), size = 3.1, fill = "#E8F1FA", label.padding = unit(0.5, "lines")) +
-  xlim(0.2, 9.3) + theme_void()
-```
+El flujo de un análisis observacional, que viste en el recorrido del inicio del capítulo, se resume así:
+
+1.  **Protocolo** del ensayo objetivo: elegibilidad, estrategias, tiempo cero, desenlace y estimando (12.1).
+2.  **DAG** y conjunto de ajuste (Cap. 3).
+3.  **Diseño**: comparador activo y nuevo usuario (este subcapítulo), porque el diseño vale más que el modelo.
+4.  **PS y balance**: emparejar o ponderar, y comprobar |DEM| < 0.10 **antes** de mirar el desenlace (12.3-12.5).
+5.  **Estimar** con IPW, fórmula g o AIPW, con IC por *bootstrap* (12.5-12.7).
+6.  **Sensibilidad**: E-value, proxies y controles negativos (12.8).
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
--   El **comparador activo** reduce la confusión por indicación **por diseño**: en nuestra simulación, el sesgo ajustado baja de +0.41 a +0.10.
+-   El **comparador activo** reduce la confusión por indicación **por diseño**: aquí el sesgo del estimador ajustado baja de **`r sprintf("%.2f", comp$sesgo_ajustado[1])`** a **`r sprintf("%.2f", comp$sesgo_ajustado[2])`**.
 -   El **nuevo usuario** (con lavado y tiempo cero en el primer despacho) evita el sesgo de **prevalentes** y el de tiempo inmortal.
 -   El **diseño** (qué comparar, a quién incluir y cuándo empezar) vale **más** que el modelo estadístico.
--   Flujo completo: pregunta → ensayo objetivo → DAG → diseño → PS/balance → estimación → sensibilidad.
+-   Flujo completo: pregunta → ensayo objetivo → DAG → diseño → PS y balance → estimación → sensibilidad.
 :::
 
 ## Ejercicio
 
-1.  Con `peso_fragilidad = 0.15`, calcula el **E-value** del RR ajustado. ¿Es menor o mayor que con `0.70`? ¿Qué implica?
+1.  Con `peso_fragilidad = 0.15`, calcula el **E-value** del RR ajustado de evento renal. ¿Es menor o mayor que con `0.70`? ¿Qué implica?
 2.  Modifica `nuevos_usuarios()` para un **lavado de 365 días**. ¿Cuántos pacientes quedan?
 3.  Propón un **comparador activo** creíble para estudiar el efecto de un **fármaco para la hiperkalemia** sobre la mortalidad. ¿Qué indicación comparte?
 

@@ -1,6 +1,16 @@
-# Importar datos
+# Cómo importar datos y revisar lo que llegó
 
-Los datos de nefrología llegan en formatos diversos: el registro del servicio en **Excel**, el laboratorio en **CSV**, bases de investigación en **Stata** o **SPSS**. Este subcapítulo muestra cómo leer cada formato y, sobre todo, cómo **revisar lo que se importó** antes de analizar.
+::: {.callout-note}
+## 🩺 Escenario
+
+Te llegan tres archivos para el mismo proyecto: el registro del servicio en **Excel**, los resultados de laboratorio en un **CSV** exportado desde un sistema en español, y una base de investigación en **Stata**. Antes de calcular nada necesitas leerlos bien... y comprobar que R los entendió como tú esperabas.
+:::
+
+**Lo que vamos a hacer**
+
+-   Elegir la función correcta para cada formato.
+-   Ver qué ocurre cuando se usa la equivocada (un error silencioso con la HbA1c).
+-   Hacer una **revisión de cinco minutos** de toda base nueva.
 
 ```{r}
 #| label: setup-43
@@ -9,8 +19,7 @@ library(readxl)     # Excel
 library(haven)      # Stata, SPSS, SAS
 ```
 
-::: {.callout-important}
-## 🎯 En resumen: qué función usar
+## Paso 1: qué función usar
 
 | Formato | Función | Paquete |
 |---|---|---|
@@ -21,9 +30,10 @@ library(haven)      # Stata, SPSS, SAS
 | Stata (`.dta`) | `read_dta()` | `haven` |
 | SPSS (`.sav`) | `read_sav()` | `haven` |
 | R (`.rds`) | `read_rds()` | `readr` |
-:::
 
-## CSV: el formato más seguro
+Las rutas son relativas a la carpeta del proyecto (4.1): aquí, `Bases/archivo`.
+
+## Paso 2: CSV, el formato más seguro
 
 ```{r}
 #| label: csv
@@ -31,30 +41,57 @@ ckd <- read_csv("Bases/ckd_isglt2.csv")
 ckd
 ```
 
-`read_csv()` te informa cuántas filas y columnas leyó y qué **tipo** asignó a cada una. **Léelo siempre**: si una columna numérica aparece como `chr` (texto), algo anda mal (ver 4.5 y Cap. 5).
+**Lee el mensaje que imprime `read_csv()`**: te dice cuántas filas y columnas leyó (`r nrow(ckd)` y `r ncol(ckd)`) y qué **tipo** asignó a cada una (`chr` = texto, `dbl` = número). Si una columna que debería ser numérica aparece como `chr`, algo anda mal.
 
-### CSV de Latinoamérica y Europa: `;` y coma decimal
+Si quieres controlar tú los tipos y los códigos de "faltante", dilo explícitamente:
 
-Con frecuencia el Excel exporta CSV con `;` como separador y `,` como decimal. Si usas `read_csv()` los números quedan como texto. Usa `read_csv2()`:
+```{r}
+#| label: col-types
+#| eval: false
+read_csv("Bases/ckd_isglt2.csv",
+         col_types = cols(id = col_integer(), sexo = col_factor(), uacr = col_double()),
+         na = c("", "NA", "999", "-"))        # estos textos se leen como faltante
+```
+
+## Paso 3: el CSV "latino" (`;` y coma decimal)
+
+Muchos Excel en español guardan los CSV con `;` como separador y `,` como decimal. Primero veamos qué pasa si usas la función equivocada:
+
+```{r}
+#| label: csv-mal
+# 1) read_csv() espera comas: toda la fila queda en UNA sola columna
+read_csv("Bases/ejemplo_pacientes_puntoycoma.csv", show_col_types = FALSE) |> dim()
+
+# 2) read_delim(delim = ";") separa bien... pero lee "7,5" como 75
+mal <- read_delim("Bases/ejemplo_pacientes_puntoycoma.csv", delim = ";", show_col_types = FALSE)
+summary(mal$hba1c)
+```
+
+El segundo caso es el peligroso: **no hay error ni aviso**, pero la HbA1c "mediana" sería `r median(mal$hba1c)` %. Al ver el rango se nota que algo falla, y por eso siempre se revisa. La función correcta es `read_csv2()`:
 
 ```{r}
 #| label: csv2
-read_csv2("Bases/ejemplo_pacientes_puntoycoma.csv") |> head(3)
+bien <- read_csv2("Bases/ejemplo_pacientes_puntoycoma.csv", show_col_types = FALSE)
+summary(bien$hba1c)
 ```
 
-::: {.callout-tip}
-## 💡 Tip práctico: especificar las columnas
+Ahora la HbA1c va de `r min(bien$hba1c)` a `r max(bien$hba1c)` %, como corresponde.
 
-Para evitar sorpresas, indica tú el tipo de cada columna y qué valores significan "faltante":
+::: {.callout-tip}
+## 💡 Alternativa del autor: `rio`
+
+El paquete `rio` ofrece **una sola función** para casi todos los formatos: `import()` adivina el tipo por la extensión y `export()` guarda. Es cómodo, pero conviene saber qué hay debajo (no se ejecuta aquí):
 
 ```r
-read_csv("Bases/ckd_isglt2.csv",
-         col_types = cols(id = col_integer(), sexo = col_factor(), uacr = col_double()),
-         na = c("", "NA", "999", "-"))
+library(rio)
+datos <- import(here("datos", "crudos", "registro.xlsx"), which = "Sheet2")   # una hoja concreta
+export(datos, here("datos", "procesados", "registro.rds"))
 ```
 :::
 
-## Excel
+## Paso 4: Excel
+
+Un libro de Excel puede tener varias hojas: primero mira cuáles hay y luego elige.
 
 ```{r}
 #| label: excel
@@ -65,20 +102,11 @@ dic_xl   <- read_excel("Bases/ejemplo_pacientes.xlsx", sheet = "diccionario")
 dic_xl
 ```
 
-::: {.callout-warning}
-## ⚠️ Excel esconde problemas
+Excel **esconde problemas** que el CSV no tiene: fechas guardadas como números de serie o como texto, celdas combinadas, encabezados en varias filas, colores con significado ("rojo = fallecido") y columnas numéricas con un texto suelto (`"ND"`, `"<0.5"`) que las convierte enteras en texto. Cuando puedas, pide **CSV y un diccionario de datos** (la hoja `diccionario` de arriba es un buen ejemplo). Si no queda otra, `skip = 3` salta filas de título y `range = "A4:J200"` lee un rango.
 
--   **Fechas** guardadas como números de serie o como texto.
--   **Celdas combinadas**, encabezados en varias filas, colores con significado ("rojo = fallecido").
--   Columnas numéricas con **un texto** (`"ND"`, `"<0.5"`) que las convierte enteras en texto.
--   Varias hojas con la misma estructura (una por año).
+## Paso 5: Stata y SPSS (con etiquetas)
 
-Cuando puedas, pide los datos en **CSV** y un **diccionario de datos**. Si debes usar Excel, usa `skip = 3` para saltar filas de título y `range = "A4:J200"` para leer un rango.
-:::
-
-## Stata y SPSS (con etiquetas)
-
-`haven` conserva las **etiquetas** de variables y de valores que se definieron en Stata o SPSS:
+`haven` conserva las **etiquetas** de variables y de valores definidas en Stata o SPSS:
 
 ```{r}
 #| label: haven
@@ -88,7 +116,7 @@ datos_sav <- read_sav("Bases/ejemplo_pacientes.sav")
 datos_dta |> select(id, sexo, isglt2, tfg_basal) |> head(3)
 ```
 
-Las columnas etiquetadas aparecen como `<dbl+lbl>`. Para usarlas en R conviértelas a **factor** con `as_factor()`:
+Las columnas con etiquetas aparecen como `<dbl+lbl>`: son números (1, 2) con un texto asociado ("Hombre", "Mujer"). Para analizarlas conviértelas a **factor** con `as_factor()`:
 
 ```{r}
 #| label: haven-factor
@@ -99,16 +127,18 @@ datos_dta |>
 attr(datos_dta$tfg_basal, "label")        # la etiqueta de la variable queda como atributo
 ```
 
-## Revisar lo que importaste (siempre)
+## Paso 6: la revisión de cinco minutos
 
-Antes de cualquier análisis, una revisión de cinco minutos evita errores de semanas:
+Toda base nueva merece esta revisión **antes** de cualquier análisis. Empieza por lo básico:
 
 ```{r}
 #| label: revision
 dim(ckd)                       # filas x columnas: ¿coincide con lo esperado?
-glimpse(ckd)                   # tipos de cada variable
+glimpse(ckd)                   # tipo de cada variable
 summary(ckd)                   # mínimos, máximos, faltantes
 ```
+
+Y sigue con faltantes, duplicados y categorías:
 
 ```{r}
 #| label: revision-faltantes
@@ -117,18 +147,18 @@ sum(duplicated(ckd$id))        # ¿IDs repetidos?
 count(ckd, sexo)               # categorías: ¿hay variantes o errores de tipeo?
 ```
 
-::: {.callout-tip}
-## 💡 Tip práctico: lista de verificación al importar
+Con esta lista de verificación sabrás si la base está lista:
 
 1.  ¿El **número de filas** coincide con el número de pacientes esperado?
 2.  ¿Cada columna tiene el **tipo** correcto (número, texto, fecha)?
 3.  ¿Los **mínimos y máximos** son clínicamente plausibles (edad 250, PAS 0, TFGe negativa)?
-4.  ¿Los **faltantes** están codificados como `NA` (no como `999` o `"-"`)?
+4.  ¿Los **faltantes** están codificados como `NA` (y no como `999` o `"-"`)?
 5.  ¿Hay **IDs duplicados**?
 6.  ¿Las categorías están escritas de **una sola manera**?
-:::
 
-## Guardar y exportar
+Si alguna respuesta es "no", pasa al Capítulo 5 (limpieza). El paquete `skimr` resume todo esto en una sola orden: `skimr::skim(ckd)` (no se ejecuta aquí).
+
+## Paso 7: guardar y exportar
 
 ```{r}
 #| label: exportar
@@ -140,17 +170,17 @@ write_rds(ckd, "datos/procesados/ckd_limpio.rds")   # RDS: conserva tipos y fact
 ::: {.callout-warning}
 ## ⚠️ Privacidad de datos clínicos
 
--   **Nunca** subas a un repositorio público, a un servicio en la nube ni a una herramienta de IA datos con **identificadores** (nombre, DNI, historia clínica, fecha de nacimiento exacta).
+-   **Nunca** subas a un repositorio público, a la nube ni a una herramienta de IA datos con **identificadores** (nombre, documento, historia clínica, fecha de nacimiento exacta).
 -   Trabaja con un **código de paciente** y guarda la tabla de equivalencias aparte y protegida.
 -   Cumple las normas de tu institución y del comité de ética.
 :::
 
 ::: {.callout-important}
-## 🎯 Para llevarte
+## 🎯 En resumen
 
--   Cada formato tiene su función; CSV es el más seguro.
--   `read_csv2()` para CSV con `;` y coma decimal.
--   Con `haven`, usa `as_factor()` para convertir etiquetas a factores.
+-   Cada formato tiene su función; **CSV es el más seguro**.
+-   `read_csv2()` para CSV con `;` y coma decimal; la función equivocada puede fallar **sin avisar**.
+-   Con `haven`, usa `as_factor()` para convertir etiquetas en factores.
 -   **Revisa siempre**: dimensiones, tipos, rangos, faltantes y duplicados.
 -   Protege los datos identificables.
 :::
@@ -158,5 +188,5 @@ write_rds(ckd, "datos/procesados/ckd_limpio.rds")   # RDS: conserva tipos y fact
 ## Ejercicio
 
 1.  Lee `ejemplo_pacientes.xlsx` y calcula cuántos pacientes iniciaron iSGLT2 y cuál es su TFGe media.
-2.  Lee `ejemplo_pacientes_puntoycoma.csv` con `read_csv()` y con `read_csv2()` y compara el tipo de `hba1c`.
+2.  Lee `ejemplo_pacientes_puntoycoma.csv` con `read_csv2()` y con `read_delim(delim = ";")`, y compara la media de `tfg_basal`. ¿Cuál es plausible para una cohorte con ERC G3?
 3.  Escribe, como comentario, tres problemas que revisarías en una base nueva de tu servicio.

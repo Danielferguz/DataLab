@@ -1,14 +1,44 @@
 # Capítulo 5: Limpieza y manejo de datos
 
-> *"Los datos reales llegan sucios."* Entre el 60 % y el 80 % del tiempo de un análisis se va en preparar la base. Hacerlo **con código** (no a mano en Excel) es lo que vuelve el análisis revisable y repetible.
+> *"Los datos reales llegan sucios."* Buena parte del tiempo de un análisis se va en preparar la base. Hacerlo **con código** (no a mano en Excel) es lo que vuelve el análisis revisable y repetible.
 
 ::: {.callout-note}
 ## 🩺 El problema de todos los días
 
-Te entregan el registro de pacientes de nefrología. Al abrirlo encuentras: `Sexo` escrito como "F", "f", "Femenino" y "FEMENINO"; fechas en dos formatos; creatinina en mg/dL para unos y en µmol/L para otros; la presión arterial `999` donde no se midió; y pacientes repetidos. Si analizas así, el promedio de creatinina no tiene sentido.
+Te entregan el registro de pacientes de nefrología. Al abrirlo encuentras: `Sexo` escrito como "F", "f", "Femenino" y "FEMENINO"; fechas en dos formatos; creatinina en mg/dL para unos y en µmol/L para otros; presión arterial `999` donde no se midió; y pacientes repetidos. Si analizas así, el promedio de creatinina no tiene sentido.
 :::
 
-En este capítulo trabajaremos con **`registro_nefro_sucio.csv`**: un registro **simulado** de 420 pacientes con los errores más típicos. Como lo simulamos a partir de una base limpia, al final podremos **comprobar si la limpieza recuperó la verdad**.
+## Un solo caso, de principio a fin
+
+En este capítulo no vemos trucos sueltos: **limpiamos un solo archivo, paso a paso**, y en cada subcapítulo mostramos el **antes y el después**. Es **`registro_nefro_sucio.csv`**, un registro **simulado** de pacientes con los errores más típicos de un registro real. Como lo estropeamos a partir de una base limpia, al final podremos **comprobar si la limpieza recuperó la verdad**.
+
+Esta es la radiografía del archivo tal como llega (cada cifra sale del propio archivo):
+
+```{r}
+#| label: radiografia
+library(tidyverse)
+
+crudo <- read_csv("Bases/registro_nefro_sucio.csv", show_col_types = FALSE)
+
+tribble(
+  ~problema,                                           ~cuantos,                                          ~se_resuelve_en,
+  "Filas del archivo",                                 nrow(crudo),                                       "5.5",
+  "Pacientes distintos (IDs)",                         n_distinct(crudo$`ID Paciente`),                   "5.5",
+  "Formas distintas de escribir el sexo",              n_distinct(crudo$Sexo),                            "5.2",
+  "Formas distintas de escribir el diagnóstico",       n_distinct(crudo$Diagnostico),                     "5.2",
+  "Fechas de nacimiento como aaaa-mm-dd (el resto: dd/mm/aaaa)", sum(str_detect(crudo$`Fecha Nac.`, "^\\d{4}")), "5.3",
+  "Creatininas con coma decimal",                      sum(str_detect(crudo$Creatinina, ",")),            "5.4",
+  "Creatininas en µmol/L (no en mg/dL)",               sum(crudo$Unidad_creat == "umol/L"),               "5.4",
+  "Creatininas escritas como \"ND\"",                  sum(crudo$Creatinina == "ND"),                     "5.4",
+  "PAS = 999 (no medida)",                             sum(crudo$PAS == 999, na.rm = TRUE),               "5.5",
+  "UACR = −1 (no medida)",                             sum(crudo$`UACR mg/g` == -1, na.rm = TRUE),        "5.5",
+  "Peso = 0 kg",                                       sum(crudo$`Peso (kg)` == 0, na.rm = TRUE),         "5.5",
+  "Edades imposibles (> 100 años)",                    sum(crudo$Edad > 100, na.rm = TRUE),               "5.3 y 5.5"
+) |>
+  knitr::kable(col.names = c("Problema", "Cuántos", "Subcapítulo"))
+```
+
+Cada subcapítulo resuelve una fila de esa tabla. Al terminar, tendrás una base **ordenada, con unidades comunes, TFGe, categorías KDIGO y sin duplicados**, lista para los Capítulos 6 a 17.
 
 *Al finalizar este capítulo podrás:*
 
@@ -16,7 +46,7 @@ En este capítulo trabajaremos con **`registro_nefro_sucio.csv`**: un registro *
 -   Estandarizar **nombres, categorías y textos**.
 -   Convertir **fechas** de distintos formatos y calcular edades y tiempos.
 -   Calcular la **TFGe (CKD-EPI 2021)**, las categorías **G/A** y el **riesgo KDIGO**.
--   Detectar **valores imposibles, faltantes disfrazados y duplicados**.
+-   Detectar **valores imposibles, faltantes disfrazados y duplicados**, y llevar un **diario de limpieza**.
 -   **Unir** tablas y pasar entre formato ancho y largo.
 
 ::: {.callout-important}
@@ -29,13 +59,15 @@ En este capítulo trabajaremos con **`registro_nefro_sucio.csv`**: un registro *
 | 5.3 Fechas y tiempos | 🟢 | Formatos mixtos, edad, seguimiento |
 | 5.4 Variables nefrológicas | 🟡 | µmol/L ↔ mg/dL, TFGe, categorías G/A, riesgo KDIGO |
 | 5.5 Control de calidad | 🟡 | Faltantes, valores imposibles, duplicados, diccionario |
-| 5.6 Unir tablas y reestructurar | 🟡 | `joins`, `pivot_longer`, `pivot_wider`, base final |
+| 5.6 Unir tablas y reestructurar | 🟡 | `joins`, llaves, base final y comprobación contra la verdad |
 :::
 
 *Prerrequisitos:* Cap. 4. *Prepara:* Caps. 6 a 17 (todos parten de una base limpia).
 
-## Referencias
+## Para leer más
 
--   Wickham H. Tidy data. *J Stat Softw*. 2014;59(10):1-23.
--   Levey AS, et al. (CKD-EPI) y Inker LA, et al. New creatinine- and cystatin C-based equations to estimate GFR without race. *N Engl J Med*. 2021;385:1737-1749.
--   KDIGO 2012. Clinical practice guideline for the evaluation and management of chronic kidney disease. *Kidney Int Suppl*. 2013;3(1).
+-   Wickham H. Tidy data. *J Stat Softw*. 2014;59(10):1-23. (El artículo que formalizó las tres reglas de una base ordenada.)
+-   Wickham H, Çetinkaya-Rundel M, Grolemund G. *R for Data Science*. 2.ª ed. O'Reilly; 2023. <https://r4ds.hadley.nz/> (transformación de datos, datos ordenados, fechas y uniones de tablas).
+-   Batra N, et al. *The Epidemiologist R Handbook*. <https://epirhandbook.com/> (manual gratuito con un enfoque de limpieza de datos epidemiológicos).
+-   Inker LA, et al. New creatinine- and cystatin C-based equations to estimate GFR without race. *N Engl J Med*. 2021;385:1737-1749. (Ecuación CKD-EPI 2021 que implementamos en 5.4.)
+-   KDIGO. Clinical practice guideline for the evaluation and management of chronic kidney disease. *Kidney Int Suppl*. 2013;3(1):1-150. (Categorías G y A y mapa de riesgo.)

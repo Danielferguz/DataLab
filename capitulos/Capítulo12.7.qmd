@@ -1,14 +1,24 @@
-# Efectos causales con desenlaces de supervivencia
+# Supervivencia: curvas ponderadas y riesgos a un tiempo fijo
 
-## El desenlace es "tiempo hasta evento"
+::: {.callout-note}
+## 🩺 Escenario
 
-Con desenlaces de supervivencia (Cap. 9), los métodos causales se adaptan de tres maneras:
+Lo que importa en nefrología no es solo **si** un paciente llega a diálisis, sino **cuándo**. Tus pacientes con iSGLT2 tienen mejor pronóstico basal (son más jóvenes, con mejor TFGe), así que su curva de supervivencia renal **parecería** mejor aunque el fármaco no hiciera nada. ¿Cómo se "iguala la salida" de las dos curvas?
+:::
+
+Es como correr dos carreras en las que un grupo sale **con ventaja**. Para comparar de verdad, primero hay que **igualar los puntos de partida**. Con desenlaces de tiempo hasta evento (Cap. 9), los métodos causales se adaptan de tres maneras:
 
 | Estrategia | Cómo | Estimando |
 |---|---|---|
-| **Kaplan-Meier ponderado** | KM con los pesos IPW | **Riesgo (o supervivencia) marginal** a cada tiempo; DR y RR a *t* |
+| **Kaplan-Meier ponderado** | KM con los pesos IPW (12.5) | **Riesgo (o supervivencia) marginal** a cada tiempo; diferencia y razón de riesgos a *t* |
 | **Cox ponderado** | `coxph` con pesos y errores robustos | **HR marginal** |
-| **Estandarización con un modelo de supervivencia** | Predecir la curva de cada paciente con y sin tratamiento y promediar | Riesgo estandarizado a *t*, ATE, ATT |
+| **Estandarización con un Cox** | Predecir la curva de cada paciente con y sin tratamiento y promediar (12.6) | Riesgo estandarizado a *t* |
+
+**Lo que vamos a hacer**
+
+-   Ponderar las curvas de Kaplan-Meier y calcular riesgos a 12, 24 y 36 meses.
+-   Estimar el HR marginal con un Cox ponderado y entender por qué difiere del condicional.
+-   Comprobar que, si midiéramos la fragilidad, recuperaríamos la verdad.
 
 ```{r}
 #| label: setup-127
@@ -16,32 +26,33 @@ library(tidyverse)
 library(survival)
 library(boot)
 source("R/funciones_epi.R")
+source("R/funciones_extra_cap1213.R")
 
-oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv") |>
-  mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")), luacr = log(uacr))
-ckd <- oraculo |> select(-fragilidad, -pendiente_0, -pendiente_1, -ite, -starts_with("evento_36m"))
+oraculo <- cargar_oraculo()
+ckd <- observado(oraculo)
 
-## Verdad (oráculo): efectos sobre el riesgo a 36 meses y HR simulado
+## La verdad (oráculo): riesgo a 36 meses si todos / si nadie, y el HR simulado
 r1 <- mean(oraculo$evento_36m_1); r0 <- mean(oraculo$evento_36m_0)
 verdad <- c(riesgo_si_todos = r1, riesgo_si_nadie = r0, DR = r1 - r0, RR = r1 / r0, HR = 0.70)
 round(verdad, 3)
 ```
 
-El efecto causal verdadero sobre el riesgo de evento renal a 36 meses: **12.6 % si todos** reciben el iSGLT2 y **17.2 % si nadie**; DR = −4.5 puntos; RR = 0.74; el HR constante simulado es 0.70.
+**Qué vemos:** el efecto causal verdadero sobre el riesgo de evento renal a 36 meses es de **`r sprintf("%.1f", 100 * r1)` % si todos** reciben el iSGLT2 y **`r sprintf("%.1f", 100 * r0)` % si nadie**: una diferencia de **`r sprintf("%.1f", 100 * (r1 - r0))` puntos** y un RR de **`r sprintf("%.2f", r1 / r0)`**. El HR constante con el que se simuló es **0.70**.
 
-## Preparar los pesos
+## Paso 1: los pesos
+
+Son los mismos pesos IPW del subcapítulo 12.5 (PS con los confusores medidos):
 
 ```{r}
 #| label: pesos-127
-x <- "I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv"
+x <- confusores_medidos
 ckd$ps <- fitted(glm(as.formula(paste("isglt2 ~", x)), data = ckd, family = binomial))
 ckd$w <- ifelse(ckd$isglt2 == 1, 1 / ckd$ps, 1 / (1 - ckd$ps))
-ckd <- ckd |> mutate(trat = factor(isglt2, labels = c("No inicia", "Inicia iSGLT2")))
 ```
 
-## Kaplan-Meier ponderado
+## Paso 2: Kaplan-Meier ponderado
 
-El KM ponderado estima la curva en la **pseudopoblación balanceada**. Se compara con la curva **cruda**:
+El KM ponderado estima la curva en la **pseudopoblación balanceada**. Para ver su efecto, comparamos la curva **cruda** con la **ponderada**:
 
 ```{r}
 #| label: km-ponderado
@@ -61,7 +72,7 @@ bind_rows(curva(ckd, NULL, "Cruda"), curva(ckd, ckd$w, "Ponderada por IPW")) |>
   theme_minimal(base_size = 11) + theme(legend.position = "bottom")
 ```
 
-Calculamos la DR y el RR a 12, 24 y 36 meses de forma explícita:
+Para comunicar el efecto, lo mejor es el **riesgo acumulado a un tiempo fijo** y su diferencia (DR) y razón (RR). Los calculamos a 12, 24 y 36 meses:
 
 ```{r}
 #| label: riesgos-ponderados
@@ -70,37 +81,39 @@ riesgo_ponderado <- function(datos, pesos, t) {
   s <- summary(sf, times = t, extend = TRUE)
   r <- 1 - s$surv; c(riesgo_0 = r[1], riesgo_1 = r[2], DR = r[2] - r[1], RR = r[2] / r[1])
 }
-tibble(meses = c(12, 24, 36)) |>
+riesgos <- tibble(meses = c(12, 24, 36)) |>
   mutate(res = map(meses, \(t) as_tibble(as.list(riesgo_ponderado(ckd, ckd$w, t))))) |>
-  unnest(res) |> mutate(across(-meses, \(x) round(x, 3)))
+  unnest(res)
+riesgos |> mutate(across(-meses, \(x) round(x, 3)))
 ```
 
-A los **36 meses**, el riesgo ponderado es 19.0 % sin iSGLT2 y 10.9 % con él: **DR ≈ −8 puntos**, **RR ≈ 0.57**. Es mayor que la verdad (−4.5 puntos; RR 0.74) por la **fragilidad no medida**. Igual que antes: el método (ponderación para supervivencia) es correcto; el supuesto de intercambiabilidad condicional es el que falla.
+**Qué vemos:** a los **36 meses**, el riesgo ponderado es **`r sprintf("%.1f", 100 * riesgos$riesgo_0[3])` %** sin iSGLT2 y **`r sprintf("%.1f", 100 * riesgos$riesgo_1[3])` %** con él: DR de **`r sprintf("%.1f", 100 * riesgos$DR[3])` puntos** y RR de **`r sprintf("%.2f", riesgos$RR[3])`**. El beneficio es mayor que el verdadero (`r sprintf("%.1f", 100 * (r1 - r0))` puntos; RR `r sprintf("%.2f", r1 / r0)`) por la **fragilidad no medida**. El método (ponderación para supervivencia) es correcto; lo que falla es el supuesto de intercambiabilidad condicional.
 
-## Cox ponderado: el HR marginal
+## Paso 3: Cox ponderado, el HR marginal
 
 ```{r}
 #| label: cox-ponderado
-cx_cond <- coxph(Surv(tiempo_meses, evento) ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv, data = ckd)
-cx_marg <- coxph(Surv(tiempo_meses, evento) ~ isglt2, data = ckd, weights = w, robust = TRUE)
+cx_cond  <- coxph(Surv(tiempo_meses, evento) ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv, data = ckd)
+cx_marg  <- coxph(Surv(tiempo_meses, evento) ~ isglt2, data = ckd, weights = w, robust = TRUE)
 cx_crudo <- coxph(Surv(tiempo_meses, evento) ~ isglt2, data = ckd)
 
 hr <- function(m) exp(coef(m)["isglt2"])
-tibble(modelo = c("Cox crudo", "Cox ajustado (condicional)", "Cox ponderado (marginal)", "Verdad"),
-       HR = c(hr(cx_crudo), hr(cx_cond), hr(cx_marg), 0.70)) |> mutate(HR = round(HR, 2))
+tab_hr <- tibble(modelo = c("Cox crudo", "Cox ajustado (condicional)", "Cox ponderado (marginal)", "Verdad"),
+                 HR = c(hr(cx_crudo), hr(cx_cond), hr(cx_marg), 0.70))
+tab_hr |> mutate(HR = round(HR, 2))
 ```
 
-El Cox **ponderado** con **errores robustos** (`robust = TRUE`) estima el HR **marginal**; el Cox ajustado, el HR **condicional**. Con riesgos proporcionales constantes y sin confusión no medida coincidirían; aquí ambos (~0.55) se desvían del 0.70 verdadero por la fragilidad.
+**Qué vemos:** el Cox **ponderado** con **errores robustos** (`robust = TRUE`) estima el HR **marginal** (`r round(tab_hr$HR[3], 2)`); el Cox ajustado estima el **condicional** (`r round(tab_hr$HR[2], 2)`). Ambos se alejan del HR verdadero de **0.70** por la fragilidad.
 
 ::: {.callout-warning}
 ## ⚠️ HR marginal ≠ HR condicional
 
-El HR **no es colapsable**: el HR marginal (poblacional) generalmente difiere del condicional (a covariables dadas), aun sin confusión. Por eso se prefieren **riesgos acumulados** (DR, RR a un tiempo) para comunicar efectos causales.
+El HR **no es colapsable**: el HR marginal (poblacional) suele diferir del condicional (a covariables dadas), **aun sin confusión**. Aquí casi coinciden porque el evento es poco frecuente, pero no siempre ocurre. Por eso, para comunicar efectos causales se prefieren los **riesgos acumulados** (DR, RR a un tiempo) al HR.
 :::
 
-## Estandarización con un modelo de Cox
+## Paso 4: estandarización con un modelo de Cox
 
-Se ajusta un Cox con covariables, se **predice la curva de cada paciente bajo ambos tratamientos** y se **promedia**:
+La versión "fórmula g" para supervivencia: ajustas un Cox con covariables, **predices la curva de cada paciente bajo ambos tratamientos** y **promedias**:
 
 ```{r}
 #| label: gformula-cox
@@ -111,10 +124,11 @@ riesgo_estandarizado <- function(datos, t = 36) {
   r1 <- 1 - mean(s1); r0 <- 1 - mean(s0)
   c(riesgo_0 = r0, riesgo_1 = r1, DR = r1 - r0, RR = r1 / r0)
 }
-round(riesgo_estandarizado(ckd), 3)
+est_std <- riesgo_estandarizado(ckd)
+round(est_std, 3)
 ```
 
-DR ≈ −8 puntos y RR ≈ 0.59, **coherente** con el KM ponderado (los dos métodos comparten el mismo conjunto de confusores).
+**Qué vemos:** DR de **`r sprintf("%.1f", 100 * est_std["DR"])` puntos** y RR de **`r sprintf("%.2f", est_std["RR"])`**: coherente con el KM ponderado (ambos usan el mismo conjunto de confusores).
 
 ### IC por *bootstrap*
 
@@ -133,11 +147,11 @@ c(DR_36m = b$t0, quantile(b$t, c(0.025, 0.975))) |> round(3)
 
 ## Si pudiéramos medir la confusión: la verdad reaparece
 
-Para comprobar que el procedimiento es correcto, **incluimos la fragilidad** (solo posible en simulación) en el modelo de PS y repetimos:
+Para comprobar que el procedimiento es correcto, **incluimos la fragilidad** (solo posible porque es simulada) en el modelo del PS y repetimos:
 
 ```{r}
 #| label: con-fragilidad
-o <- oraculo |> mutate(trat = factor(isglt2, labels = c("No inicia", "Inicia iSGLT2")))
+o <- oraculo
 o$ps <- fitted(glm(as.formula(paste("isglt2 ~", x, "+ fragilidad")), data = o, family = binomial))
 o$w <- ifelse(o$isglt2 == 1, 1 / o$ps, 1 / (1 - o$ps))
 
@@ -146,24 +160,24 @@ rf <- riesgo_ponderado(o, o$w, 36)
 c(HR = unname(hr_f), DR_36m = unname(rf["DR"]), RR_36m = unname(rf["RR"])) |> round(3)
 ```
 
-HR **0.70**, DR **−5.0** puntos, RR **0.72**: casi exactamente la verdad (0.70, −4.5, 0.74). **El método funciona cuando el supuesto se cumple.**
+**Qué vemos:** HR de **`r sprintf('%.2f', hr_f)`**, DR de **`r sprintf("%.1f", 100 * rf["DR"])` puntos** y RR de **`r sprintf("%.2f", rf["RR"])`**: casi exactamente la verdad (0.70, `r sprintf("%.1f", 100 * (r1 - r0))` puntos y `r sprintf("%.2f", r1 / r0)`). **El método funciona cuando el supuesto se cumple.**
 
-## Cuando hay censura: IPCW
+## Si hay censura: IPCW
 
-Aquí todos los pacientes tienen seguimiento completo hasta 36 meses o evento. Si hay **censura informativa** (pérdidas relacionadas con el pronóstico), el KM ponderado debe **incluir también pesos por censura** (IPCW): se estima la probabilidad de **seguir en observación** y se pondera a los no censurados por su inversa (Cap. 19).
+Aquí todos los pacientes tienen seguimiento completo hasta 36 meses o evento. Si hubiera **censura informativa** (pérdidas de seguimiento relacionadas con el pronóstico), al KM ponderado se le añaden **pesos por censura** (*inverse probability of censoring weights*, IPCW): se estima la probabilidad de **seguir en observación** y se pondera a los no censurados por su inversa (Cap. 19).
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
--   Con desenlaces de supervivencia: **KM ponderado** (riesgos a *t*), **Cox ponderado con errores robustos** (HR marginal) o **estandarización** con un modelo de Cox.
--   Comunica el **riesgo acumulado (DR, RR) a un tiempo fijo**: más interpretable y colapsable que el HR.
+-   Con supervivencia: **KM ponderado** (riesgos a *t*), **Cox ponderado con errores robustos** (HR marginal) o **estandarización** con un modelo de Cox.
+-   Comunica el **riesgo acumulado a un tiempo fijo** (DR, RR): es más interpretable y colapsable que el HR.
 -   El **HR marginal ≠ HR condicional** (no colapsabilidad).
--   Los **IC** deben provenir de *bootstrap* que repita todo el procedimiento.
--   El **método es correcto**, pero el resultado depende del supuesto de **intercambiabilidad**: con la fragilidad medida se recupera la verdad.
+-   Los **IC** deben salir de un *bootstrap* que repita todo el procedimiento.
+-   El **método es correcto**, pero el resultado depende de la **intercambiabilidad**: con la fragilidad medida, se recupera la verdad.
 :::
 
 ## Ejercicio
 
-1.  Calcula el **RMST** a 36 meses en el pseudopoblación ponderada (usa `summary(survfit(..., weights = w), rmean = 36)`). ¿Cuántos meses libres de evento se ganan?
-2.  Calcula el riesgo estandarizado en **los tratados** (ATT) con el modelo de Cox.
+1.  Calcula el **RMST** a 36 meses en la pseudopoblación ponderada (`summary(survfit(..., weights = w), rmean = 36)`). ¿Cuántos meses libres de evento se ganan?
+2.  Calcula el riesgo estandarizado **en los tratados** (ATT) con el modelo de Cox.
 3.  Introduce censura aleatoria (30 % de pacientes censurados en un tiempo uniforme) y compara el KM ponderado con y sin censura.

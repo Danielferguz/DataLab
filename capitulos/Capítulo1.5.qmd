@@ -1,172 +1,69 @@
-# Tareas predictivas
+# Tareas predictivas: anticipar, no explicar
 
-Los modelos de predicción clínica son herramientas fundamentales para estimar resultados de salud en pacientes, ya sea en el presente (**diagnóstico**) o en el futuro (**pronóstico**). Tradicionalmente, estos modelos se basaban en análisis de regresión multivariable, pero el avance del aprendizaje automático ha permitido el desarrollo de enfoques más sofisticados con una mayor capacidad de procesamiento y precisión. Su aplicación en la medicina personalizada ha crecido exponencialmente, facilitando la toma de decisiones mediante la estimación del riesgo individualizado.
+::: {.callout-note}
+## 🩺 Escenario
 
-Sin embargo, para que un modelo predictivo sea útil en la práctica clínica, debe someterse a una rigurosa evaluación de su validez e impacto. A pesar de la existencia de múltiples guías metodológicas, muchas herramientas predictivas no avanzan más allá de su fase de desarrollo inicial o presentan limitaciones en su aplicación real. Además, la continua creación de nuevos modelos, en lugar de la optimización de los ya existentes, genera redundancia y desperdicio de recursos. Por lo tanto, es crucial avanzar en la validación, actualización y adaptación de modelos predictivos, garantizando su aplicabilidad en diversos entornos clínicos y poblacionales.
-
-::: {style="text-align: center;"}
-![Marco desde la derivación hasta la implementación de modelos de predicción clínica.](fig/Articulo_cap1_8.png){width="400" height="250"}
+Una paciente de 68 años con ERC G3b y albuminuria A3 pregunta: *"Doctor, ¿voy a llegar a diálisis?"* Tú necesitas una probabilidad a 2 y 5 años para decidir cuándo derivarla a educación pre-diálisis y planificar el acceso vascular. No te pide saber **por qué** progresa, sino **cuánto riesgo tiene**. Eso es predecir.
 :::
 
-**Ejemplo de Predicción para Diagnóstico**
+## Lo que vamos a hacer
 
-Contexto: Un médico quiere identificar si un paciente tiene diabetes basándose en sus características clínicas.
+-   Distinguir predicción **diagnóstica** de **pronóstica**.
+-   Ver con datos simulados cómo la clasificación KDIGO ya es un modelo pronóstico sencillo.
+-   Recorrer el ciclo de vida de un modelo: desarrollo, validación, impacto y actualización.
 
-🔹 Pregunta: ¿Este paciente tiene diabetes en este momento?\
-🔹 Datos: Edad, nivel de glucosa en sangre, presión arterial, índice de masa corporal (IMC), antecedentes familiares de diabetes.\
-🔹 Modelo: Algoritmo de clasificación (Regresión logística, Árboles de decisión, Redes neuronales).\
-🔹 Salida esperada: Probabilidad de que el paciente tenga diabetes (Sí/No).
+## Paso 1. Diagnóstico vs. pronóstico
 
-💡 Ejemplo real: El modelo FINDRISC es una herramienta usada para predecir el riesgo de diabetes tipo 2 a partir de variables clínicas y de estilo de vida.
+Un modelo de predicción clínica estima la probabilidad de un desenlace a partir de varias variables del paciente. Según el tiempo del desenlace:
 
-**Ejemplo de Predicción para Pronóstico**
+-   **Diagnóstico:** ¿tiene el paciente la condición *ahora*? *Ej.:* ¿tiene lesión renal aguda este paciente hospitalizado, según un biomarcador urinario y su creatinina?
+-   **Pronóstico:** ¿tendrá el desenlace *en el futuro*? *Ej.:* la ecuación de riesgo de insuficiencia renal (**KFRE**, Tangri y col., 2011) combina edad, sexo, TFGe y cociente albúmina/creatinina y estima el riesgo a 2 y 5 años; se compara con un umbral de decisión (derivación, acceso vascular).
 
-Contexto: Un oncólogo desea estimar el riesgo de recurrencia del cáncer en un paciente tratado con cirugía.
+Fíjate en lo que **no** hace: la KFRE no dice que la albuminuria *cause* la insuficiencia renal ni qué pasaría si se interviene sobre ella. **Predice; no explica** (lo veremos de nuevo en el Capítulo 2.4).
 
-🔹 Pregunta: ¿Cuál es la probabilidad de que el cáncer reaparezca en los próximos 5 años?\
-🔹 Datos: Edad, tipo de tumor, nivel de marcadores tumorales, estado de ganglios linfáticos, tratamiento recibido.\
-🔹 Modelo: Modelos de supervivencia (Regresión de Cox, Redes neuronales profundas).\
-🔹 Salida esperada: Probabilidad de recurrencia en distintos períodos de tiempo (6 meses, 1 año, 5 años).
+![Marco de evaluación de modelos de predicción: derivación, validación, evaluación de impacto, actualización e implementación (adaptado de Binuya y col., 2022).](fig/Articulo_cap1_8.png){width=70% fig-align="center"}
 
-💡 Ejemplo real: PREDICT es un modelo que estima la supervivencia en pacientes con cáncer de mama basado en características clínico-patológicas.
+## Paso 2. Un modelo pronóstico en miniatura: el mapa de riesgo KDIGO
 
-**Ejemplo de pronóstico en nefrología**
+Un ejemplo ya conocido de pronóstico es el mapa de calor KDIGO, que combina la categoría de TFGe (G) y de albuminuria (A) en un riesgo "bajo / moderado / alto / muy alto". Veamos si ordena el riesgo en la base **simulada** `ckd_isglt2`:
 
-🩺 Contexto: un nefrólogo quiere decidir cuándo derivar a un paciente con ERC a educación pre-diálisis y planificación de acceso vascular.\
-🔹 Pregunta: ¿Cuál es la probabilidad de que este paciente llegue a insuficiencia renal en 2 y 5 años?\
-🔹 Datos: edad, sexo, TFGe y cociente albúmina/creatinina.\
-🔹 Modelo: regresión de Cox (ecuación de riesgo de insuficiencia renal, **KFRE**).\
-🔹 Salida esperada: riesgo a 2 y 5 años, que se compara con umbrales de decisión (por ejemplo, derivación).
+```{r}
+#| label: kdigo-pronostico
+library(tidyverse)
+source("R/funciones_epi.R")                    # categoria_g(), categoria_a(), riesgo_kdigo()
+source("R/funciones_extra_a.R")               # pct()
+ckd <- read_csv("Bases/ckd_isglt2.csv", show_col_types = FALSE)
 
-💡 Nota: la KFRE **predice**; no dice que la albuminuria *cause* la insuficiencia renal ni qué pasaría si se interviene sobre ella.
+kdigo <- ckd |>
+  mutate(riesgo = riesgo_kdigo(categoria_g(tfg_basal), categoria_a(uacr))) |>
+  group_by(riesgo) |>
+  summarise(pacientes = n(), evento_36m = mean(evento))   # proporción con evento renal a 36 meses
+kdigo
+```
 
-::: callout-warning
-## Diferencia clave:
+**Qué vemos.** El evento renal pasa de `r pct(kdigo$evento_36m[1])` en riesgo bajo a `r pct(kdigo$evento_36m[4])` en riesgo muy alto: el mapa **ordena** a los pacientes. Eso es discriminación pronóstica. Pero es un modelo tosco (solo 4 niveles); modelos como la KFRE usan variables continuas y dan una probabilidad concreta para cada paciente.
 
--   📌 *Diagnóstico* → Se enfoca en el presente: determinar si una enfermedad está presente o no.
+## Paso 3. Qué se le exige a un modelo antes de usarlo
 
--   📌 *Pronóstico* → Se enfoca en el futuro: predecir la evolución o el desenlace de una enfermedad.
-:::
+Un buen rendimiento en los datos con que se desarrolló **no basta**. El ciclo de vida de un modelo incluye cuatro etapas:
 
-## Validación
+![Validación: tipos, diseños y medidas (adaptado de Binuya y col., 2022).](fig/Articulo_cap1_11.png){width=80% fig-align="center"}
 
-La validación es el proceso de evaluar el rendimiento de un modelo en entornos específicos. Existen dos tipos principales de validación: interna y externa.
+-   **Validación interna:** ¿el modelo se reproduce en la misma población? Se usa *bootstrap* o validación cruzada para medir el sobreajuste. Dividir los datos en "entrenamiento" y "prueba" se desaconseja: gasta muestra y da estimaciones imprecisas.
+-   **Validación externa:** ¿funciona en otro lugar o momento? Puede ser *temporal* (años posteriores), *geográfica* (otro hospital o país) o *de dominio* (otro contexto clínico, la más exigente). Idealmente la hacen investigadores independientes, y la muestra debe ser suficiente (la antigua regla de "100 eventos y 100 no eventos" hoy se reemplaza por calcular la precisión que se necesita).
+-   **Evaluación de impacto:** ¿mejora las decisiones y los desenlaces? Un modelo con buena discriminación puede ser inútil si no cambia lo que haces. El impacto *potencial* se estima con medidas de utilidad clínica (beneficio neto) o modelos económicos; el *real* exige estudios empíricos, idealmente ensayos con y sin el modelo (que son escasos; hay alternativas, ver Janse y col., 2025).
+-   **Actualización:** reutilizar un modelo existente suele ser mejor que crear otro: *recalibrarlo* (corregir el nivel de riesgo), *revisarlo* (reestimar coeficientes), *extenderlo* (añadir un predictor) o combinarlo con otros.
 
-::: {style="text-align: center;"}
-![Marco desde la derivación hasta la implementación de modelos de predicción clínica.](fig/Articulo_cap1_11.png)
-:::
+¿Cómo juzgar el rendimiento? Con tres preguntas:
 
+1.  **Discriminación:** ¿separa a quienes tendrán el desenlace de quienes no? (estadístico C o AUC).
+2.  **Calibración:** ¿el riesgo predicho coincide con el observado? Si dice 20 %, ¿se observa cerca de 20 %?
+3.  **Utilidad clínica:** ¿mejora las decisiones? (beneficio neto).
 
-#### Validación Interna
+::: {.callout-warning}
+## ⚠️ Trampa frecuente: la exactitud diagnóstica es impacto *potencial*
 
-Evalúa la reproducibilidad del modelo en la misma población de los datos de derivación. Se utilizan técnicas de remuestreo como bootstrapping o validación cruzada para evaluar el sobreajuste y aplicar correcciones si es necesario. No se recomienda la simple división de datos en conjuntos de entrenamiento y prueba, ya que limita la muestra y puede generar estimaciones imprecisas.
-
-#### Validación Externa
-
-Mide la capacidad del modelo para generalizarse a nuevas poblaciones o entornos. Se distinguen tres tipos principales:
-
--   **Validación temporal**: Evaluación en datos de un período más reciente.
-
--   **Validación geográfica**: Prueba en distintas ubicaciones.
-
--   **Validación de dominio**: Aplicación en diferentes entornos clínicos.
-
-La validación de dominio es la más rigurosa, pues implica evaluar el desempeño del modelo en entornos muy distintos.
-
-### Cuándo y Cómo Validar
-
-Un modelo debe validarse internamente antes de ser probado en entornos externos. No hay consenso sobre cuántas validaciones acumulativas son necesarias. Se recomienda un tamaño de muestra suficiente (por ejemplo, al menos 100 eventos y 100 no eventos) para asegurar precisión en las estimaciones de desempeño. Métodos más avanzados pueden mejorar la evaluación de la validez mediante estimaciones de medidas de rendimiento en lugar de cálculos de potencia.
-
-#### Evaluación de la Validez
-
-Idealmente, la validación externa debe ser realizada por investigadores independientes. Comparar el contexto de los datos de derivación y validación ayuda a evaluar la transportabilidad del modelo. La heterogeneidad en la población de validación fortalece la prueba del modelo.
-
-Se pueden analizar distintos aspectos del desempeño:
-
-1.  **Discriminación**: Capacidad del modelo para separar sujetos con diferentes resultados. Se evalúa con la estadística de concordancia (C) o AUROC. Otras medidas incluyen la estadística D y la pendiente de discriminación.
-
-2.  **Calibración**: Grado de concordancia entre riesgos predichos y observados. Se analizan gráficos de calibración y medidas como la pendiente de calibración y la relación O/E.
-
-3.  **Rendimiento general**: Incluye medidas como la variación explicada (R²) y la puntuación Brier.
-
-### Determinar si un Modelo es "Suficientemente Bueno"
-
-Un modelo debe evaluarse considerando discriminación y calibración. Si se prioriza la identificación de sujetos de alto riesgo, la discriminación es clave. Si el modelo presenta mala calibración, se puede mejorar mediante recalibración. La adecuación del desempeño depende del contexto de aplicación y debe evaluarse con medidas de decisión analítica, como el Beneficio Neto.
-
-## Evaluación de Impacto
-
-### ¿Qué es la Evaluación de Impacto?
-
-Los modelos con un buen desempeño estadístico no garantizan automáticamente un impacto positivo en la práctica clínica. Aunque un modelo tenga una buena discriminación y calibración, puede ser clínicamente inútil si no aporta información novedosa o si sus predicciones no son relevantes en el contexto de la toma de decisiones clínicas. Factores externos, como interpretaciones clínicas, adherencia o aceptabilidad, pueden afectar el impacto real de un modelo. La evaluación de impacto analiza las consecuencias de utilizar un modelo en la práctica clínica, considerando cambios en la toma de decisiones, resultados en los pacientes y costos de atención médica.
-
-### ¿Cómo se Puede Evaluar el Impacto?
-
-La evaluación de impacto puede ser potencial o real.
-
-::: {style="text-align: center;"}
-![Marco desde la derivación hasta la implementación de modelos de predicción clínica.](fig/Articulo_cap1_9.png)
-:::
-
-
--   **Impacto Potencial:** Examina el impacto teórico a través de medidas de desempeño clínico y modelos de análisis de decisiones.
-
-    -   **Utilidad Clínica:** Se evalúa con medidas como sensibilidad, especificidad y el Beneficio Neto, que pondera los beneficios y los daños clínicos.
-
-    -   **Análisis Económico de la Salud:** Utiliza modelos de análisis de decisiones (Markov, árboles de decisión) para evaluar la relación costo-efectividad.
-    
-::: callout-note
-## ¡Atención!
-
-1. Los estudios que evalúan la exactitud diagnóstica de cualquier test, marcador, sintoma, signo, etc, pertenece a estudios predictivos que intentan evaluar el impacto potencial.
-
-2. Debido a que la sensibilidad y la especificidad solo valoran el impacto potencial, estos son considerados como desenlaces sub-rogados en las preguntas clínicas de las Guías de Práctica Clínica basadas en evidencia.
-:::
-
-
--   **Impacto Real:** Se mide en estudios empíricos, como ensayos aleatorizados, comparando grupos con y sin el uso del modelo. Puede evaluarse de manera asistida (dejando espacio para la interpretación clínica) o directiva (sugiriendo decisiones específicas basadas en el modelo).
-
-::: callout-note
-## ¡Atención!
-
-Son muy escasos los estudios que evalúan el impacto real mediante un ECA y se han propuesto otras alternativas. [Consulta más información aquí](https://doi.org/10.1093/ndt/gfae170)
-:::
-
-
-### ¿Cuándo se Debe Evaluar el Impacto?
-
-No todos los modelos requieren evaluación de impacto. Es esencial para modelos que guían decisiones terapéuticas o de diagnóstico. Se recomienda realizarla después de la validación externa y antes de la implementación.
-
-## Actualización de Modelos
-
-### ¿Qué es la Actualización de Modelos y Cuándo es Útil?
-
-Frecuentemente se derivan nuevos modelos en lugar de aprovechar los existentes. Reutilizar y actualizar modelos previos es más eficiente y evita sobreajustes. La actualización es recomendable cuando un modelo existente tiene buena discriminación pero problemas de calibración, cuando surgen nuevos predictores relevantes o cuando hay cambios en la población objetivo.
-
-::: {style="text-align: center;"}
-![Marco desde la derivación hasta la implementación de modelos de predicción clínica.](fig/Articulo_cap1_10.png)
-:::
-
-
-### ¿Cómo se Pueden Actualizar los Modelos?
-
-Existen cuatro enfoques principales para la actualización de modelos basados en regresión:
-
-1.  **Recalibración:** Ajusta la intersección del modelo o reestima el predictor lineal para corregir descalibraciones menores.
-
-2.  **Revisión del Modelo:** Reestima algunos o todos los coeficientes del modelo original para reflejar mejor la nueva población.
-
-3.  **Extensión del Modelo:** Agrega nuevos predictores relevantes, evitando sobreajustes mediante técnicas de contracción.
-
-4.  **Actualización de Metamodelos:** Combina varios modelos existentes en uno más generalizable, utilizando enfoques metaanalíticos o de regresión apilada.
-
-Cada enfoque se elige según la magnitud del cambio requerido y la disponibilidad de datos. Idealmente, los modelos actualizados deben someterse a una evaluación adicional para validar su desempeño y utilidad clínica.
-
-::: {.callout-tip}
-## 💡 Tip práctico: guías para modelos de predicción
-
--   Para **reportar** un modelo: **TRIPOD+AI**.
--   Para **evaluar el riesgo de sesgo** de un modelo publicado: **PROBAST**.
--   Un modelo se juzga por su **discriminación** (AUC), su **calibración** y su **utilidad clínica** (beneficio neto), no por la significación de sus coeficientes.
+Calcular la sensibilidad y la especificidad de una prueba solo muestra su impacto *potencial*, no que los pacientes vayan a estar mejor. Por eso, en las guías de práctica clínica, sensibilidad y especificidad se tratan como desenlaces *sustitutos*. Y en lugar de seguir creando modelos nuevos, suele ser más útil validar y actualizar los que ya existen.
 :::
 
 ::: {.callout-important}
@@ -179,18 +76,22 @@ Cada enfoque se elige según la magnitud del cambio requerido y la disponibilida
 | **Validación externa** | Temporal, geográfica, de dominio | ¿Funciona en otro lugar y otro momento? |
 | **Evaluación de impacto** | Estudios de uso del modelo | ¿Mejora las decisiones y los desenlaces? |
 | **Actualización** | Recalibrar, revisar, extender | ¿Sigue siendo válido hoy? |
+
+Se **reporta** con **TRIPOD+AI** y se **evalúa el riesgo de sesgo** con **PROBAST**. Un modelo se juzga por su discriminación, su calibración y su utilidad, no por la "significación" de sus coeficientes.
 :::
+
+**Ejercicio.** (1) ¿La KFRE es una herramienta diagnóstica o pronóstica? (2) Un modelo de riesgo desarrollado en un hospital de Lima se usará en una clínica rural de Cusco: ¿qué tipo de validación necesita antes? (3) Si el modelo predice 10 % de riesgo pero se observa 25 %, ¿falla la discriminación o la calibración?
 
 ## Referencias
 
-1.  Conroy, S., Murray, E.J. Let the question determine the methods: descriptive epidemiology done right. Br J Cancer 123, 1351–1352 (2020). <https://doi.org/10.1038/s41416-020-1019-z>
+1.  Binuya MAE, Engelhardt EG, Schats W, Schmidt MK, Steyerberg EW. Methodological guidance for the evaluation and updating of clinical prediction models: a systematic review. *BMC Med Res Methodol*. 2022;22(1):316. <https://doi.org/10.1186/s12874-022-01801-8>
 
-2.  Hernán, M. A., Hsu, J., & Healy, B. A Second Chance to Get Causal Inference Right: A Classification of Data Science Tasks. CHANCE, 2019; 32(1), 42–49. <https://doi.org/10.1080/09332480.2019.1579578>
+2.  Janse RJ, Stel VS, Jager KJ, Tripepi G, Zoccali C, Dekker FW, van Diepen M. When impact trials are not feasible: alternatives to study the impact of prediction models on clinical practice. *Nephrol Dial Transplant*. 2025;40(1):27-33. <https://doi.org/10.1093/ndt/gfae170>
 
-3. Binuya MAE, Engelhardt EG, Schats W, Schmidt MK, Steyerberg EW. Methodological guidance for the evaluation and updating of clinical prediction models: a systematic review. BMC Med Res Methodol. 2022;22(1):316. Published 2022 Dec 12. <https://doi.org/10.1186/s12874-022-01801-8>
+3.  Tangri N, Stevens LA, Griffith J, et al. A predictive model for progression of chronic kidney disease to kidney failure. *JAMA*. 2011;305(15):1553-1559.
 
-4. Roemer J Janse, Vianda S Stel, Kitty J Jager, Giovanni Tripepi, Carmine Zoccali, Friedo W Dekker, Merel van Diepen, When impact trials are not feasible: alternatives to study the impact of prediction models on clinical practice, Nephrology Dialysis Transplantation, Volume 40, Issue 1, January 2025, Pages 27–33, <https://doi.org/10.1093/ndt/gfae170>
+4.  Hernán MA, Hsu J, Healy B. A second chance to get causal inference right: a classification of data science tasks. *CHANCE*. 2019;32(1):42-49. <https://doi.org/10.1080/09332480.2019.1579578>
 
 ## Nota editorial
 
--   Esta sección fue editada con asistencia de IA (ChatGPT; revisión editorial con Claude).
+-   Esta sección fue editada con asistencia de IA (ChatGPT; revisión editorial con Claude). Los datos son simulados.

@@ -1,8 +1,20 @@
 # Desenlaces compuestos y *win ratio*
 
-## Desenlaces compuestos
+::: {.callout-note}
+## 🩺 Escenario
 
-En nefrología, los ensayos suelen usar **desenlaces compuestos** (falla renal **o** muerte **o** descenso de ≥ 40 % de la TFGe) para ganar eventos y potencia. Tienen ventajas y trampas:
+El ensayo de bicarbonato tiene pocos eventos duros, así que el protocolo define el desenlace como **falla renal o muerte**. El HR del compuesto sale "limítrofe". Un lector pregunta: *"¿el efecto es sobre la diálisis o sobre la mortalidad? ¿Cuenta igual morir que llegar a diálisis?"*. Un compuesto gana potencia, pero **mezcla eventos de distinta gravedad**. El *win ratio* es una forma de respetar esa jerarquía.
+:::
+
+**Lo que vamos a hacer**
+
+-   Analizar un compuesto **y sus componentes**, y comparar con la verdad.
+-   Entender el *win ratio* **comparando a mano** pocos pares, y luego con los 640 pacientes.
+-   Ver qué reportar cuando hay compuestos.
+
+## Paso 1: desenlaces compuestos, ventajas y trampas
+
+En nefrología los ensayos suelen usar **compuestos** (falla renal **o** muerte **o** descenso de ≥ 40 % de la TFGe) para ganar eventos y potencia.
 
 | Ventaja | Trampa |
 |---|---|
@@ -16,6 +28,9 @@ En nefrología, los ensayos suelen usar **desenlaces compuestos** (falla renal *
 library(tidyverse)
 library(survival)
 library(boot)
+source("R/funciones_extra_cap9_11.R")
+source("R/simular_eca_bicarbonato.R")
+theme_set(theme_minimal(base_size = 12))
 
 eca <- read_csv("Bases/eca_bicarbonato.csv") |>
   mutate(brazo = factor(brazo, levels = c("Placebo", "Bicarbonato")),
@@ -27,70 +42,98 @@ tabla <- eca |> count(brazo, estado) |>
 tabla
 ```
 
-## Análisis tiempo-hasta-primer-evento
+## Paso 2: tiempo hasta el primer evento, y cada componente por separado
 
-La forma estándar: **tiempo hasta el primer** evento del compuesto, con Kaplan-Meier y Cox (Cap. 9), y **el HR de cada componente por separado**:
+La forma estándar: **tiempo hasta el primer evento** del compuesto con Cox (Cap. 9), y el **HR de cada componente** por separado:
 
 ```{r}
 #| label: cox-compuesto
-hr <- function(evento) {
-  m <- coxph(Surv(tiempo_meses, evento) ~ brazo + strata(centro), data = eca)
+hr <- function(evento, datos = eca, estrato = TRUE) {
+  f <- if (estrato) Surv(tiempo_meses, evento) ~ brazo + strata(centro) else Surv(tiempo_meses, evento) ~ brazo
+  m <- coxph(f, data = datos)
   c(HR = unname(exp(coef(m))), exp(confint(m)))
 }
-rbind(`Compuesto (falla renal o muerte)` = hr(eca$estado > 0),
-      `Falla renal` = hr(eca$estado == 1),
-      `Muerte` = hr(eca$estado == 2)) |> round(2)
+hr_estimado <- rbind(`Compuesto (falla renal o muerte)` = hr(eca$estado > 0),
+                     `Falla renal` = hr(eca$estado == 1),
+                     `Muerte` = hr(eca$estado == 2))
+round(hr_estimado, 2)
 ```
 
-El efecto sobre el **compuesto** (HR ~0.80) viene de la **falla renal** (~0.75); sobre **muerte** el HR es ~0.9 con un IC muy amplio. Un lector que solo viera el compuesto **no sabría** que el efecto es sobre la progresión renal y no está demostrado sobre la mortalidad.
+### Contra la verdad
 
-## El *win ratio*: jerarquizar los componentes
+Comparamos con un ECA simulado **muy grande** (60 000 pacientes) con el mismo mecanismo, que nos da el HR ITT "verdadero" de cada componente:
 
-El ***win ratio*** (Pocock 2012) compara **cada paciente tratado con cada paciente control** (todos los pares posibles) y decide **quién "gana"** siguiendo una **jerarquía de importancia** clínica:
+```{r}
+#| label: hr-verdad
+grande <- simular_eca_bicarbonato(n = 60000, semilla = 5)$datos |>
+  mutate(brazo = factor(brazo, levels = c("Placebo", "Bicarbonato")))
+hr_verdad <- rbind(hr(grande$estado > 0, grande, FALSE), hr(grande$estado == 1, grande, FALSE), hr(grande$estado == 2, grande, FALSE))
 
-1.  **Muerte**: gana quien **sobrevive más tiempo** (si el seguimiento lo permite comparar).
-2.  Si empatan, **falla renal**: gana quien tarda más en llegar a diálisis.
-3.  Si empatan, **TFGe a 24 meses**: gana quien tiene el mayor cambio de TFGe (mejor función).
+tibble(desenlace = rownames(hr_estimado), HR_ensayo = hr_estimado[, 1],
+       IC_ensayo = sprintf("%.2f a %.2f", hr_estimado[, 2], hr_estimado[, 3]), HR_verdad = hr_verdad[, 1]) |>
+  mutate(across(where(is.numeric), \(x) round(x, 2)))
+```
+
+**Qué vemos.** El efecto sobre el **compuesto** (HR `r round(hr_estimado[1, 1], 2)`) viene de la **falla renal** (`r round(hr_estimado[2, 1], 2)`); sobre la **muerte** el HR es `r round(hr_estimado[3, 1], 2)` con un IC muy amplio, y la verdad es **ningún efecto sobre la mortalidad** (`r round(hr_verdad[3, 1], 2)`). Un lector que solo viera el compuesto **no sabría** que el efecto es sobre la progresión renal y no sobre la mortalidad.
+
+## Paso 3: el *win ratio*, jerarquizar y comparar pares
+
+El ***win ratio*** (Pocock 2012) compara **cada paciente tratado con cada paciente control** (todos los pares posibles) y decide **quién "gana"** siguiendo una **jerarquía** de importancia clínica:
+
+1.  **Muerte**: pierde quien muere antes (si el otro sigue observado).
+2.  Si empatan, **falla renal**: pierde quien llega antes a diálisis.
+3.  Si empatan, **TFGe a 24 meses**: gana quien tiene mejor cambio de función.
 
 $$
 \text{Win ratio} = \frac{\text{pares en los que gana el tratado}}{\text{pares en los que gana el control}}
 $$
 
-Un win ratio > 1 favorece al tratamiento. Lo implementamos en R (no requiere paquetes):
+Un win ratio > 1 favorece al tratamiento. Para entenderlo, lo hacemos **a mano** con 4 pacientes tratados y 4 controles (hipotéticos), o sea **16 pares**:
+
+```{r}
+#| label: wr-mini
+mini <- tibble(
+  brazo        = rep(c("Bicarbonato", "Placebo"), each = 4),
+  paciente     = c("T1", "T2", "T3", "T4", "C1", "C2", "C3", "C4"),
+  tiempo_meses = c(30, 12, 36, 20,   10, 25, 36, 30),
+  estado       = c( 0,  1,  0,  2,    2,  1,  0,  0),     # 0 censura, 1 falla renal, 2 muerte
+  dif24        = c(-3, NA, -1, NA,   NA, NA, -6, -2)      # cambio de TFGe (si se midió)
+)
+
+comparar_par <- function(a, b) {       # a = paciente tratado, b = paciente control
+  gana_t <- function(tipo) b$estado == tipo && a$tiempo_meses >= b$tiempo_meses   # el control tiene el evento y el tratado sigue observado
+  gana_c <- function(tipo) a$estado == tipo && b$tiempo_meses >= a$tiempo_meses
+  for (tipo in c(2, 1)) {                                    # 1.º muerte, 2.º falla renal
+    if (gana_t(tipo) && !gana_c(tipo)) return("tratado")
+    if (gana_c(tipo) && !gana_t(tipo)) return("control")
+  }
+  if (!is.na(a$dif24) && !is.na(b$dif24) && a$dif24 != b$dif24)   # 3.º TFGe: mayor cambio gana
+    return(if (a$dif24 > b$dif24) "tratado" else "control")
+  "empate"
+}
+
+trat <- filter(mini, brazo == "Bicarbonato"); ctrl <- filter(mini, brazo == "Placebo")
+pares <- expand_grid(i = seq_len(nrow(trat)), j = seq_len(nrow(ctrl))) |>
+  mutate(tratado = trat$paciente[i], control = ctrl$paciente[j],
+         gana = map2_chr(i, j, \(i, j) comparar_par(trat[i, ], ctrl[j, ])))
+
+pares |> select(tratado, control, gana) |> pivot_wider(names_from = control, values_from = gana)
+table(pares$gana)
+```
+
+**Cómo leerlo.** Por ejemplo, T1 contra C1: C1 murió al mes 10 y T1 seguía vivo, así que **gana el tratado**. T2 contra C2: ninguno murió; los dos tuvieron falla renal, T2 al mes 12 y C2 al 25, así que **gana el control** (tardó más). T3 contra C3: ambos censurados al mes 36 sin eventos, se decide por la TFGe (−1 frente a −6): **gana el tratado**. Contando, el tratado gana `r sum(pares$gana == "tratado")` pares, el control `r sum(pares$gana == "control")` y `r sum(pares$gana == "empate")` quedan empatados: win ratio = `r sum(pares$gana == "tratado")`/`r sum(pares$gana == "control")` = **`r round(sum(pares$gana == "tratado") / sum(pares$gana == "control"), 2)`**.
+
+La función `win_ratio()` (en `R/funciones_extra_cap9_11.R`) hace lo mismo para todos los pares a la vez, con matrices. Comprobamos que da el mismo resultado en el ejemplo pequeño:
+
+```{r}
+#| label: wr-mini-funcion
+win_ratio(mini)$win_ratio
+```
+
+## Paso 4: el *win ratio* en los 640 pacientes
 
 ```{r}
 #| label: win-ratio
-win_ratio <- function(datos) {
-  t <- filter(datos, brazo == "Bicarbonato"); c <- filter(datos, brazo == "Placebo")
-  nt <- nrow(t); nc <- nrow(c)
-
-  ## Matrices de pares: filas = pacientes tratados, columnas = pacientes control
-  M <- function(x_t, x_c) list(t = matrix(x_t, nt, nc), c = matrix(rep(x_c, each = nt), nt, nc))
-  tiempo <- M(t$tiempo_meses, c$tiempo_meses)
-
-  ## Nivel con eventos de tiempo: pierde quien tiene el evento y el otro sigue en seguimiento más tiempo
-  ganador_evento <- function(tipo) {
-    ev <- M(t$estado == tipo, c$estado == tipo)
-    list(gana_t = ev$c & (tiempo$c <= tiempo$t) & !(ev$t & (tiempo$t < tiempo$c)),
-         gana_c = ev$t & (tiempo$t <= tiempo$c) & !(ev$c & (tiempo$c < tiempo$t)))
-  }
-  n1 <- ganador_evento(2)                                    # 1. muerte
-  n2 <- ganador_evento(1)                                    # 2. falla renal
-  g1_t <- n1$gana_t & !n1$gana_c;  g1_c <- n1$gana_c & !n1$gana_t
-  libre <- !(g1_t | g1_c)
-  g2_t <- n2$gana_t & !n2$gana_c & libre;  g2_c <- n2$gana_c & !n2$gana_t & libre
-  libre <- libre & !(g2_t | g2_c)
-
-  ## 3. TFGe a 24 meses: el mayor cambio gana (pares aún empatados y con dato en ambos)
-  d <- M(t$dif24, c$dif24)
-  valido <- libre & !is.na(d$t) & !is.na(d$c)
-  g3_t <- valido & (d$t > d$c);  g3_c <- valido & (d$c > d$t)
-
-  gt <- c(muerte = sum(g1_t), falla_renal = sum(g2_t), tfge = sum(g3_t))
-  gc <- c(muerte = sum(g1_c), falla_renal = sum(g2_c), tfge = sum(g3_c))
-  list(por_nivel = rbind(gana_tratado = gt, gana_control = gc), pares = nt * nc,
-       win_ratio = sum(gt) / sum(gc))
-}
 wr <- win_ratio(eca)
 wr$por_nivel
 c(pares = wr$pares, win_ratio = wr$win_ratio)
@@ -98,11 +141,11 @@ c(pares = wr$pares, win_ratio = wr$win_ratio)
 
 Los pares que se deciden en cada nivel de la jerarquía:
 
--   **Muerte**: decide cerca del 19 % de los pares y casi **empata** (≈ 10 200 victorias del tratado vs. 9 300 del control): sin efecto claro sobre la mortalidad.
--   **Falla renal**: decide el nivel más grande (≈ 41 % de los pares) y gana el tratado con más frecuencia (≈ 23 800 vs. 18 000).
--   **TFGe a 24 meses**: se decide ahí el ≈ 25 % que quedaba empatado, también con ventaja del tratado (≈ 16 000 vs. 9 900).
+-   **Muerte**: decide cerca del `r round(100 * sum(wr$por_nivel[, "muerte"]) / wr$pares)` % de los pares y casi **empata** (`r wr$por_nivel[1, "muerte"]` victorias del tratado frente a `r wr$por_nivel[2, "muerte"]` del control): sin efecto claro sobre la mortalidad, como vimos.
+-   **Falla renal**: decide el nivel más grande (`r round(100 * sum(wr$por_nivel[, "falla_renal"]) / wr$pares)` % de los pares) y gana el tratado más a menudo (`r wr$por_nivel[1, "falla_renal"]` frente a `r wr$por_nivel[2, "falla_renal"]`).
+-   **TFGe a 24 meses**: decide una parte de lo que quedaba empatado (`r round(100 * sum(wr$por_nivel[, "tfge"]) / wr$pares)` % de los pares), también con ventaja del tratado (`r wr$por_nivel[1, "tfge"]` frente a `r wr$por_nivel[2, "tfge"]`).
 
-El tratado "gana" **`r sprintf("%.0f", 100 * sum(wr$por_nivel[1, ]) / wr$pares)` %** de los pares y el control **`r sprintf("%.0f", 100 * sum(wr$por_nivel[2, ]) / wr$pares)` %**: **win ratio ≈ `r sprintf("%.2f", wr$win_ratio)`**. Se necesita un IC:
+El tratado "gana" **`r sprintf("%.0f", 100 * sum(wr$por_nivel[1, ]) / wr$pares)` %** de los pares y el control **`r sprintf("%.0f", 100 * sum(wr$por_nivel[2, ]) / wr$pares)` %**: **win ratio ≈ `r sprintf("%.2f", wr$win_ratio)`**. Necesitamos un IC.
 
 ### IC por *bootstrap*
 
@@ -113,27 +156,38 @@ wr_boot <- replicate(300, {
   d <- eca |> group_by(brazo) |> slice_sample(prop = 1, replace = TRUE) |> ungroup()
   win_ratio(d)$win_ratio
 })
-c(win_ratio = wr$win_ratio, quantile(wr_boot, c(0.025, 0.975))) |> round(2)
+ic_wr <- quantile(wr_boot, c(0.025, 0.975))
+c(win_ratio = wr$win_ratio, ic_wr) |> round(2)
 ```
 
-El *win ratio* ≈ 1.35 (IC ~1.1-1.7) **excluye 1**, mientras que el HR del compuesto (0.80; IC 0.62-1.04) lo incluye. No es una contradicción: el *win ratio* **aprovecha el tercer nivel** (la TFGe a 24 meses, una variable continua con mucha información), que el análisis de tiempo hasta el primer evento ignora. Pero también depende de la **jerarquía elegida**, que debe ser **preespecificada**: no puede diseñarse después de ver cuál da el mejor resultado.
+El *win ratio* ≈ `r round(wr$win_ratio, 2)` (IC `r round(ic_wr[1], 2)` a `r round(ic_wr[2], 2)`) **`r if (ic_wr[1] > 1) "excluye" else "incluye"` 1**, mientras que el HR del compuesto (`r round(hr_estimado[1, 1], 2)`; IC `r round(hr_estimado[1, 2], 2)` a `r round(hr_estimado[1, 3], 2)`) `r if (hr_estimado[1, 3] > 1) "lo incluye" else "no lo incluye"`. No es una contradicción: el *win ratio* **aprovecha el tercer nivel** (la TFGe a 24 meses, una variable continua con mucha información), que el tiempo hasta el primer evento ignora. Pero también depende de la **jerarquía elegida**, que debe ser **preespecificada**: no puede diseñarse después de ver cuál da el mejor resultado.
 
-::: {.callout-note}
-## Ventajas y límites del *win ratio*
+### Contra la verdad
 
-**Ventajas**: respeta la **jerarquía clínica**, usa la **información de todos los componentes** (incluso uno continuo) y no exige riesgos proporcionales.
-**Límites**: la **jerarquía es subjetiva** (¿es una muerte siempre peor que una diálisis?), el **resultado depende del seguimiento** y es **difícil de traducir** a medidas absolutas (NNT). Por ser una razón de **pares**, no se interpreta como un RR. Se recomienda **acompañarlo** de los efectos sobre cada componente. Variantes: *win odds*, *net benefit*, *win difference*.
+Con un ECA simulado de 3 000 pacientes (para que el *win ratio* sea más estable; el cálculo de todos los pares con 60 000 pacientes sería inmanejable), el *win ratio* "verdadero" de este mecanismo:
+
+```{r}
+#| label: wr-verdad
+mediano <- simular_eca_bicarbonato(n = 3000, semilla = 8)$datos |>
+  mutate(brazo = factor(brazo, levels = c("Placebo", "Bicarbonato")), dif24 = tfg_24 - tfg0)
+wr_grande <- win_ratio(mediano)
+c(win_ratio_3000 = wr_grande$win_ratio) |> round(2)
+```
+
+Es de `r round(wr_grande$win_ratio, 2)` (con su propio error de muestreo), compatible con el IC del ensayo de 640. Es un resumen de **todos** los pares, no un riesgo relativo: un *win ratio* de 1.3 significa que, de los pares que se deciden, el tratado gana 1.3 veces por cada victoria del control.
+
+::: {.callout-warning}
+## ⚠️ Ventajas y límites del *win ratio*
+
+**Ventajas**: respeta la **jerarquía clínica**, usa la información de **todos los componentes** (incluso uno continuo) y no exige riesgos proporcionales. **Límites**: la **jerarquía es subjetiva** (¿es una muerte siempre peor que una diálisis?), el **resultado depende del seguimiento** y es **difícil de traducir** a medidas absolutas (NNT). Por ser una razón de **pares**, no se interpreta como un RR. Se recomienda **acompañarlo** de los efectos sobre cada componente. Variantes: *win odds*, *net benefit* (diferencia de victorias).
 :::
-
-## Qué reportar con compuestos
 
 ::: {.callout-tip}
 ## 💡 Checklist para desenlaces compuestos
 
 -   [ ] **Justificación clínica** del compuesto y **orden de importancia** de los componentes.
--   [ ] Efecto sobre **cada componente** por separado, con IC.
--   [ ] Eventos **por componente** y por brazo (la tabla de arriba).
--   [ ] Si hay **muerte** como competidor: CIF o jerarquía (*win ratio*), no solo Kaplan-Meier (Cap. 9.5).
+-   [ ] Efecto sobre **cada componente** por separado, con IC; eventos **por componente** y por brazo (la tabla del Paso 1).
+-   [ ] Si hay **muerte** como competidor: CIF o jerarquía (*win ratio*), no solo Kaplan-Meier (9.5).
 -   [ ] **Preespecificar** el compuesto: evita agregar o quitar componentes después de ver los datos.
 :::
 
@@ -141,7 +195,7 @@ El *win ratio* ≈ 1.35 (IC ~1.1-1.7) **excluye 1**, mientras que el HR del comp
 ## 🎯 En resumen
 
 -   Un **compuesto** gana potencia pero mezcla eventos de **distinta gravedad**: reporta siempre **cada componente**.
--   **Tiempo hasta el primer evento** (Kaplan-Meier, Cox) es el análisis estándar; con riesgos competitivos, usa CIF (9.5).
+-   **Tiempo hasta el primer evento** (Kaplan-Meier, Cox) es el análisis estándar; con riesgos competitivos usa CIF (9.5).
 -   El ***win ratio*** compara **todos los pares** tratado-control con una **jerarquía** (muerte → falla renal → TFGe) y resume quién gana más a menudo.
 -   Su IC se obtiene por *bootstrap*; es un complemento, no un sustituto del HR por componente.
 :::
@@ -149,7 +203,7 @@ El *win ratio* ≈ 1.35 (IC ~1.1-1.7) **excluye 1**, mientras que el HR del comp
 ## Ejercicio
 
 1.  Cambia la jerarquía del *win ratio*: **falla renal primero y muerte después**. ¿Cambia el resultado?
-2.  Calcula la **CIF** de falla renal a 24 meses en cada brazo (con `cmprsk::cuminc`) y compárala con el HR cause-specific.
+2.  Calcula la **CIF** de falla renal a 24 meses en cada brazo (con `cmprsk::cuminc`) y compárala con el HR causa-específico.
 3.  Define un compuesto con **tres componentes** de tu especialidad y escribe una frase justificando el **orden jerárquico**.
 
 ## Nota editorial

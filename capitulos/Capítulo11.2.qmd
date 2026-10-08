@@ -1,27 +1,34 @@
 # Comparación de dos grupos: intención de tratar
 
-## Intención de tratar (ITT)
+::: {.callout-note}
+## 🩺 Escenario
 
-El análisis por **intención de tratar** incluye a **todos los pacientes aleatorizados, en el grupo al que fueron asignados**, hayan cumplido o no. Es el análisis principal por tres razones:
+Lees el artículo de un ensayo de bicarbonato. Los autores comparan a **todos los aleatorizados** según el brazo asignado, aunque una cuarta parte del grupo activo dejó de tomar el fármaco. Un colega protesta: *"¡Están analizando a gente que ni siquiera tomó la pastilla!"*. Tiene razón en que el efecto se "diluye", pero los autores hicieron lo correcto. Este subcapítulo explica por qué.
+:::
+
+**Lo que vamos a hacer**
+
+-   Entender el análisis por **intención de tratar** (ITT) y por qué es el principal.
+-   Armar el **diagrama de flujo** (CONSORT) con los datos.
+-   Estimar el efecto sobre la TFGe y sobre la falla renal, y **compararlo con la verdad**.
+
+## Paso 1: qué es la intención de tratar
+
+El análisis por **intención de tratar** (ITT, *intention to treat*) incluye a **todos los pacientes aleatorizados, en el grupo al que fueron asignados**, hayan cumplido o no. Es el análisis principal por tres razones:
 
 1.  **Preserva la aleatorización**: los grupos siguen siendo comparables.
 2.  Responde la pregunta práctica: *¿qué ocurre si **ofrezco** este tratamiento?* (con el incumplimiento real).
 3.  Evita el sesgo de quienes dejan el tratamiento por motivos relacionados con el pronóstico.
 
-::: {.callout-warning}
-## ⚠️ "ITT modificado" y otras exclusiones
+## Paso 2: el diagrama de flujo (CONSORT)
 
-Excluir pacientes "que nunca recibieron una dosis" o "sin medición basal" (*modified ITT*) es admisible solo si la exclusión **no puede depender del tratamiento asignado** (por ejemplo, error de aleatorización detectado antes de saber el grupo). Si la exclusión es **posterior** y puede estar relacionada con el tratamiento, rompe la aleatorización.
-:::
-
-## El diagrama de flujo (CONSORT)
-
-Todo ECA debe reportar cuántos pacientes se aleatorizaron, cuántos recibieron la intervención, cuántos se perdieron y cuántos se analizaron:
+Todo ECA debe reportar cuántos pacientes se aleatorizaron, cuántos recibieron la intervención, cuántos se perdieron y cuántos se analizaron. Armamos los números a partir de los datos:
 
 ```{r}
 #| label: setup-112
 library(tidyverse)
 library(broom)
+theme_set(theme_minimal(base_size = 12))
 
 eca <- read_csv("Bases/eca_bicarbonato.csv") |>
   mutate(brazo = factor(brazo, levels = c("Placebo", "Bicarbonato")),
@@ -61,11 +68,24 @@ ggplot(cajas, aes(x, y)) +
   theme_void()
 ```
 
-El análisis ITT incluye **a todos** los pacientes aleatorizados, aunque en 24 meses falten datos (11.4 muestra cómo manejarlos). En el análisis con **solo** los que tienen medición a 24 meses se pierde el 20 % de los pacientes y se introduce un posible sesgo.
+**Qué vemos.** El análisis ITT incluye a **todos** los pacientes aleatorizados aunque a 24 meses falten datos (`r flujo$perdidos_a_24m[1]` en placebo y `r flujo$perdidos_a_24m[2]` en el brazo activo). Cómo manejar esos faltantes es el tema de 11.4. Un análisis con **solo** los que tienen medición a 24 meses pierde alrededor del 20 % de los pacientes y puede sesgarse.
 
-## Análisis más simple: diferencia de medias del cambio
+## Paso 3: el efecto sobre la TFGe, grupo contra grupo
 
-El desenlace primario: **cambio de TFGe entre el inicio y los 24 meses** (los pacientes con valor observado). En el brazo activo se espera menor caída.
+El desenlace primario es el **cambio de TFGe entre el inicio y los 24 meses** (en los pacientes con valor observado). Primero un gráfico: media y IC 95 % del cambio en cada brazo.
+
+```{r}
+#| label: graf-dif24
+#| fig-width: 5
+#| fig-height: 3.4
+ggplot(filter(eca, !is.na(dif24)), aes(brazo, dif24, color = brazo)) +
+  stat_summary(geom = "pointrange", fun.data = "mean_se", fun.args = list(mult = 1.96), size = 0.8) +
+  scale_color_manual(values = c(Placebo = "#999999", Bicarbonato = "#0072B2")) +
+  guides(color = "none") +
+  labs(x = NULL, y = "Cambio de TFGe a 24 meses (mL/min/1.73 m²)", caption = "Media e IC 95 %. Datos simulados.")
+```
+
+Ahora el contraste en números. Con una prueba *t* y su IC (la diferencia se expresa como bicarbonato menos placebo):
 
 ```{r}
 #| label: ttest-eca
@@ -75,59 +95,88 @@ resumen <- eca |>
   summarise(n = n(), media = mean(dif24), de = sd(dif24), .groups = "drop")
 resumen
 
-t.test(dif24 ~ brazo, data = eca) |> tidy() |>
-  transmute(diferencia = -estimate, ic_inf = -conf.high, ic_sup = -conf.low, p = p.value) |>
-  mutate(across(where(is.numeric), \(x) signif(x, 3)))
+tt <- t.test(dif24 ~ brazo, data = eca) |> tidy() |>
+  transmute(diferencia = -estimate, ic_inf = -conf.high, ic_sup = -conf.low, p = p.value)
+tt |> mutate(across(where(is.numeric), \(x) signif(x, 3)))
 ```
 
-El grupo con bicarbonato pierde **1.3 mL/min/1.73 m²** menos que el grupo placebo en 24 meses (IC 95 % 0.7 a 1.9). Esa es la **diferencia ITT en los pacientes con medición**.
+El grupo con bicarbonato pierde **`r round(tt$diferencia, 1)` mL/min/1.73 m²** menos que el grupo placebo en 24 meses (IC 95 %: `r round(tt$ic_inf, 1)` a `r round(tt$ic_sup, 1)`). Esa es la **diferencia ITT** en los pacientes con medición.
+
+### Contra la verdad
+
+Como el ECA es simulado, conocemos el efecto ITT verdadero: lo que ganaría, en promedio, cada paciente asignado al bicarbonato (los que toman el fármaco se benefician; los que no, no):
+
+```{r}
+#| label: verdad-itt
+oraculo <- read_csv("Bases/eca_bicarbonato_oraculo.csv")
+verdad_itt_24 <- eca |> left_join(oraculo, by = "id") |>
+  summarise(itt_24m = mean(cumplidor * efecto_ind) * 2)     # efecto anual x 2 años
+verdad_itt_24
+```
+
+La estimación (`r round(tt$diferencia, 2)`) está muy cerca de la verdad (`r round(verdad_itt_24$itt_24m, 2)`): **la ITT recupera el efecto de ofrecer el tratamiento**. Sería un error esperar que recuperara el efecto de *tomarlo* (que es mayor): eso es el CACE (11.6).
 
 ::: {.callout-tip}
-## 💡 ¿Qué se reporta en un ECA?
+## 💡 Cómo se lee un resultado de ECA
 
--   **La diferencia entre grupos con su IC** (y *p*), **no** el valor *p* de cada grupo antes-después.
--   **Tamaño de efecto clínico**: ¿1.3 mL/min/1.73 m² en 24 meses es relevante? Compara con la **diferencia mínima importante** (por ejemplo, 1 mL/min/año se considera clínicamente significativo en muchos contextos).
--   **Número de pacientes por grupo** y **cuántos faltan**.
+-   Reporta **la diferencia entre grupos con su IC**, no el valor *p* de cada grupo antes-después.
+-   Pregúntate si el tamaño es **clínicamente relevante**: ¿`r round(tt$diferencia, 1)` mL/min/1.73 m² en 24 meses lo es? Compara con la **diferencia mínima importante** que se hubiera fijado.
+-   Reporta el **número de pacientes por grupo** y **cuántos faltan**.
+-   Un **valor *p* ≥ 0.05 no significa "sin efecto"**: significa que el ensayo no tuvo suficiente información para distinguirlo (Cap. 20).
 :::
 
-## Efecto estandarizado
+## Paso 4: efecto estandarizado
 
-Para comparar con otros estudios o con otras variables, se expresa la diferencia en **desviaciones estándar** (*d* de Cohen):
+Para comparar con otros estudios o variables, la diferencia se expresa en **desviaciones estándar** (*d* de Cohen):
 
 ```{r}
 #| label: cohen
 sd_comun <- sqrt(mean(resumen$de^2))
 dif <- diff(resumen$media)
-c(diferencia = dif, d_de_Cohen = dif / sd_comun)
+d_cohen <- c(diferencia = dif, d_de_Cohen = dif / sd_comun)
+d_cohen
 ```
 
-*d* ≈ 0.4 (pequeño a moderado); el beneficio medio es modesto en comparación con la variabilidad entre pacientes, pero sostenido en el tiempo se acumula.
+*d* ≈ `r round(d_cohen[2], 1)` (pequeño a moderado): el beneficio medio es modesto frente a la variabilidad entre pacientes, aunque sostenido en el tiempo se acumula.
 
-## Análisis para binarios y tiempos
+## Paso 5: el mismo principio para binarios y tiempos
 
-El mismo principio aplica a otros desenlaces:
-
--   **Binario** (¿progresó más de 40 %?): diferencia de riesgos y RR (8.3) con la población ITT.
+-   **Desenlace binario** (¿progresó más de 40 %?): diferencia de riesgos y RR (8.3) con la población ITT.
 -   **Tiempo hasta evento** (falla renal): Kaplan-Meier y Cox (Cap. 9), con la asignación como única covariable (o ajustando por las variables de estratificación).
 
 ```{r}
-#| label: cox-eca
+#| label: cox-itt
 library(survival)
+source("R/simular_eca_bicarbonato.R")
+
 cox_itt <- coxph(Surv(tiempo_meses, estado == 1) ~ brazo + strata(centro), data = eca)
-exp(c(HR = coef(cox_itt), confint(cox_itt))) |> round(2)
+hr_itt <- exp(c(HR = coef(cox_itt), confint(cox_itt)))
+round(hr_itt, 2)
+
+## "Verdad" del HR ITT: un ECA simulado muy grande (60 000 pacientes), analizado igual
+grande <- simular_eca_bicarbonato(n = 60000, semilla = 5)$datos |>
+  mutate(brazo = factor(brazo, levels = c("Placebo", "Bicarbonato")))
+hr_verdad <- unname(exp(coef(coxph(Surv(tiempo_meses, estado == 1) ~ brazo, data = grande))))
+round(hr_verdad, 2)
 ```
 
-El HR es ~0.75 (IC 0.55-1.03): una reducción del 25 % en el riesgo de falla renal, **no concluyente** con 165 eventos. En ECA el **valor *p* ≥ 0.05 no significa "sin efecto"**: significa que el ensayo no tuvo suficiente información para distinguirlo (Cap. 20).
+El HR de falla renal es **`r round(hr_itt[1], 2)`** (IC `r round(hr_itt[2], 2)` a `r round(hr_itt[3], 2)`): una reducción de ~`r round(100 * (1 - hr_itt[1]))` % en el riesgo, **no concluyente** con `r sum(eca$estado == 1)` eventos (el IC incluye 1). En el ECA grande simulado, el HR ITT verdadero es **`r round(hr_verdad, 2)`**: más cerca de 1 que el 0.70 de los cumplidores, porque el incumplimiento lo diluye. El IC de este ensayo (640 pacientes) contiene esa verdad, pero es demasiado ancho para distinguirla de "ningún efecto".
 
-## Resumen de una analista honesta
+## Trampas frecuentes
+
+::: {.callout-warning}
+## ⚠️ "ITT modificado" y otras exclusiones
+
+Excluir a pacientes "que nunca recibieron una dosis" o "sin medición basal" (*modified ITT*) solo es admisible si la exclusión **no puede depender del tratamiento asignado** (por ejemplo, un error de aleatorización detectado antes de conocer el brazo). Si la exclusión es **posterior** y puede relacionarse con el tratamiento (el que se siente mal con el bicarbonato lo deja), rompe la aleatorización.
+:::
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
 -   **ITT** analiza **a todos como se asignaron**; es el análisis principal porque **conserva la aleatorización**.
--   Reporta el **diagrama CONSORT** con aleatorizados, tratados, perdidos y analizados.
+-   Reporta el **diagrama CONSORT**: aleatorizados, tratados, perdidos y analizados.
 -   Compara **los grupos entre sí** (diferencia con IC), no cada grupo antes-después.
--   **No excluyas** pacientes tras la aleatorización por incumplimiento o datos faltantes.
+-   La ITT estima el efecto de **ofrecer** el tratamiento, diluido por el incumplimiento: aquí `r round(tt$diferencia, 1)` mL/min/1.73 m², como la verdad ITT. El efecto de *tomarlo* es mayor (11.6).
 -   Interpreta el IC en términos **clínicos**; un *p* > 0.05 no prueba ausencia de efecto.
 :::
 

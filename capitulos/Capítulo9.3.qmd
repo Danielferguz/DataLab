@@ -1,18 +1,16 @@
 # Regresión de Cox
 
-## El modelo
+::: {.callout-note}
+## 🩺 Escenario
 
-El **modelo de riesgos proporcionales de Cox** relaciona el **riesgo instantáneo** (*hazard*) de un paciente con sus covariables:
+Tienes dos pacientes de 66 años con albuminuria de 300 mg/g. Uno tiene una TFGe de 25 y el otro de 15 mL/min/1.73 m². Sabes que el segundo "va más rápido" hacia la diálisis, pero ¿**cuánto** más rápido? Y la diabetes, ¿suma riesgo por sí sola o solo porque estos pacientes suelen tener peor TFGe y más albuminuria? Kaplan-Meier compara un factor a la vez; para ajustar por varios a la vez y obtener un número por factor necesitas el **modelo de Cox**.
+:::
 
-$$
-h(t \mid X) = h_0(t)\,\exp(\beta_1 X_1 + \beta_2 X_2 + \dots + \beta_p X_p)
-$$
+**Lo que vamos a hacer**
 
--   $h_0(t)$ es el riesgo basal, que **no se especifica** (por eso es "semiparamétrico").
--   $e^{\beta_j}$ es el **cociente de riesgos instantáneos** (***hazard ratio***, HR): por cuánto se **multiplica el riesgo en cada instante** al aumentar $X_j$ en una unidad, manteniendo constantes las demás.
--   **Proporcionalidad**: el HR **no cambia con el tiempo** (se verifica en 9.4).
-
-HR = 1.6 significa que, **en cualquier momento**, entre quienes siguen en riesgo, el paciente con ese factor tiene un riesgo instantáneo 60 % mayor.
+-   Entender el **hazard ratio** (HR) como un "multiplicador de velocidad" y aprender a decirlo en lenguaje clínico.
+-   Ajustar un modelo de Cox, **leer su salida** y compararlo con la **verdad** de la simulación.
+-   Dibujar un *forest plot* y **predecir curvas** para pacientes concretos.
 
 ```{r}
 #| label: setup-93
@@ -20,6 +18,7 @@ library(tidyverse)
 library(survival)
 library(survminer)
 library(broom)
+theme_set(theme_minimal(base_size = 12))
 
 coh <- read_csv("Bases/cohorte_pronostico.csv") |>
   mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")),
@@ -27,7 +26,32 @@ coh <- read_csv("Bases/cohorte_pronostico.csv") |>
          krt = as.integer(estado == 1))
 ```
 
-## Modelo simple y ajustado
+## Paso 1: la idea del HR con una cuenta sencilla
+
+En 9.1 definimos el riesgo instantáneo $h(t)$ como el "velocímetro" del evento. El modelo de Cox dice que, **en cada instante**, el velocímetro de un paciente es el de un paciente de referencia **multiplicado por un factor** que depende de sus características:
+
+$$
+h(t \mid X) = h_0(t)\,\exp(\beta_1 X_1 + \beta_2 X_2 + \dots + \beta_p X_p)
+$$
+
+-   $h_0(t)$ es el riesgo del paciente de referencia (todos los $X = 0$) y **no se especifica**: puede subir, bajar o hacer lo que quiera con el tiempo. Por eso el modelo es "semiparamétrico".
+-   $e^{\beta_j}$ es el **hazard ratio** (HR): por cuánto se **multiplica el velocímetro** cuando $X_j$ aumenta una unidad, con las demás variables iguales.
+-   Lo que el modelo **supone** es que ese multiplicador es **constante en el tiempo** (riesgos proporcionales; se verifica en 9.4).
+
+Una aproximación casera al HR de la diabetes: dividir las tasas de falla renal (eventos por persona-año) de cada grupo.
+
+```{r}
+#| label: tasas-dm
+tasas <- coh |>
+  group_by(dm) |>
+  summarise(eventos = sum(krt), persona_anios = sum(tiempo_meses) / 12, tasa = eventos / persona_anios)
+tasas
+c(razon_de_tasas = tasas$tasa[2] / tasas$tasa[1])
+```
+
+Los pacientes con diabetes tienen `r round(tasas$tasa[2] / tasas$tasa[1], 2)` veces la tasa de falla renal de los que no tienen. Veamos qué dice Cox.
+
+## Paso 2: el modelo de Cox más simple
 
 ```{r}
 #| label: cox-simple
@@ -35,7 +59,18 @@ cox_dm <- coxph(Surv(tiempo_meses, krt) ~ dm, data = coh)
 summary(cox_dm)
 ```
 
-El HR crudo de la diabetes es ~2.1 (IC 1.8-2.4): el riesgo instantáneo de falla renal es **más del doble** en pacientes con diabetes. Ahora ajustamos por las variables clínicas que nos importan. Escalamos para facilitar la lectura: TFGe **por cada 10 unidades menos**, edad **por 10 años**, UACR en **logaritmo base 2** (cada unidad = duplicar la UACR):
+**Cómo leer la salida:**
+
+-   `coef`: el logaritmo del HR (1 diabetes frente a 0). Positivo = más riesgo.
+-   `exp(coef)`: **el HR**, `r round(exp(coef(cox_dm)), 2)`; con IC 95 % de `r round(exp(confint(cox_dm))[1], 2)` a `r round(exp(confint(cox_dm))[2], 2)`.
+-   `Pr(>|z|)`: el valor *p* de la prueba de Wald (¿el coeficiente difiere de 0?).
+-   `Concordance`: probabilidad de que, de dos pacientes, el que tiene el evento antes sea el que el modelo daba como de mayor riesgo (1 = perfecto, 0.5 = azar). Vuelve en el Cap. 17.
+
+El HR crudo de la diabetes es muy parecido a la razón de tasas del paso 1. **Lectura clínica:** *a cualquier tiempo, entre los pacientes que siguen sin diálisis, los que tienen diabetes tienen un riesgo instantáneo de falla renal `r round(exp(coef(cox_dm)), 1)` veces el de los que no tienen*.
+
+## Paso 3: ajustar por varias variables
+
+Para que los HR sean legibles, reescalamos: la TFGe **por cada 10 unidades menos**, la edad **por 10 años** y la UACR en **logaritmo base 2** (cada unidad = duplicar la albuminuria).
 
 ```{r}
 #| label: cox-ajustado
@@ -45,77 +80,94 @@ cox_aj <- coxph(
   data = coh
 )
 
-tidy(cox_aj, exponentiate = TRUE, conf.int = TRUE) |>
-  select(term, HR = estimate, conf.low, conf.high, p.value) |>
-  mutate(term = recode(term, dmCon_DM = "Diabetes", `dmCon DM` = "Diabetes",
-                       `I((27 - tfg)/10)` = "TFGe, por 10 unidades menos", `log2(uacr)` = "UACR, por cada duplicación",
-                       `I(edad/10)` = "Edad, por 10 años", sexoHombre = "Sexo masculino",
-                       albumina = "Albúmina, por 1 g/dL", fosforo = "Fósforo, por 1 mg/dL",
-                       bicarbonato = "Bicarbonato, por 1 mEq/L", ecv = "ECV previa"),
-         across(where(is.numeric), \(x) round(x, 3)))
+etiquetas <- c(`dmCon DM` = "Diabetes", `I((27 - tfg)/10)` = "TFGe, por 10 menos",
+               `log2(uacr)` = "UACR, por duplicación", `I(edad/10)` = "Edad, por 10 años",
+               sexoHombre = "Sexo masculino", albumina = "Albúmina, por 1 g/dL",
+               fosforo = "Fósforo, por 1 mg/dL", bicarbonato = "Bicarbonato, por 1 mEq/L", ecv = "ECV previa")
+
+hr_aj <- tidy(cox_aj, exponentiate = TRUE, conf.int = TRUE) |>
+  mutate(variable = recode(term, !!!etiquetas)) |>
+  select(variable, HR = estimate, conf.low, conf.high, p.value)
+hr_aj |> mutate(across(where(is.numeric), \(x) round(x, 3)))
 ```
 
-**Cómo leer los HR:**
+### Contra la verdad
 
--   **TFGe**: por cada 10 mL/min/1.73 m² menos, el riesgo instantáneo se multiplica por ~2.6.
--   **UACR**: cada duplicación de la albuminuria multiplica el riesgo por ~1.4.
--   **Edad**: a igual TFGe y UACR, ser **mayor** reduce el riesgo de **falla renal** (HR ~0.8 por década): muchos pacientes mayores **mueren antes** de llegar a diálisis (riesgo competitivo, 9.5).
--   **Albúmina**, **fósforo** y **bicarbonato** actúan en la dirección esperada.
--   **Sexo** y **ECV** no se asocian de forma clara con falla renal al ajustar (IC que incluyen 1).
-
-::: {.callout-warning}
-## ⚠️ El HR no es un riesgo relativo, y mucho menos "tiempo hasta el evento"
-
--   Un HR de 2 **no** significa "el doble de pacientes con diálisis" ni "llegan en la mitad del tiempo".
--   El HR es un cociente de **tasas instantáneas** y, como el OR, **no es colapsable**: cambia al agregar covariables aunque no haya confusión.
--   Como compara a quienes **siguen en riesgo**, tiene una selección incorporada con el tiempo (Hernán 2010). Para efectos causales a un tiempo fijo conviene **riesgos acumulados** (9.5) o RMST (9.6).
-:::
-
-## Variables continuas, categóricas y escala
-
--   La **edad por 10 años**, o la **TFGe por 10 unidades**, evitan HR minúsculos que "parecen" no tener efecto.
--   Con `log2(uacr)` cada unidad es una duplicación: interpretación natural para variables logarítmicas.
--   Con **categorías** (A1, A2, A3), R toma la primera como referencia: `relevel()` o `fct_relevel()` para cambiarla.
--   La **linealidad en el log-HR** se revisa con *splines*: `coxph(... + pspline(tfg))` o `ns(tfg, 3)` (8.5).
+Como la cohorte es simulada, conocemos los HR verdaderos. Ponemos lado a lado el **HR crudo** (una variable a la vez), el **ajustado** y la **verdad**:
 
 ```{r}
-#| label: cox-categoria
-coh <- coh |> mutate(cat_a = cut(uacr, c(0, 30, 300, Inf), right = FALSE, labels = c("A1", "A2", "A3")))
-cox_a <- coxph(Surv(tiempo_meses, krt) ~ cat_a + I((27 - tfg) / 10) + I(edad / 10) + dm, data = coh)
-tidy(cox_a, exponentiate = TRUE, conf.int = TRUE) |> select(term, HR = estimate, conf.low, conf.high) |>
+#| label: crudo-ajustado-verdad
+# Una variable a la vez (modelos "crudos"): una fórmula por variable
+terminos <- c(Diabetes = "dm", `TFGe, por 10 menos` = "I((27 - tfg) / 10)", `UACR, por duplicación` = "log2(uacr)",
+              `Edad, por 10 años` = "I(edad / 10)", `Sexo masculino` = "sexo", `Albúmina, por 1 g/dL` = "albumina",
+              `Fósforo, por 1 mg/dL` = "fosforo", `Bicarbonato, por 1 mEq/L` = "bicarbonato", `ECV previa` = "ecv")
+
+hr_crudo <- imap_dfr(terminos, \(t, nombre) {
+  m <- coxph(as.formula(paste("Surv(tiempo_meses, krt) ~", t)), data = coh)
+  tibble(variable = nombre, HR_crudo = unname(exp(coef(m))))
+})
+
+# Verdad de la simulación (log-HR por causa; la diabetes cambia en el tiempo: ver 9.4)
+verdad <- tibble(variable = names(terminos),
+                 HR_verdad = c(NA, exp(0.95), exp(0.45 * log(2)), exp(-0.20), exp(0.10), exp(-0.30), exp(0.25), exp(-0.06), 1))
+
+hr_aj |>
+  left_join(hr_crudo, by = "variable") |>
+  left_join(verdad, by = "variable") |>
+  select(variable, HR_crudo, HR_ajustado = HR, conf.low, conf.high, HR_verdad) |>
   mutate(across(where(is.numeric), \(x) round(x, 2)))
 ```
 
-## Gráfico de bosque (*forest plot*)
+**Qué vemos.**
+
+-   **TFGe**: por cada 10 mL/min/1.73 m² **menos**, el riesgo instantáneo se multiplica por `r round(hr_aj$HR[hr_aj$variable == "TFGe, por 10 menos"], 1)` (verdad: `r round(exp(0.95), 1)`). Es el multiplicador de tu escenario: el paciente con TFGe 15 va `r round(hr_aj$HR[hr_aj$variable == "TFGe, por 10 menos"], 1)` veces más rápido hacia la diálisis que el de 25, a igualdad de lo demás.
+-   **UACR**: cada duplicación de la albuminuria multiplica el riesgo por `r round(hr_aj$HR[hr_aj$variable == "UACR, por duplicación"], 2)` (verdad: `r round(exp(0.45 * log(2)), 2)`).
+-   **Edad**: a igual TFGe y UACR, ser **mayor** *reduce* el riesgo de falla renal (HR `r round(hr_aj$HR[hr_aj$variable == "Edad, por 10 años"], 2)` por década; verdad `r round(exp(-0.20), 2)`). No es que envejecer proteja el riñón: muchos pacientes mayores **mueren antes** de llegar a diálisis (riesgo competitivo, 9.5).
+-   **Albúmina, fósforo y bicarbonato** actúan en la dirección esperada y sexo y ECV no muestran asociación clara (IC que incluyen 1; verdad: 1.1 y 1.0).
+-   **Diabetes**: no tiene una "verdad" única porque su efecto **cambia con el tiempo** (HR 2.6 los primeros 18 meses y 1.0 después). El HR único es un promedio de ambas cosas; lo desmontamos en 9.4.
+-   Observa cómo **cambian los HR del crudo al ajustado**: el de la diabetes baja de `r round(hr_crudo$HR_crudo[1], 1)` a `r round(hr_aj$HR[1], 1)`, y el de la albúmina sube de `r round(hr_crudo$HR_crudo[6], 2)` a `r round(hr_aj$HR[6], 2)`. Parte de la asociación cruda se debe a que los pacientes con diabetes tienen más albuminuria, y a que la albúmina baja suele acompañar a la peor TFGe y a otras características de riesgo.
+
+## Paso 4: cómo decir un HR sin equivocarse
+
+::: {.callout-warning}
+## ⚠️ El HR no es un riesgo relativo, ni "el doble de pacientes", ni "la mitad del tiempo"
+
+-   **Bien dicho:** *"En cualquier momento del seguimiento, entre quienes siguen sin diálisis, el riesgo instantáneo de falla renal es `r round(hr_aj$HR[hr_aj$variable == "TFGe, por 10 menos"], 1)` veces mayor por cada 10 unidades menos de TFGe"*.
+-   **Mal dicho:** "el doble de pacientes llegan a diálisis" (eso sería un RR del riesgo acumulado) o "llegan en la mitad del tiempo".
+-   Como el OR, el HR **no es colapsable**: cambia al añadir covariables aunque no haya confusión.
+-   Compara a quienes **siguen en riesgo**, un grupo que ya está seleccionado por haber sobrevivido hasta *t* (Hernán 2010). Para efectos causales a un tiempo fijo, mejor **riesgos acumulados** (9.5) o **RMST** (9.6).
+:::
+
+## Paso 5: un gráfico de bosque con la verdad
+
+Un *forest plot* resume todos los HR con su IC. Añadimos la verdad como un rombo naranja, para ver si los IC la contienen:
 
 ```{r}
 #| label: forest
-#| fig-width: 7
-#| fig-height: 3.8
-etiquetas <- c(`dmCon DM` = "Diabetes", `I((27 - tfg)/10)` = "TFGe, por 10 menos", `log2(uacr)` = "UACR, por duplicación",
-               `I(edad/10)` = "Edad, por 10 años", sexoHombre = "Sexo masculino", albumina = "Albúmina, por 1 g/dL",
-               fosforo = "Fósforo, por 1 mg/dL", bicarbonato = "Bicarbonato, por 1 mEq/L", ecv = "ECV previa")
-
-tidy(cox_aj, exponentiate = TRUE, conf.int = TRUE) |>
-  mutate(term = recode(term, !!!etiquetas), term = fct_reorder(term, estimate)) |>
-  ggplot(aes(estimate, term, xmin = conf.low, xmax = conf.high)) +
+#| fig-width: 7.5
+#| fig-height: 4
+hr_aj |>
+  left_join(verdad, by = "variable") |>
+  mutate(variable = fct_reorder(variable, HR)) |>
+  ggplot(aes(HR, variable, xmin = conf.low, xmax = conf.high)) +
   geom_vline(xintercept = 1, linetype = "dashed") +
   geom_pointrange(color = "#0072B2") +
+  geom_point(aes(x = HR_verdad), shape = 18, size = 3.5, color = "#D55E00", na.rm = TRUE) +
   scale_x_log10() +
-  labs(x = "Hazard ratio (escala logarítmica)", y = NULL, caption = "Falla renal. Datos simulados.") +
-  theme_minimal(base_size = 11)
+  labs(x = "Hazard ratio (escala logarítmica)", y = NULL,
+       caption = "Azul: estimación con IC 95 %. Rombo naranja: verdad (la diabetes no tiene una única verdad). Datos simulados.")
 ```
 
-## Predecir curvas de supervivencia para perfiles de pacientes
+## Paso 6: predecir la curva de un paciente
 
-El modelo de Cox permite estimar la **curva de un paciente específico**. Es la base de las **calculadoras de riesgo** (Cap. 17):
+Cox no solo da HR: con `survfit(modelo, newdata = ...)` obtienes la **curva de un perfil concreto**. Es la base de las calculadoras de riesgo (Cap. 17). Comparamos tres hombres de 66 años, sin diabetes, con UACR 300 mg/g y TFGe de 35, 25 y 15:
 
 ```{r}
 #| label: curvas-perfil
 #| fig-width: 8
 #| fig-height: 4
 perfiles <- tibble(
-  dm = factor(c("Sin DM", "Sin DM", "Sin DM"), levels = levels(coh$dm)),
+  dm = factor("Sin DM", levels = levels(coh$dm)),
   tfg = c(35, 25, 15), uacr = 300, edad = 66, sexo = factor("Hombre", levels = levels(coh$sexo)),
   albumina = 4, fosforo = 3.7, bicarbonato = 23, ecv = 0
 )
@@ -129,56 +181,57 @@ tidy(sf) |>
   scale_color_viridis_d(end = 0.8, name = NULL) +
   labs(x = "Meses", y = "Riesgo acumulado de falla renal",
        caption = "Hombre de 66 años, sin diabetes, UACR 300 mg/g. Modelo de Cox. Datos simulados.") +
-  theme_minimal(base_size = 11) + theme(legend.position = "bottom")
+  theme(legend.position = "bottom")
+
+riesgo_36 <- 1 - summary(sf, times = 36)$surv
+setNames(round(100 * as.numeric(riesgo_36), 1), paste("TFGe", perfiles$tfg))
 ```
 
-## Variantes útiles
+Con la misma albuminuria, el riesgo acumulado de falla renal a 36 meses es de `r round(100 * riesgo_36[1])` % con TFGe 35, `r round(100 * riesgo_36[2])` % con 25 y `r round(100 * riesgo_36[3])` % con 15. Fíjate que **el HR es el mismo (2.6) en cada salto de 10 unidades, pero el riesgo absoluto crece cada vez más**: es la diferencia entre un multiplicador y un riesgo absoluto, y la razón por la que a un paciente le conviene que le digas **ambos**.
 
-### Estratificación: otro riesgo basal por grupo
+## Variantes y detalles útiles
 
-Cuando una variable **no cumple proporcionalidad** y no te interesa su HR, se **estratifica**: cada estrato tiene su propio $h_0(t)$.
+-   **Estratificación (`strata()`).** Cuando una variable de ajuste **no cumple proporcionalidad** y no te interesa su HR, cada estrato tiene su propio riesgo basal: `coxph(Surv(...) ~ tfg + strata(sexo), ...)`.
+-   **Datos agrupados (`cluster()`).** Si hay pacientes anidados en centros de diálisis, `cluster(centro)` da errores estándar robustos (Cap. 14).
+-   **Empates.** Con tiempos en meses enteros hay empates; R usa por defecto la aproximación de Efron, adecuada casi siempre.
+-   **Variables que cambian en el tiempo** (TFGe actualizada, inicio de un fármaco) se incluyen con el formato `(tstart, tstop]` (`survSplit()`, `tmerge()`); lo usamos en 10.2 y en el Cap. 19.
+-   **Cuántas variables caben.** Apunta a **≥ 10-20 eventos por parámetro**. Con 839 eventos y 9 parámetros hay holgura; en cohortes pequeñas limítate a los confusores esenciales.
+-   **Categorías.** Con una variable categórica (A1, A2, A3), R toma la primera como referencia; cámbiala con `relevel()` o `fct_relevel()`.
+
+::: {.callout-tip}
+## 💡 Con el paquete {gtsummary} (no se ejecuta aquí)
+
+Si trabajas con `{gtsummary}`, una "Tabla 2" con HR crudo y ajustado, lado a lado, sale así (código del autor adaptado a nuestras variables; instalar el paquete con `install.packages("gtsummary")`):
 
 ```{r}
-#| label: cox-estrato
-cox_estr <- coxph(Surv(tiempo_meses, krt) ~ I((27 - tfg) / 10) + log2(uacr) + I(edad / 10) + strata(sexo), data = coh)
-round(exp(coef(cox_estr)), 3)
-```
-
-### Errores robustos y conglomerados
-
-Si hay pacientes agrupados (centros de diálisis), `cluster()` da errores estándar robustos:
-
-```{r}
-#| label: cox-cluster
+#| label: gtsummary-cox
 #| eval: false
-coxph(Surv(tiempo_meses, krt) ~ dm + tfg + cluster(centro), data = datos)
+library(gtsummary)
+
+crudo <- tbl_uvregression(                                # un modelo de Cox por variable
+  data = coh |> select(tiempo_meses, krt, dm, tfg, uacr, edad, sexo),
+  method = coxph, y = Surv(time = tiempo_meses, event = krt),
+  exponentiate = TRUE)
+ajustado <- tbl_regression(cox_aj, exponentiate = TRUE)   # el modelo múltiple
+tbl_merge(list(crudo, ajustado), tab_spanner = c("**Crudo**", "**Ajustado**"))
+
+# Tabla de supervivencia a tiempos fijos, por grupo
+tbl_survfit(survfit(Surv(tiempo_meses, krt) ~ dm, data = coh), times = c(12, 36), label_header = "**{time} meses**")
 ```
+:::
 
-### Empates
+## Un aviso sobre causalidad
 
-Con tiempos medidos en meses enteros hay **empates** (varios eventos en el mismo mes). R usa por defecto la aproximación de **Efron**, adecuada casi siempre.
-
-### Tiempo-dependientes
-
-Variables que **cambian durante el seguimiento** (TFGe actualizada, inicio de un fármaco) se incluyen con la estructura `(tstart, tstop]` (`survSplit()` o `tmerge()`). Se verá en el Cap. 19 junto con los métodos g.
-
-## Cuántas variables caben: eventos por variable
-
-Como en la logística (8.3): al menos **10-20 eventos por parámetro**. Con 839 eventos y 9 parámetros hay holgura. En cohortes pequeñas, limita el número de covariables a los confusores esenciales.
-
-## ¿Efecto causal? Lo que el HR no resuelve
-
-Un HR ajustado es **una asociación**; para interpretarlo como efecto causal se necesita lo de siempre: **intercambiabilidad condicional** (confusores medidos), consistencia, positividad y ausencia de sesgo de selección. Además, el HR **cambia de significado con el tiempo** si el riesgo no es proporcional, y el uso de variables **post-tratamiento** (como la TFGe a los 6 meses) rompe la interpretación. El Cap. 12 presenta alternativas (riesgos acumulados estandarizados, IPW, AIPW).
+Un HR ajustado es **una asociación**. Para leerlo como efecto causal necesitas lo de siempre (Cap. 3): intercambiabilidad condicional (confusores medidos), consistencia, positividad y ausencia de sesgo de selección. Además, no ajustes por variables **posteriores** a la exposición (por ejemplo, la TFGe a los 6 meses si la exposición es un tratamiento). El Cap. 12 presenta alternativas (riesgos acumulados estandarizados, IPW).
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
--   **Cox** estima **HR**: cociente de riesgos instantáneos, **constante en el tiempo** bajo proporcionalidad.
--   Reescala las variables (por 10 años, `log2`) y reporta **HR con IC** en tabla o gráfico de bosque.
--   Puedes **predecir curvas** de perfiles con `survfit(modelo, newdata = ...)`.
--   **Estratifica** (`strata()`) cuando una variable no cumple proporcionalidad; usa `cluster()` con datos agrupados.
--   **HR ≠ riesgo relativo** ni "tiempo": complementa con riesgos acumulados y RMST.
--   Hace falta **≥ 10-20 eventos por parámetro**.
+-   **Cox** estima **HR**: el multiplicador del riesgo instantáneo, **constante en el tiempo** bajo proporcionalidad.
+-   Reescala las variables (por 10 años, `log2`) y reporta **HR con IC** en tabla o *forest plot*.
+-   Comparar **crudo vs. ajustado** muestra cuánto de la asociación se debe a otras variables.
+-   `survfit(modelo, newdata = ...)` predice la **curva de un paciente concreto**: el HR es relativo; el riesgo absoluto depende del perfil.
+-   **HR ≠ riesgo relativo ni "tiempo"**; complementa con riesgos acumulados y RMST.
 :::
 
 ## Ejercicio

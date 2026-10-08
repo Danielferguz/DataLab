@@ -1,6 +1,20 @@
 # Dos variables: pruebas de hipótesis y correlación
 
-## ¿Qué prueba uso?
+::: {.callout-note}
+## 🩺 Escenario
+
+Tu tutor te lanza cinco preguntas en el pasillo: ¿los tratados con iSGLT2 tienen distinta TFGe basal que los no tratados? ¿La ECV previa se asocia con recibir el fármaco? ¿La pérdida anual de TFGe cambia según la categoría G? ¿Cuánto se relacionan la edad y la TFGe? ¿Subió la creatinina entre la basal y los 12 meses **en los mismos pacientes**? Cinco preguntas, cinco pruebas distintas. Aprender a elegir entre ellas es todo este subcapítulo.
+:::
+
+**Lo que vamos a hacer**
+
+-   Elegir la prueba según **tipo de variable** y **diseño** (grupos independientes o pareados).
+-   Leer, línea por línea, la salida de `t.test()`, `chisq.test()`, `aov()` y `cor.test()`.
+-   Corregir las **comparaciones múltiples** y recordar qué **no** dicen los valores *p*.
+
+## Paso 1. ¿Qué prueba uso?
+
+Hazte tres preguntas, en este orden: (1) ¿de qué tipo es el **desenlace** (continuo o categórico)?, (2) ¿cuántos **grupos** comparo?, (3) ¿los grupos son **independientes** o son los mismos pacientes medidos dos veces?
 
 | Variable resultado | Variable que se compara | Prueba paramétrica | Alternativa no paramétrica |
 |---|---|---|---|
@@ -11,13 +25,15 @@
 | Binaria pareada | Antes/después | — | McNemar |
 | Continua | Continua | Correlación de Pearson | Correlación de Spearman |
 
+Cargamos la base de siempre (simulada) y preparamos las variables:
+
 ```{r}
 #| label: setup-81
 library(tidyverse)
 library(broom)
 source("R/funciones_epi.R")
 
-ckd <- read_csv("Bases/ckd_isglt2.csv") |>
+ckd <- read_csv("Bases/ckd_isglt2.csv", show_col_types = FALSE) |>
   mutate(
     trat  = factor(isglt2, levels = 0:1, labels = c("Sin iSGLT2", "Con iSGLT2")),
     sexo  = factor(sexo, levels = c("Mujer", "Hombre")),
@@ -25,15 +41,9 @@ ckd <- read_csv("Bases/ckd_isglt2.csv") |>
   )
 ```
 
-::: {.callout-warning}
-## ⚠️ Lo que una prueba **no** te dice
+## Paso 2. Comparar una variable continua entre dos grupos
 
-El valor *p* contesta: *"si no hubiera ninguna asociación, ¿qué tan raro sería este resultado?"* No dice **qué tan grande** es la diferencia, ni si es **clínicamente importante**, ni si es **causal**. Siempre reporta la **estimación con su IC**; el *p* es un complemento.
-:::
-
-## Comparar una variable continua entre dos grupos
-
-### Prueba *t* (con la diferencia y su IC)
+### Prueba *t* de Welch
 
 ¿La TFGe basal es distinta entre tratados y no tratados?
 
@@ -41,6 +51,13 @@ El valor *p* contesta: *"si no hubiera ninguna asociación, ¿qué tan raro ser�
 #| label: t-test
 t.test(tfg_basal ~ trat, data = ckd)
 ```
+
+**Cómo se lee esta salida**, de arriba abajo:
+
+-   `Welch Two Sample t-test`: es la versión de la *t* que **no exige varianzas iguales** entre grupos. Úsala siempre como opción por defecto; si las varianzas fueran iguales, da prácticamente lo mismo.
+-   `t = -15.4, df = 4893, p-value < 2.2e-16`: el estadístico *t* mide cuántos errores estándar separan las medias; `df` son los grados de libertad. El *p* es diminuto (con *n* = 5 000 casi todo lo es).
+-   `95 percent confidence interval`: la **diferencia** de medias (Sin − Con) va de `r sprintf("%.2f", t.test(tfg_basal ~ trat, data = ckd)$conf.int[1])` a `r sprintf("%.2f", t.test(tfg_basal ~ trat, data = ckd)$conf.int[2])`. **Esto es lo informativo**: tamaño y precisión.
+-   `sample estimates`: las medias de cada grupo (`r sprintf("%.1f", mean(ckd$tfg_basal[ckd$isglt2 == 0]))` y `r sprintf("%.1f", mean(ckd$tfg_basal[ckd$isglt2 == 1]))`). Los tratados tienen una TFGe basal unos **4 mL/min/1.73 m² mayor**, hallazgo que ya vimos en la Tabla 1.
 
 `broom::tidy()` convierte el resultado de cualquier prueba en una tabla ordenada (útil para reportar o para repetir la prueba en muchas variables):
 
@@ -51,26 +68,22 @@ tidy(t.test(tfg_basal ~ trat, data = ckd)) |>
   mutate(across(where(is.numeric), \(x) signif(x, 3)))
 ```
 
-Los tratados tienen una TFGe basal ~4 mL/min/1.73 m² **mayor** (la diferencia ya se vio en la Tabla 1). Con *n* = 5 000 el *p* es diminuto; lo informativo es el tamaño (4 unidades) y su IC.
+### Wilcoxon cuando la variable es asimétrica
 
-### Wilcoxon para la UACR (asimétrica)
+La UACR es muy asimétrica (Cap. 7.1), así que la prueba natural es la de **Wilcoxon-Mann-Whitney**, que trabaja con rangos y no con medias:
 
 ```{r}
 #| label: wilcoxon
 wilcox.test(uacr ~ trat, data = ckd, conf.int = TRUE)
 ```
 
-El estimador es el **pseudomediano de las diferencias** (Hodges-Lehmann), no la diferencia de medianas. Para reportar, **junto con el *p***, da las medianas [RIC] de cada grupo (Tabla 1).
+**Cómo se lee.** El *p* es diminuto otra vez. El "difference in location" (≈ −44 mg/g) es el **pseudomediano de las diferencias** (Hodges-Lehmann), **no** la diferencia de medianas. Para reportar, acompaña el *p* con las **medianas [RIC] de cada grupo** (Tabla 1). Una precisión: Wilcoxon compara medianas solo si las dos distribuciones tienen la misma forma; en general compara "quién tiende a tener valores mayores".
 
-::: {.callout-tip}
-## 💡 ¿*t* o Wilcoxon?
+¿*t* o Wilcoxon? Con *n* grande (≥ 30 por grupo) la *t* es robusta incluso con asimetría moderada. Con *n* pequeño y asimetría clara (UACR, triglicéridos) o valores atípicos, usa Wilcoxon, o transforma con logaritmo y usa *t* sobre `log(uacr)` (el resultado se interpreta como **razón de medias geométricas**).
 
-Con *n* grande (≥ 30 por grupo), la *t* es robusta aun con asimetría moderada. Con *n* pequeño y asimetría clara (UACR, triglicéridos) o valores atípicos, usa Wilcoxon o transforma con logaritmo y usa *t* sobre `log(uacr)` (el resultado es una **razón de medias geométricas**).
-:::
+## Paso 3. Dos variables categóricas: χ² y Fisher
 
-## Dos variables categóricas: χ² y Fisher
-
-¿Está la ECV previa asociada con recibir iSGLT2?
+¿Está la ECV previa asociada con recibir iSGLT2? Primero la tabla de contingencia con los porcentajes **por fila** (¿qué % de cada grupo tiene ECV?) y luego la prueba:
 
 ```{r}
 #| label: chi2
@@ -82,16 +95,30 @@ round(100 * prop.table(tabla, margin = 1), 1)       # % por fila
 chisq.test(tabla, correct = FALSE)
 ```
 
-Con **frecuencias esperadas < 5** en alguna celda, usa `fisher.test()`. Con muchas celdas pequeñas, `fisher.test(tabla, simulate.p.value = TRUE)`.
+**Cómo se lee.** El `X-squared` compara lo observado con lo que se esperaría **si no hubiera asociación**; aquí *p* = `r sprintf("%.2f", chisq.test(tabla, correct = FALSE)$p.value)`: no hay evidencia de asociación (28.2 % frente a 26.4 % de ECV). Para saber si la prueba es confiable, revisa las **frecuencias esperadas**; la regla clásica es que ninguna (o a lo sumo el 20 % de las celdas) sea menor que 5:
 
 ```{r}
 #| label: esperadas
-chisq.test(tabla)$expected      # revisa que ninguna sea < 5
+chisq.test(tabla)$expected      # todas muy por encima de 5
 ```
 
-## Tres o más grupos: ANOVA y Kruskal-Wallis
+Cuando las esperadas son pequeñas hay que usar la prueba exacta de **Fisher**. Un ejemplo típico: un subgrupo pequeño. Tomemos los pacientes G2 con A1 (los de menor riesgo, solo `r sum(ckd$cat_g == "G2" & ckd$cat_a == "A1")` en total) y miremos si el evento renal depende del tratamiento:
 
-¿La pendiente anual de TFGe difiere según la categoría G basal?
+```{r}
+#| label: fisher
+sub <- ckd |> filter(cat_g == "G2", cat_a == "A1")
+tb_sub <- table(trat = sub$trat, evento = sub$evento)
+tb_sub
+
+suppressWarnings(chisq.test(tb_sub)$expected)    # hay esperadas < 5: el χ² no es fiable
+fisher.test(tb_sub)
+```
+
+Con una esperada de 0.8 y otra de 1.2, el χ² no es confiable (R mismo lo advierte). Fisher da *p* = `r sprintf("%.2f", fisher.test(tb_sub)$p.value)`: en este subgrupo hay **muy pocos eventos** para concluir nada (0 eventos entre 26 tratados, 2 entre 18 no tratados). Es el caso de "sin potencia", no de "sin efecto".
+
+## Paso 4. Tres o más grupos: ANOVA y Kruskal-Wallis
+
+¿La pendiente anual de TFGe difiere según la categoría G basal? Siempre dibuja antes de probar:
 
 ```{r}
 #| label: anova
@@ -108,7 +135,9 @@ summary(m_aov)
 kruskal.test(pendiente_tfg ~ cat_g, data = ckd)
 ```
 
-El ANOVA solo dice que **hay alguna diferencia**; para saber **cuáles** grupos difieren se hacen comparaciones por pares con corrección:
+**Cómo se lee la tabla del ANOVA.** `cat_g` tiene 3 grados de libertad (4 categorías − 1); `F value` compara la variación **entre** categorías con la variación **dentro** de ellas; el `Pr(>F)` es el *p*. Aquí `F` = `r round(summary(m_aov)[[1]][["F value"]][1])`: la pendiente cambia con la categoría G (más negativa en G4). Kruskal-Wallis, la versión no paramétrica, confirma. Si las varianzas entre grupos fueran muy distintas, `oneway.test(pendiente_tfg ~ cat_g, data = ckd)` aplica la corrección de Welch al ANOVA.
+
+El ANOVA solo dice que **hay alguna diferencia**. Para saber **cuáles** categorías difieren se hacen comparaciones por pares con corrección:
 
 ```{r}
 #| label: posthoc
@@ -117,9 +146,11 @@ TukeyHSD(m_aov)
 pairwise.wilcox.test(ckd$pendiente_tfg, ckd$cat_g, p.adjust.method = "holm")
 ```
 
-## Comparaciones múltiples
+Cada fila de Tukey es una pareja (p. ej., `G4-G3b`): `diff` es la diferencia de medias de la pendiente, `lwr`/`upr` su IC ajustado y `p adj` el *p* ajustado. Todas las parejas difieren; por ejemplo, G4 pierde `r sprintf("%.1f", abs(TukeyHSD(m_aov)$cat_g["G4-G3b", "diff"]))` mL/min/1.73 m² más por año que G3b.
 
-Si pruebas 20 hipótesis con α = 0.05, **esperas una falsa "significativa"** aunque no haya nada real. Opciones:
+## Paso 5. Comparaciones múltiples
+
+Si pruebas 20 hipótesis con α = 0.05, **esperas una falsa "significativa"** aunque no haya nada real (la probabilidad de al menos un falso positivo ronda el 64 %). Opciones de corrección:
 
 -   **Bonferroni**: multiplica cada *p* por el número de pruebas (conservador).
 -   **Holm**: igual de válido y más potente; es el predeterminado razonable (`p.adjust(p, method = "holm")`).
@@ -132,19 +163,34 @@ tibble(p = p_vals, bonferroni = p.adjust(p_vals, "bonferroni"),
        holm = p.adjust(p_vals, "holm"), fdr = p.adjust(p_vals, "BH")) |> mutate(across(everything(), \(x) round(x, 3)))
 ```
 
-::: {.callout-warning}
-## ⚠️ El pecado capital: probar todo y reportar lo "significativo"
+**Qué vemos.** Sin ajustar hay **cuatro** valores bajo 0.05 (0.001, 0.012, 0.034 y 0.048). Con Bonferroni queda **uno** (0.005); con Holm, **dos** (0.005 y 0.048); con FDR, **dos** (0.005 y 0.030). El ajuste cambia las conclusiones, así que decide el método **antes** de ver los datos.
 
-Declara **antes** de ver los datos cuáles son las hipótesis principales; el resto se etiqueta como **exploratorio**. Ajustar por múltiples comparaciones no sustituye una pregunta clara, y reportar solo los *p* < 0.05 de un análisis amplio es una forma de *p-hacking*.
-:::
+## Paso 6. Correlación entre dos variables continuas
 
-## Correlación entre dos variables continuas
+Antes de calcular un coeficiente, **mira el gráfico** y pregúntate cuatro cosas: la **forma** (¿recta, curva?), la **dirección** (¿sube o baja?), la **dispersión** (¿qué tan apretada es la nube?) y los **atípicos**. La razón es que un mismo coeficiente puede esconder historias muy distintas. El conjunto `anscombe` (viene con R) lo demuestra: cuatro pares de variables con **la misma** correlación de 0.82 y **la misma** media:
+
+```{r}
+#| label: anscombe
+#| fig-width: 8
+#| fig-height: 3.2
+anscombe |>
+  pivot_longer(everything(), names_to = c(".value", "conjunto"), names_pattern = "(.)(.)") |>
+  ggplot(aes(x, y)) +
+  geom_point(color = "#0072B2", size = 2) +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, color = "#D55E00", linewidth = 0.8) +
+  facet_wrap(~ conjunto, nrow = 1, labeller = label_both) +
+  theme_minimal(base_size = 11)
+```
+
+Solo el primer panel es una nube lineal "normal"; en los otros hay una curva, un atípico que fabrica la recta, y un punto que domina todo. Ahora, en nuestros datos:
 
 ```{r}
 #| label: correlacion
-cor.test(ckd$edad, ckd$tfg_basal)                                  # Pearson
-cor.test(ckd$uacr, ckd$pendiente_tfg, method = "spearman")        # Spearman (UACR asimétrica)
+cor.test(ckd$edad, ckd$tfg_basal)                                                # Pearson
+cor.test(ckd$uacr, ckd$pendiente_tfg, method = "spearman", exact = FALSE)       # Spearman (UACR asimétrica)
 ```
+
+**Cómo se lee.** Edad y TFGe basal: *r* = `r round(cor(ckd$edad, ckd$tfg_basal), 2)` (IC 95 % −0.34 a −0.29): correlación **negativa y moderada** (a más edad, menos TFGe). Para la UACR (asimétrica) usamos **Spearman**: ρ = `r round(cor(ckd$uacr, ckd$pendiente_tfg, method = "spearman"), 2)`; a mayor albuminuria, pendiente más negativa (`exact = FALSE` evita el aviso por empates).
 
 ```{r}
 #| label: graf-cor
@@ -161,35 +207,71 @@ ggplot(ckd, aes(uacr, pendiente_tfg)) +
 
 -   **Pearson** mide asociación **lineal**; es sensible a valores extremos.
 -   **Spearman** mide asociación **monótona** (usa rangos); es robusta a asimetría y *outliers*.
--   El coeficiente es **adimensional** (de −1 a 1): *r* = 0.5 no significa "50 %". Elevado al cuadrado (*r*²) da la fracción de varianza compartida.
+-   El coeficiente es **adimensional** (de −1 a 1): *r* = 0.5 no significa "50 %"; elevado al cuadrado (*r*²) da la fracción de varianza compartida. Aquí *r*² ≈ `r round(cor(ckd$edad, ckd$tfg_basal)^2, 2)`: la edad "explica" un 10 % de la variación de la TFGe.
 -   **Correlación ≠ concordancia** (si comparas dos métodos de medición, usa Bland-Altman) y **≠ causalidad**.
 
-## Datos pareados: antes y después
+## Paso 7. Datos pareados: antes y después
 
-`lab_visitas_ancho.csv` tiene la creatinina de 378 pacientes en tres visitas (simulada, Cap. 5). ¿Cambió la creatinina entre la basal y los 12 meses **en los mismos pacientes**? Una *t* para dos muestras independientes ignoraría el pareamiento; se usa la **pareada**:
+`lab_visitas_ancho.csv` tiene la creatinina de 378 pacientes en tres visitas (simulada, Cap. 5). ¿Cambió la creatinina entre la basal y los 12 meses **en los mismos pacientes**? Una *t* para muestras independientes ignoraría el pareamiento; se usa la **pareada**, que analiza **la diferencia dentro de cada paciente**:
 
 ```{r}
 #| label: pareada
-lab <- read_csv("Bases/lab_visitas_ancho.csv")
+lab <- read_csv("Bases/lab_visitas_ancho.csv", show_col_types = FALSE)
 
 t.test(lab$creat_12m, lab$creat_basal, paired = TRUE)
 wilcox.test(lab$creat_12m, lab$creat_basal, paired = TRUE)
 ```
 
-::: {.callout-tip}
-## 💡 La clave del pareamiento
+**Cómo se lee.** La creatinina subió en promedio `r sprintf("%.2f", mean(lab$creat_12m - lab$creat_basal))` mg/dL (IC 0.18-0.26). La prueba pareada quita la variabilidad **entre** pacientes (unos tienen creatinina de 0.8 y otros de 5) y es mucho más potente. Si tus datos son pareados y usas la prueba independiente, **pierdes potencia** y, a veces, la conclusión.
 
-La prueba pareada analiza **la diferencia dentro de cada paciente**. Quita la variabilidad entre pacientes (unos tienen creatinina de 0.8 y otros de 5) y es mucho más potente. Si tus datos son pareados y usas la prueba independiente, **pierdes potencia y a veces conclusiones**.
+## Paso 8. Muchas variables a la vez: una tabla con una prueba por fila
+
+En un artículo se suele presentar **una tabla bivariada**: columnas por grupo (del desenlace o de la exposición) y un valor *p* por variable. Nuestra función `tabla1()` (Cap. 7.2) elige la prueba por ti: *t* (o Wilcoxon, si la declaras en `no_normales`) para continuas, y χ² o Fisher para categóricas.
+
+```{r}
+#| label: tabla-bivariada
+source("R/tabla1.R")
+ckd <- ckd |> mutate(desenlace = factor(evento, levels = 0:1, labels = c("Sin evento", "Con evento")))
+
+tabla1(ckd, vars = c("edad", "sexo", "hba1c", "tfg_basal", "uacr", "ecv"), grupo = "desenlace",
+       no_normales = "uacr", binarias = "ecv", dem = FALSE,
+       etiquetas = c(edad = "Edad, años", sexo = "Sexo", hba1c = "HbA1c, %", tfg_basal = "TFGe",
+                     uacr = "UACR, mg/g", ecv = "ECV previa")) |>
+  knitr::kable(align = "lrrrrr")
+```
+
+En un artículo debes **indicar qué prueba se usó** en cada fila (pie de tabla): *t* de Welch para edad, HbA1c y TFGe; Wilcoxon para la UACR; χ² para sexo y ECV. Con el paquete `gtsummary` (no se ejecuta aquí) puedes elegirlas explícitamente:
+
+```{r}
+#| label: gtsummary-bivariada
+#| eval: false
+# Con el paquete gtsummary (no se ejecuta aquí)
+library(gtsummary)
+ckd |>
+  select(desenlace, edad, sexo, hba1c, tfg_basal, uacr, ecv) |>
+  tbl_summary(by = desenlace, percent = "row",                       # % por fila
+              statistic = list(all_continuous() ~ "{mean} ({sd})", uacr ~ "{median} ({p25}, {p75})")) |>
+  add_overall() |>
+  add_p(test = list(uacr ~ "wilcox.test",                            # elige la prueba de cada variable
+                    sexo ~ "chisq.test", ecv ~ "chisq.test"),
+        pvalue_fun = \(x) style_pvalue(x, digits = 3))
+```
+
+::: {.callout-warning}
+## ⚠️ Lo que una prueba **no** te dice (y el pecado capital)
+
+-   El valor *p* contesta: *"si no hubiera ninguna asociación, ¿qué tan raro sería este resultado?"* No dice **qué tan grande** es la diferencia, ni si es **clínicamente importante**, ni si es **causal**. Reporta siempre la **estimación con su IC**; el *p* es un complemento.
+-   Probar todo y reportar solo lo "significativo" es *p-hacking*. Declara **antes** de ver los datos cuáles son las hipótesis principales; el resto se etiqueta como **exploratorio**. Corregir por comparaciones múltiples no sustituye una pregunta clara.
 :::
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
--   Elige la prueba por **tipo de variable** y **diseño** (independiente/pareado), y confirma los supuestos mirando los datos.
--   **Reporta la diferencia o la asociación con su IC**, no solo el *p*.
--   Con **n grande**, casi todo es "significativo"; con **n pequeño**, nada: juzga el **tamaño** del efecto.
--   **Corrige comparaciones múltiples** (Holm o FDR) y separa lo confirmatorio de lo exploratorio.
--   `broom::tidy()` ordena el resultado de cualquier prueba en una tabla.
+-   Elige la prueba por **tipo de variable** y **diseño** (independiente o pareado), y confirma los supuestos **mirando los datos**.
+-   **Reporta la diferencia o la asociación con su IC**, no solo el *p*. Con *n* grande casi todo es "significativo"; con *n* pequeño, nada: juzga el **tamaño**.
+-   *t* de Welch por defecto; Wilcoxon si hay asimetría fuerte y *n* pequeño; χ² si las esperadas son ≥ 5 y **Fisher** si no.
+-   **Corrige las comparaciones múltiples** (Holm o FDR) y separa lo confirmatorio de lo exploratorio.
+-   **Dibuja antes de correlacionar** (Anscombe): el mismo *r* puede esconder historias muy distintas.
 :::
 
 ## Ejercicio

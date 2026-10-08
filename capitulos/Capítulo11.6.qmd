@@ -1,26 +1,31 @@
 # No adherencia: por protocolo, *as-treated* y CACE
 
-## El problema
+::: {.callout-note}
+## 🩺 Escenario
 
-En el ensayo, **28 %** de los asignados a bicarbonato **no tomó el fármaco** (por intolerancia gastrointestinal, olvido, retiro del consentimiento). Entonces, la diferencia ITT **mezcla** a quienes lo tomaron con quienes no: **subestima** el efecto de **tomar** el fármaco.
+En el ensayo de bicarbonato, casi **3 de cada 10** pacientes asignados al fármaco **no lo tomaron** (intolerancia gastrointestinal, olvido, retiro del consentimiento). La diferencia ITT mezcla a quienes lo tomaron con quienes no, y por eso **subestima** el efecto de *tomarlo*. Un coinvestigador propone: *"analicemos solo a los que cumplieron; ahí se verá el verdadero efecto"*. Suena razonable y es una trampa. Veamos por qué y qué análisis sí responde esa pregunta.
+:::
 
-Tres análisis intentan "corregirlo". **Dos son sesgados**; uno es válido bajo supuestos.
+**Lo que vamos a hacer**
+
+-   Comparar **cuatro análisis** (ITT, por protocolo, *as-treated* y CACE) contra la **verdad**.
+-   Ver **por qué** los cumplidores no son comparables con el resto.
+-   Estimar el **CACE** con la asignación como instrumento, con su intervalo de confianza.
+
+## Paso 1: tres intentos de "corregir" el incumplimiento
 
 | Análisis | Qué hace | ¿Sesgado? |
 |---|---|---|
-| **ITT** | Analiza por asignación | No, pero responde "efecto de ofrecer" |
+| **ITT** | Analiza por asignación | No, pero responde "efecto de *ofrecer*" |
 | **Por protocolo** (*per protocol*) | Elimina a los que no cumplieron | **Sí**: rompe la aleatorización |
 | **Como se trató** (*as-treated*) | Clasifica según lo que realmente tomaron | **Sí**: confusión por quién cumple |
-| **CACE / variable instrumental** | Estima el efecto **en cumplidores** usando la asignación como instrumento | No, bajo supuestos |
-
-## Por qué el análisis por protocolo es engañoso
-
-Los pacientes que **cumplen** son **distintos** de los que no: más jóvenes, con menos comorbilidad, mayor motivación (el **efecto del "paciente cumplidor"**). Si se comparan **cumplidores del brazo activo** contra **todo el placebo**, se compara **sanos con mezclados**.
+| **CACE / variable instrumental** | Efecto **en cumplidores**, usando la asignación como instrumento | No, bajo supuestos |
 
 ```{r}
 #| label: setup-116
 library(tidyverse)
 library(broom)
+theme_set(theme_minimal(base_size = 12))
 
 eca <- read_csv("Bases/eca_bicarbonato.csv") |>
   mutate(brazo = factor(brazo, levels = c("Placebo", "Bicarbonato")),
@@ -35,9 +40,26 @@ verdad <- eca |> left_join(oraculo, by = "id") |>
 verdad
 ```
 
-El **efecto ITT verdadero** a 24 meses es **`r sprintf("%.2f", verdad$ITT)`** y el **efecto verdadero en cumplidores (CACE)** es **`r sprintf("%.2f", verdad$CACE)`** mL/min/1.73 m².
+El **efecto ITT verdadero** a 24 meses es **`r sprintf("%.2f", verdad$ITT)`** y el **efecto verdadero en cumplidores (CACE)** es **`r sprintf("%.2f", verdad$CACE)`** mL/min/1.73 m². Son preguntas distintas con respuestas distintas.
 
-### Cuatro análisis
+## Paso 2: por qué los cumplidores no son comparables
+
+Los pacientes que **cumplen** son **distintos** de los que no: más jóvenes, con menos comorbilidad, más motivados (el **efecto del "paciente cumplidor"**). Dentro del brazo activo, quienes tomaron el fármaco frente a quienes no:
+
+```{r}
+#| label: cumplidores-distintos
+eca |>
+  filter(brazo == "Bicarbonato") |>
+  group_by(adhiere = if_else(adhiere == 1, "Tomó el fármaco", "No lo tomó")) |>
+  summarise(n = n(), edad_media = mean(edad), pct_diabetes = 100 * mean(dm), bicarbonato_basal = mean(bic0)) |>
+  mutate(across(where(is.numeric), \(x) round(x, 1)))
+```
+
+Los que no lo tomaron son algo mayores y con más diabetes, y esas características se asocian con **peor evolución**, sea cual sea el tratamiento (en la simulación, además, los no cumplidores tienen peor pendiente de base). Si comparas **solo a los cumplidores del brazo activo contra todo el placebo**, comparas **sanos con mezclados**.
+
+## Paso 3: cuatro análisis contra la verdad
+
+Primero los dos análisis sesgados (el resultado "feo"), luego el que funciona:
 
 ```{r}
 #| label: cuatro
@@ -56,46 +78,45 @@ at <- diferencia(dif24 ~ I(adhiere), eca)
 prop_toma <- mean(eca$adhiere[eca$brazo == "Bicarbonato"]) - mean(eca$adhiere[eca$brazo == "Placebo"])
 cace <- itt / prop_toma
 
-tibble(
+tab4 <- tibble(
   analisis = c("ITT", "Por protocolo", "Como se trató (as-treated)", "CACE (Wald)", "Verdad: ITT", "Verdad: CACE"),
   estimacion = c(itt, pp, at, cace, verdad$ITT, verdad$CACE)
-) |> mutate(estimacion = round(estimacion, 2))
+)
+tab4 |> mutate(estimacion = round(estimacion, 2))
 ```
 
--   **ITT** (~1.3): recupera el efecto verdadero de **ofrecer** el fármaco.
--   **Por protocolo** (~2.4) y **como se trató** (~2.6): **sobrestiman** el efecto en cumplidores (verdadero: 1.8), porque los cumplidores tienen **mejor pronóstico** de base.
--   **CACE** (~1.8): recupera el efecto verdadero en cumplidores.
+-   **ITT** (`r round(itt, 1)`): recupera el efecto verdadero de **ofrecer** el fármaco (`r round(verdad$ITT, 1)`).
+-   **Por protocolo** (`r round(pp, 1)`) y **como se trató** (`r round(at, 1)`): **sobrestiman** el efecto en cumplidores (verdad: `r round(verdad$CACE, 1)`), porque los cumplidores tienen **mejor pronóstico** de base.
+-   **CACE** (`r round(cace, 1)`): recupera el efecto verdadero en cumplidores.
 
 ::: {.callout-warning}
 ## ⚠️ No confundas "mayor efecto" con "mejor estimación"
 
-El análisis por protocolo muestra un efecto **más grande y más "atractivo"**, pero es **incorrecto**: mezcla el efecto del fármaco con la diferencia entre cumplidores y no cumplidores. Los ensayos **no** deben presentarlo como análisis principal.
+El análisis por protocolo muestra un efecto **más grande y más atractivo**, pero es **incorrecto**: mezcla el efecto del fármaco con la diferencia entre cumplidores y no cumplidores. Los ensayos **no** deben presentarlo como análisis principal.
 :::
 
-## CACE: el efecto en cumplidores con la asignación como instrumento
+## Paso 4: el CACE, el efecto en cumplidores con la asignación como instrumento
 
-La **asignación al azar** es un **instrumento**: afecta mucho al tratamiento recibido, no afecta el desenlace excepto **a través** del tratamiento y no está confundida (se asignó al azar). Bajo cuatro supuestos, la razón de la diferencia ITT sobre la diferencia en cumplimiento estima el **efecto promedio en los cumplidores** (***CACE***, *complier average causal effect*):
+La **asignación al azar** es un **instrumento**: afecta mucho al tratamiento recibido, no afecta el desenlace excepto **a través** del tratamiento y no está confundida (se asignó al azar). Bajo cuatro supuestos, la razón entre la diferencia ITT y la diferencia en cumplimiento estima el **efecto promedio en los cumplidores** (***CACE***, *complier average causal effect*):
 
 $$
 \text{CACE} = \frac{E[Y \mid Z=1] - E[Y \mid Z=0]}{E[D \mid Z=1] - E[D \mid Z=0]}
 $$
 
-con $Z$ la asignación, $D$ el tratamiento realmente recibido e $Y$ el desenlace.
+con $Z$ la asignación, $D$ el tratamiento realmente recibido e $Y$ el desenlace. La intuición: el ITT es el efecto promedio sobre **todos**; como el fármaco solo actúa en el 72 % que lo toma, el efecto en esos es el ITT **dividido por 0.72**.
 
-::: {.callout-note}
-## Supuestos del CACE
+Los cuatro supuestos:
 
-1.  **Asignación aleatoria** (el instrumento es independiente de los factores previos).
-2.  **Relevancia**: la asignación **aumenta** la probabilidad de tomar el fármaco (aquí 72 % vs. 0 %).
-3.  **Restricción de exclusión**: asignar el fármaco **solo afecta** el desenlace por medio de tomarlo (no hay un efecto "por saberse en el grupo activo").
-4.  **Monotonía**: no hay "desafiantes" (nadie toma el fármaco **solo** si se le asigna placebo). Con placebo ciego esto es trivial.
+1.  **Asignación aleatoria**: el instrumento es independiente de los factores previos.
+2.  **Relevancia**: la asignación **aumenta** la probabilidad de tomar el fármaco (aquí `r round(100 * mean(eca$adhiere[eca$brazo == "Bicarbonato"]))` % frente a 0 % en placebo).
+3.  **Restricción de exclusión**: asignar el fármaco **solo afecta** el desenlace por medio de tomarlo (no hay un efecto "por saberse en el grupo activo"; con placebo ciego es razonable).
+4.  **Monotonía**: no hay "desafiantes" (nadie toma el fármaco *solo* si se le asigna placebo; con placebo ciego es trivial).
 
-El **CACE** se refiere a los **cumplidores**, que no son identificables individualmente. No es el efecto en toda la población.
-:::
+El CACE se refiere a los **cumplidores**, que no son identificables individualmente: no es el efecto en toda la población.
 
 ### Intervalo de confianza por *bootstrap*
 
-El CACE es una razón; su IC se obtiene por *bootstrap* (7.4):
+El CACE es una razón; su IC se obtiene por *bootstrap* (7.4), remuestreando pacientes dentro de cada brazo:
 
 ```{r}
 #| label: cace-boot
@@ -110,14 +131,15 @@ cace_fn <- function(datos, i) {
 set.seed(6)
 b <- boot(eca |> filter(!is.na(dif24)), cace_fn, R = 2000, strata = eca$brazo[!is.na(eca$dif24)])
 ic <- boot.ci(b, type = "perc")$percent[4:5]
-c(CACE = b$t0, IC_inf = ic[1], IC_sup = ic[2]) |> round(2)
+res_cace <- c(CACE = b$t0, IC_inf = ic[1], IC_sup = ic[2])
+round(res_cace, 2)
 ```
 
-El IC es **más ancho** que el del ITT (se divide por una cifra < 1). El efecto en cumplidores no es más "preciso" por ser más grande.
+El IC es **más ancho** que el del ITT (se divide por una cifra menor que 1): un efecto en cumplidores más grande **no es más "preciso"**.
 
-### Mínimos cuadrados en dos etapas (2SLS)
+### Mínimos cuadrados en dos etapas (2SLS), con covariables
 
-Con covariables, se usa **2SLS**: (1) regresar el tratamiento recibido sobre la asignación; (2) regresar el desenlace sobre el valor **predicho** del tratamiento. Los errores estándar de la segunda etapa manual **no son correctos**; usa un paquete (`AER::ivreg`, `ivreg::ivreg`) o *bootstrap*:
+Con covariables se usa **2SLS**: (1) se regresa el tratamiento recibido sobre la asignación; (2) se regresa el desenlace sobre el valor **predicho** del tratamiento. Los errores estándar de la segunda etapa hecha "a mano" con `lm()` **no son correctos** (usan los residuos con el tratamiento predicho); hay que recalcularlos con los residuos del tratamiento **real**:
 
 ```{r}
 #| label: dos-etapas
@@ -125,14 +147,23 @@ d <- eca |> filter(!is.na(dif24)) |> mutate(z = as.integer(brazo == "Bicarbonato
 etapa1 <- lm(adhiere ~ z + tfg0, data = d)
 d$d_hat <- fitted(etapa1)
 etapa2 <- lm(dif24 ~ d_hat + tfg0, data = d)
-coef(etapa2)["d_hat"] |> round(2)
+
+b2 <- coef(etapa2)
+e <- d$dif24 - (b2[1] + b2[2] * d$adhiere + b2[3] * d$tfg0)          # residuos con el tratamiento REAL
+sigma2 <- sum(e^2) / (nrow(d) - 3)
+ee_correcto <- sqrt(diag(sigma2 * solve(crossprod(model.matrix(etapa2)))))["d_hat"]
+
+ee_man <- summary(etapa2)$coefficients["d_hat", 2]                     # el que da lm() (incorrecto)
+
+tibble(cace_2sls = b2["d_hat"], ee_lm_manual = ee_man, ee_correcto = ee_correcto) |>
+  mutate(across(where(is.numeric), \(x) round(x, 2)))
 ```
 
-El coeficiente de `d_hat` es el CACE (≈ 1.8) ajustado por la TFGe basal (los errores estándar requieren corrección: *bootstrap*).
+El coeficiente de `d_hat` es el CACE ajustado por la TFGe basal (`r round(b2["d_hat"], 2)`, muy cercano al estimador de Wald, `r round(cace, 2)`). Su error estándar **correcto** (`r round(ee_correcto, 2)`) **no coincide** con el que entrega `lm()` directamente (`r round(ee_man, 2)`): puede diferir en cualquier dirección, por eso no se usa el de la segunda etapa manual. En la práctica se usa un paquete (`AER::ivreg()` o `ivreg::ivreg()`) o el *bootstrap*.
 
 ## ¿Y los desenlaces de tiempo hasta evento?
 
-El mismo razonamiento aplica con **modelos estructurales de tiempo de fallo** o **bootstrap** de la razón de riesgos acumulados; son más complejos y se tratan con los métodos g del Cap. 19. Para un ensayo corriente, **ITT como principal** y **análisis de sensibilidad con CACE** son suficientes.
+El mismo razonamiento aplica con **modelos estructurales de tiempo de fallo** o *bootstrap* de la razón de riesgos acumulados; son más complejos y se tratan con los métodos g del Cap. 19. Para un ensayo corriente, **ITT como principal y CACE como análisis de sensibilidad** bastan.
 
 ::: {.callout-tip}
 ## 💡 Qué reportar con incumplimiento
@@ -148,7 +179,7 @@ El mismo razonamiento aplica con **modelos estructurales de tiempo de fallo** o 
 
 -   **ITT** estima el efecto de **ofrecer** el tratamiento; el incumplimiento lo **diluye**.
 -   **Por protocolo** y ***as-treated*** comparan a los cumplidores (más sanos) con el resto: **sesgados**.
--   **CACE** = ITT ÷ diferencia de cumplimiento: el efecto **en cumplidores**, válido bajo asignación aleatoria, relevancia, exclusión y monotonía.
+-   **CACE** = ITT ÷ diferencia de cumplimiento: efecto **en cumplidores**, válido con asignación aleatoria, relevancia, exclusión y monotonía.
 -   El IC del CACE se obtiene con ***bootstrap*** o con 2SLS bien implementado.
 -   Reporta siempre el **ITT** y el **porcentaje de cumplimiento**.
 :::

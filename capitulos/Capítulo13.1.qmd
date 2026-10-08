@@ -1,27 +1,42 @@
-# Mecanismos: MCAR, MAR y MNAR
+# ¿Por qué faltan los datos? Los mecanismos MCAR, MAR y MNAR
 
-## La pregunta clave: ¿por qué falta el dato?
+::: {.callout-note}
+## 🩺 Escenario
 
-Para cada variable con valores ausentes, la pregunta no es **cuántos** faltan sino **por qué**. Sea $R$ el indicador de "dato observado" ($R=1$) o "falta" ($R=0$). Rubin (1976) definió tres mecanismos según de qué depende $R$:
+Estás analizando la albuminuria (UACR) de tus pacientes y notas que **a un tercio no se les pidió**. ¿Se perdieron muestras por un fallo de laboratorio? ¿El nefrólogo no la pide en pacientes mayores o con TFGe muy baja? ¿O faltan justamente los pacientes **más enfermos**, que ya no vienen a consulta? El problema no es *cuántos* faltan, sino **por qué**.
+:::
 
-| Mecanismo | Significa | Ejemplo con la UACR |
-|---|---|---|
-| **MCAR** (*missing completely at random*) | $R$ no depende de **nada** | Se perdieron muestras de orina por un fallo de laboratorio al azar |
-| **MAR** (*missing at random*) | $R$ depende solo de **variables observadas** | Falta más UACR en pacientes mayores, con TFGe más baja o con peor evolución (variables que sí se observan) |
-| **MNAR** (*missing not at random*) | $R$ depende del **propio valor que falta** (o de algo no observado) | No se pide UACR a quien "se ve" sin albuminuria; o los que tienen albuminuria alta no regresan |
+Es la pregunta de la **hoja arrancada**: no basta con saber que faltan hojas de la historia clínica; importa **qué decidió que faltaran**. Rubin (1976) clasificó las respuestas en tres mecanismos, según de qué depende el indicador de dato observado ($R=1$ si el dato se midió, $R=0$ si falta).
+
+**Lo que vamos a hacer**
+
+-   Reconocer **MCAR, MAR y MNAR** con ejemplos de nefrología.
+-   Dibujar cada mecanismo como un **DAG** (con el indicador de faltante).
+-   Ver con una simulación **cuánto sesga** cada uno al análisis de casos completos.
+
+## Paso 1: los tres mecanismos, con ejemplos
+
+| Mecanismo | ¿De qué depende $R$? | Ejemplo con la UACR | Otro ejemplo |
+|---|---|---|---|
+| **MCAR** (*missing completely at random*) | De **nada** | Se perdieron muestras de orina por un fallo de laboratorio, al azar | Un tubo de PTH se rompió en la centrífuga |
+| **MAR** (*missing at random*) | De variables **observadas** | Falta más UACR en pacientes mayores o con TFGe baja (la edad y la TFGe sí están en la base) | La hemoglobina se pide menos a quien tiene TFGe alta |
+| **MNAR** (*missing not at random*) | Del **propio valor** que falta (o de algo no observado) | Quienes tienen albuminuria alta están más graves y **no regresan** a la consulta | En hemodiálisis, falta la hemoglobina de quien está tan baja que se hospitaliza |
+
+La distinción importa porque **solo MCAR se puede ignorar sin sesgo**. MAR se puede **corregir** usando lo observado. MNAR **no** se corrige con los datos: hace falta un supuesto externo (13.6).
 
 ```{r}
 #| label: setup-131
 library(tidyverse)
 source("R/funciones_epi.R")
+source("R/funciones_extra_cap1213.R")
 source("R/simular_faltantes.R")
 
-oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv")
+oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv", show_col_types = FALSE)
 ```
 
-## Los tres mecanismos como DAG
+## Paso 2: los tres mecanismos como DAG
 
-Se agrega al DAG el **indicador de faltante** $R$ y se dibuja de qué depende. $X$ es la variable parcialmente observada (UACR), $Y$ el desenlace, $Z$ una covariable siempre observada.
+Añadimos al DAG el **indicador de faltante** $R$ y dibujamos de qué depende. $X$ es la variable parcialmente observada (UACR), $Y$ el desenlace y $Z$ una covariable siempre observada (edad, TFGe).
 
 ```{r}
 #| label: dag-mecanismos
@@ -43,63 +58,86 @@ panel(base, "MCAR: R no depende de nada") +
   panel(bind_rows(base, tribble(~de, ~a, "X", "R")), "MNAR: R depende de X (el dato que falta)")
 ```
 
-En **MAR**, $R$ depende de $Z$ e $Y$ (observados): si ajustamos por ellos, **se puede recuperar** la información. En **MNAR**, $R$ depende de $X$ mismo: **no hay forma de corregirlo** con los datos observados solamente; hace falta un supuesto adicional (13.6).
+**Qué vemos:** en **MAR**, $R$ depende de $Z$ e $Y$, que **sí observamos**: si ajustamos por ellos, se puede recuperar la información. En **MNAR**, $R$ depende de $X$, el valor que **no vemos**: ningún ajuste con los datos observados lo corrige.
+
+Con el paquete `dagitty` (no está instalado aquí) el DAG de MAR se escribiría así:
+
+```{r}
+#| label: dagitty-mar
+#| eval: false
+## Con el paquete dagitty (no se ejecuta aquí)
+library(dagitty)
+dag_mar <- dagitty("dag { Z -> X ; X -> Y ; Z -> Y ; Z -> R ; Y -> R }")
+plot(dag_mar)
+```
+
+## Paso 3: ¿cuánto sesga cada mecanismo? (simulación)
+
+Borramos el **33 %** de las UACR con cada mecanismo (la función `generar_faltantes()` está en `R/simular_faltantes.R`) y comparamos el análisis de **casos completos** con los **datos completos** (la verdad). Primero, un vistazo a **qué valores sobreviven**: la curva naranja es la distribución de ln(UACR) en **todos** los pacientes; la azul, solo en los que **conservan** el dato.
+
+```{r}
+#| label: graf-mecanismos
+#| fig-width: 9
+#| fig-height: 3.2
+observados <- map_dfr(c("MCAR", "MAR", "MNAR"), \(m) {
+  d <- generar_faltantes(oraculo, m)
+  tibble(mecanismo = m, luacr = log(d$uacr[!is.na(d$uacr)]))
+}) |> mutate(mecanismo = fct_inorder(mecanismo))
+
+ggplot() +
+  geom_density(data = tibble(luacr = log(oraculo$uacr)), aes(luacr), color = "#D55E00", linewidth = 1) +
+  geom_density(data = observados, aes(luacr), color = "#0072B2", linewidth = 1) +
+  facet_wrap(~ mecanismo) +
+  labs(x = "ln(UACR)", y = "Densidad",
+       caption = "Naranja: todos los pacientes (verdad). Azul: solo los que conservan la UACR. Datos simulados.") +
+  theme_minimal(base_size = 11)
+```
+
+**Qué vemos:** con **MCAR** las dos curvas coinciden. Con **MAR** la azul se desplaza **un poco** a la izquierda. Con **MNAR** se desplaza **mucho**: los pacientes con albuminuria alta desaparecieron.
+
+Ahora el efecto de ese sesgo sobre el análisis: el efecto estimado del iSGLT2 con casos completos, frente al de los datos completos.
+
+```{r}
+#| label: tres-mecanismos
+formula_mod <- pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + log(uacr) + ecv
+
+resumen_mecanismo <- function(mec) {
+  d <- generar_faltantes(oraculo, mec)
+  m_cc <- lm(formula_mod, data = d)                       # lm() elimina las filas con faltantes: casos completos
+  tibble(mecanismo = mec,
+         `% falta UACR` = 100 * mean(is.na(d$uacr)),
+         `ln(UACR) medio (observados)` = mean(log(d$uacr), na.rm = TRUE),
+         `Efecto iSGLT2 (casos completos)` = unname(coef(m_cc)["isglt2"]),
+         `n analizado` = nobs(m_cc))
+}
+m_verdad <- lm(formula_mod, data = oraculo)
+
+tab_meca <- bind_rows(
+  tibble(mecanismo = "Datos completos (verdad)", `% falta UACR` = 0,
+         `ln(UACR) medio (observados)` = mean(log(oraculo$uacr)),
+         `Efecto iSGLT2 (casos completos)` = unname(coef(m_verdad)["isglt2"]), `n analizado` = nrow(oraculo)),
+  map_dfr(c("MCAR", "MAR", "MNAR"), resumen_mecanismo)
+)
+knitr::kable(tab_meca, digits = 2)
+```
+
+**Qué vemos:**
+
+-   **MCAR**: sin sesgo sistemático. El promedio observado de ln(UACR) (`r round(tab_meca[[3]][2], 2)`) coincide con el real (`r round(tab_meca[[3]][1], 2)`); el efecto (`r round(tab_meca[[4]][2], 2)` frente a `r round(tab_meca[[4]][1], 2)`) difiere solo por el azar muestral y se pierde **precisión**: quedan `r miles(tab_meca[["n analizado"]][2])` de 5 000 pacientes (también faltan HbA1c y PAS).
+-   **MAR** (depende de edad, TFGe, tratamiento y desenlace): el promedio observado queda sesgado (`r round(tab_meca[[3]][3], 2)`) y el efecto estimado se **desvía** (`r round(tab_meca[[4]][3], 2)` frente a `r round(tab_meca[[4]][1], 2)`).
+-   **MNAR** (falta más cuando la UACR es alta): el promedio observado queda **muy** sesgado (`r round(tab_meca[[3]][4], 2)` frente a `r round(tab_meca[[3]][1], 2)`) y el efecto estimado se desvía **más** (`r round(tab_meca[[4]][4], 2)`).
 
 ::: {.callout-warning}
 ## ⚠️ MAR no significa "al azar"
 
-MAR significa que, **dado lo que observas**, la falta es "como al azar". Que los mayores tengan más datos faltantes **no** viola MAR (si observas la edad); que los **más graves** falten más **sí** lo viola si la gravedad no se mide. Es un supuesto **no verificable** con los datos: se defiende con conocimiento del proceso que generó los faltantes.
-:::
-
-## Consecuencias: simulación con los tres mecanismos
-
-Aplicamos los tres mecanismos a la UACR (un 33 % de faltantes en cada uno) y comparamos **el análisis de casos completos** con los **datos completos** (la verdad):
-
-```{r}
-#| label: tres-mecanismos
-resumen_mecanismo <- function(mec) {
-  d <- generar_faltantes(oraculo, mec)
-  completo <- !is.na(d$uacr)
-  m_cc <- lm(pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + log(uacr) + ecv, data = d)
-  tibble(
-    mecanismo = mec,
-    `% falta UACR` = 100 * mean(!completo),
-    `ln(UACR) medio (observados)` = mean(log(d$uacr), na.rm = TRUE),
-    `Efecto iSGLT2 (casos completos)` = unname(coef(m_cc)["isglt2"]),
-    `Coef. de ln(UACR) (casos completos)` = unname(coef(m_cc)["log(uacr)"])
-  )
-}
-m_verdad <- lm(pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + log(uacr) + ecv, data = oraculo)
-
-bind_rows(
-  tibble(mecanismo = "Datos completos (verdad)", `% falta UACR` = 0,
-         `ln(UACR) medio (observados)` = mean(log(oraculo$uacr)),
-         `Efecto iSGLT2 (casos completos)` = unname(coef(m_verdad)["isglt2"]),
-         `Coef. de ln(UACR) (casos completos)` = unname(coef(m_verdad)["log(uacr)"])),
-  map_dfr(c("MCAR", "MAR", "MNAR"), resumen_mecanismo)
-) |> mutate(across(where(is.numeric), \(x) round(x, 2)))
-```
-
-Lecciones:
-
--   **MCAR**: sin sesgo (el promedio observado de ln(UACR) = 4.80 coincide con el real, 4.79; solo se pierde **precisión** por tener menos pacientes).
--   **MAR** (depende de edad, TFGe, tratamiento y desenlace): el **promedio observado queda sesgado** (4.72) y el efecto del tratamiento en casos completos se **desvía**.
--   **MNAR** (falta más cuando la UACR es alta): el promedio observado queda **muy sesgado** (4.49 vs. 4.79: se pierde a los de albuminuria alta) y el efecto estimado se desvía más.
-
-::: {.callout-tip}
-## 💡 Cómo pensar el mecanismo en tu estudio
-
-1.  **¿Quién decide si se mide?** (el médico, el laboratorio, el paciente, el protocolo).
-2.  **¿Qué sabe esa persona** al decidir? (si sabe el valor de la variable, hay MNAR; si solo sabe el contexto, MAR).
-3.  **¿Qué variables** pueden predecir la falta? Inclúyelas en el análisis.
-4.  **Pregunta al personal clínico** y revisa el protocolo: es la mejor evidencia sobre el mecanismo.
+MAR significa que, **dado lo que observas**, la falta es "como al azar". Que los mayores tengan más faltantes **no** viola MAR (si observas la edad); que los **más graves** falten más **sí** lo viola si la gravedad no se mide. MAR es un supuesto **no verificable**: se defiende con conocimiento del proceso que generó los faltantes (pregunta al personal clínico y revisa el protocolo), no con los datos.
 :::
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
--   **MCAR**: sin sesgo, solo pierdes precisión. **MAR**: la falta depende de lo **observado**; se puede **corregir ajustando o imputando**. **MNAR**: depende del **valor perdido**; hace falta un supuesto externo y **análisis de sensibilidad**.
--   MAR/MNAR **no se pueden distinguir con los datos observados**: se **argumenta** con conocimiento clínico.
+-   **MCAR**: sin sesgo, solo pierdes precisión. **MAR**: la falta depende de lo **observado**; se corrige ajustando o imputando. **MNAR**: depende del **valor perdido**; hace falta un supuesto externo y **análisis de sensibilidad**.
+-   MAR y MNAR **no se distinguen con los datos observados**: se **argumentan** con conocimiento clínico.
 -   Dibuja el **indicador de faltante** en el DAG: ¿qué flechas lo causan?
 -   Los datos faltantes **no son solo un problema de tamaño de muestra**: pueden sesgar.
 :::
@@ -107,5 +145,5 @@ Lecciones:
 ## Ejercicio
 
 1.  Piensa en tres variables de tu base real y clasifica su probable mecanismo (MCAR, MAR, MNAR) con una frase de justificación.
-2.  Dibuja el DAG de faltantes para la **hemoglobina glicosilada** en pacientes de tu servicio.
-3.  Cambia en `generar_faltantes()` la fuerza del mecanismo MNAR (de 0.9 a 1.5). ¿Cómo cambia el promedio observado de ln(UACR)?
+2.  Dibuja el DAG de faltantes para la **HbA1c** en pacientes de tu servicio. ¿Qué flechas entran a $R$?
+3.  En `generar_faltantes()`, cambia la fuerza del mecanismo MNAR (de 0.9 a 1.5). ¿Cómo cambia el promedio observado de ln(UACR)?

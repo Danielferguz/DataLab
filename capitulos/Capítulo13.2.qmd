@@ -1,26 +1,40 @@
-# Explorar el patrón de faltantes
+# Mirar antes de imputar: ¿qué falta y en quiénes?
 
-## Antes de decidir qué hacer: mirar
+::: {.callout-note}
+## 🩺 Escenario
 
-Un buen análisis de datos faltantes empieza con **tres preguntas descriptivas**:
+Recibes una base de 5 000 pacientes con ERC. Antes de elegir un método, haces lo que haría un buen clínico ante un paciente nuevo: **explorar**. ¿Cuántos datos faltan? ¿En qué variables? ¿Faltan juntos o por separado? ¿Y quiénes son los pacientes con datos incompletos: se parecen a los demás o son otro tipo de paciente?
+:::
 
-1.  **¿Cuántos** faltan, y **en qué variables**?
-2.  **¿Qué patrones** hay (¿faltan juntos o por separado)?
-3.  **¿Quiénes** son los que tienen datos incompletos (¿se parecen a los completos?)?
+Es el **mapa de la zona antes de operar**. Un buen análisis de datos faltantes empieza con tres preguntas **descriptivas**, que no cuestan nada y evitan errores caros:
+
+1.  **¿Cuántos** faltan y **en qué variables**?
+2.  **¿Qué patrones** hay (¿faltan juntos o separados?)?
+3.  **¿Quiénes** tienen datos incompletos (¿se parecen a los completos?)?
+
+**Lo que vamos a hacer**
+
+-   Contar los faltantes por variable y por paciente, y verlos en un gráfico.
+-   Identificar los **patrones** de falta.
+-   Comparar a quienes tienen el dato con quienes no, y **modelar** la probabilidad de faltar.
 
 ```{r}
 #| label: setup-132
 library(tidyverse)
 library(mice)
+library(broom)
 source("R/funciones_epi.R")
+source("R/funciones_extra_cap1213.R")
 source("R/tabla1.R")
 
-ckd <- read_csv("Bases/ckd_faltantes.csv") |>
+ckd <- read_csv("Bases/ckd_faltantes.csv", show_col_types = FALSE) |>
   mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")),
          trat = factor(isglt2, labels = c("Sin iSGLT2", "Con iSGLT2")))
 ```
 
-## 1. ¿Cuántos faltan?
+## Paso 1: ¿cuántos faltan?
+
+Contamos los faltantes de cada variable, y también cuántos pacientes tienen **al menos uno**:
 
 ```{r}
 #| label: cuanto-falta
@@ -30,12 +44,18 @@ resumen_falta <- ckd |>
   mutate(porcentaje = round(100 * faltantes / nrow(ckd), 1)) |>
   filter(faltantes > 0) |> arrange(desc(faltantes))
 resumen_falta
+
+pct_valores  <- 100 * mean(is.na(ckd))                       # % de TODOS los valores de la base
+pct_pacientes <- 100 * mean(!complete.cases(ckd))             # % de pacientes con algún faltante
+c(`% de valores faltantes` = pct_valores, `% de pacientes con algún faltante` = pct_pacientes) |> round(1)
 ```
+
+**Qué vemos:** la **UACR** falta en el **`r resumen_falta$porcentaje[resumen_falta$variable == "uacr"]` %**, la HbA1c en el `r resumen_falta$porcentaje[resumen_falta$variable == "hba1c"]` % y la PAS en el `r resumen_falta$porcentaje[resumen_falta$variable == "pas"]` %; las demás variables (incluido el **desenlace**) están completas. Solo el `r round(pct_valores, 1)` % de **valores** falta, pero eso significa que el **`r round(pct_pacientes)` % de los pacientes** tiene al menos uno: un análisis de casos completos los perdería todos.
 
 ```{r}
 #| label: graf-falta
 #| fig-width: 7
-#| fig-height: 2.8
+#| fig-height: 2.6
 ggplot(resumen_falta, aes(porcentaje, fct_reorder(variable, porcentaje))) +
   geom_col(fill = "#0072B2") +
   geom_text(aes(label = paste0(porcentaje, " %")), hjust = -0.1, size = 3.4) +
@@ -44,25 +64,48 @@ ggplot(resumen_falta, aes(porcentaje, fct_reorder(variable, porcentaje))) +
   theme_minimal(base_size = 11)
 ```
 
-La **UACR** falta en el **33 %**; la HbA1c, en el 8 %; la PAS, en el 6 %. Las demás variables (incluido el **desenlace**) están completas.
+El paquete `naniar` hace estos resúmenes y gráficos con una función cada uno:
 
-## 2. Patrones de faltantes
+```{r}
+#| label: naniar
+#| eval: false
+## Con el paquete naniar (no se ejecuta aquí)
+library(naniar)
+pct_miss(ckd)                       # % de todos los valores que faltan
+pct_miss_case(ckd)                  # % de filas con algún faltante
+gg_miss_var(ckd, show_pct = TRUE)   # barras de % faltante por variable
+gg_miss_var(ckd, show_pct = TRUE, facet = trat)   # ... separado por tratamiento
+vis_miss(ckd)                       # mapa de calor: filas × variables
+```
 
-`mice::md.pattern()` cuenta cuántos pacientes tienen cada **combinación** de variables observadas (1) o faltantes (0):
+## Paso 2: ¿qué patrones hay?
+
+`mice::md.pattern()` cuenta cuántos pacientes tienen cada **combinación** de variables observadas (1) o faltantes (0). La última columna dice cuántas variables faltan en esa combinación:
 
 ```{r}
 #| label: md-pattern
 vars <- c("pendiente_tfg", "isglt2", "edad", "tfg_basal", "ecv", "pas", "hba1c", "uacr")
-md.pattern(ckd[, vars], plot = FALSE)
+patrones <- md.pattern(ckd[, vars], plot = FALSE)
+patrones
+n_completos <- as.integer(rownames(patrones)[1])
 ```
 
--   **2 991 pacientes** (60 %) tienen **todos** los datos.
--   El patrón más frecuente de falta es **solo la UACR** (1 439); luego solo HbA1c (230), solo PAS (126) y combinaciones.
--   Los faltantes de UACR, HbA1c y PAS ocurren **casi independientes**: no hay un patrón monótono (como el de los abandonos en los ECA).
+**Qué vemos:** **`r miles(n_completos)` pacientes** (`r round(100 * n_completos / nrow(ckd))` %) lo tienen **todo**. El patrón de falta más frecuente es **solo la UACR** (`r miles(as.integer(rownames(patrones)[2]))`); luego solo HbA1c o solo PAS, y algunas combinaciones. Los faltantes de UACR, HbA1c y PAS ocurren **casi independientes**: no hay un patrón "monótono" (como el de los abandonos en un ECA, donde quien falta una visita falta todas las siguientes).
 
-## 3. ¿Se parecen los que faltan a los que no?
+El paquete `VIM` los muestra gráficamente: a la izquierda, el % de faltantes por variable; a la derecha, los patrones (en rojo, lo que falta).
 
-Se crea un **indicador de faltante** y se compara a los pacientes con y sin dato en el resto de variables. Si difieren en lo **observado**, el mecanismo **no es MCAR**:
+```{r}
+#| label: vim
+#| fig-width: 8
+#| fig-height: 4
+library(VIM)
+aggr(ckd[, c("uacr", "hba1c", "pas")], col = c("#0072B2", "#D55E00"), numbers = TRUE, sortVars = TRUE,
+     labels = c("UACR", "HbA1c", "PAS"), cex.axis = 0.8, gap = 3, ylab = c("Proporción de faltantes", "Patrón"))
+```
+
+## Paso 3: ¿se parecen los que faltan a los que no?
+
+Se crea un **indicador de falta** y se compara a los pacientes con y sin dato en **el resto de las variables**. Si difieren en lo **observado**, el mecanismo **no es MCAR**:
 
 ```{r}
 #| label: tabla1-falta
@@ -74,67 +117,62 @@ tabla1(ckd, vars = c("edad", "sexo", "tfg_basal", "hba1c", "pas", "ecv", "isglt2
   knitr::kable()
 ```
 
-Los pacientes **con UACR faltante** son **mucho mayores** (DEM +0.67), tienen **peor TFGe** (−0.70), una **pendiente de TFGe más negativa** (−0.69), más ECV (+0.20) y reciben algo **menos iSGLT2** (41 % vs. 50 %) que los que tienen UACR: el mecanismo **claramente no es MCAR**. Sugiere **MAR** (la falta depende de edad, TFGe, tratamiento y desenlace, todos observados) o **MNAR**.
+```{r}
+#| label: dem-falta
+## DEM (con el grupo 'falta' como "tratado") en las variables sin faltantes
+g <- as.integer(is.na(ckd$uacr))
+dem_f <- map_dbl(c("edad", "tfg_basal", "pendiente_tfg", "ecv", "isglt2"), \(v) smd(ckd[[v]], g)) |>
+  set_names(c("edad", "tfg_basal", "pendiente_tfg", "ecv", "isglt2"))
+pct_trat <- ckd |> group_by(uacr_falta) |> summarise(p = 100 * mean(isglt2))
+round(dem_f, 2)
+```
+
+**Qué vemos:** los pacientes **con UACR faltante** son **mucho mayores** (DEM `r sprintf("%+.2f", dem_f["edad"])`), tienen **peor TFGe** (`r sprintf("%+.2f", dem_f["tfg_basal"])`), una **pendiente de TFGe más negativa** (`r sprintf("%+.2f", dem_f["pendiente_tfg"])`), algo más de ECV (`r sprintf("%+.2f", dem_f["ecv"])`) y reciben menos iSGLT2 (`r round(pct_trat$p[2])` % frente a `r round(pct_trat$p[1])` %). El mecanismo **claramente no es MCAR**. Sugiere **MAR** (la falta depende de variables que sí observamos) o **MNAR**.
 
 ### Modelar la probabilidad de faltar
 
-Una **regresión logística** del indicador de falta permite **cuantificar** qué variables predicen la falta:
+Una **regresión logística** del indicador de falta permite **cuantificar** qué variables la predicen:
 
 ```{r}
 #| label: modelo-falta
-library(broom)
 m_falta <- glm(is.na(uacr) ~ I(edad / 10) + sexo + tfg_basal + hba1c + pas + ecv + isglt2 + pendiente_tfg,
                data = ckd, family = binomial)
-tidy(m_falta, exponentiate = TRUE, conf.int = TRUE) |>
+or_falta <- tidy(m_falta, exponentiate = TRUE, conf.int = TRUE) |>
   filter(term != "(Intercept)") |>
-  select(term, OR = estimate, conf.low, conf.high, p.value) |>
-  mutate(across(where(is.numeric), \(x) round(x, 3)))
+  select(term, OR = estimate, conf.low, conf.high, p.value)
+or_falta |> mutate(across(where(is.numeric), \(x) round(x, 3)))
 ```
 
-La falta de UACR se asocia con **mayor edad** (OR 1.5 por década), **menor TFGe** (OR 0.94 por unidad), **peor pendiente** (OR 0.73 por cada unidad más favorable) y, **a igual pendiente y demás covariables**, con **recibir iSGLT2** (OR 1.7; el efecto crudo es el inverso porque los tratados tienen mejor pendiente). Todas son variables **observadas**, lo que apoya **MAR**.
+**Qué vemos:** la falta de UACR se asocia con **mayor edad** (OR `r round(or_falta$OR[or_falta$term == "I(edad/10)"], 1)` por década), **menor TFGe** (OR `r round(or_falta$OR[or_falta$term == "tfg_basal"], 2)` por unidad), **peor pendiente** (OR `r round(or_falta$OR[or_falta$term == "pendiente_tfg"], 2)` por cada unidad más favorable) y, **a igual pendiente y demás covariables**, con **recibir iSGLT2** (OR `r round(or_falta$OR[or_falta$term == "isglt2"], 1)`; el efecto crudo es el inverso porque los tratados tienen mejor pendiente). Todas son variables **observadas**, lo que apoya MAR.
 
 ::: {.callout-warning}
 ## ⚠️ Lo que este modelo no puede decirte
 
-Que el modelo de falta **ajuste bien** con variables observadas **no descarta MNAR**: siempre puede haber dependencia del propio valor de la UACR. El análisis solo **muestra qué variables importan** para la imputación (hay que incluirlas) y qué mecanismo es **plausible**, no cuál es **cierto**.
+Que el modelo de falta "ajuste bien" con variables observadas **no descarta MNAR**: siempre puede haber dependencia del propio valor de la UACR. Este análisis solo **muestra qué variables importan** para imputar (hay que incluirlas) y qué mecanismo es **plausible**, no cuál es **cierto**.
 :::
 
-## 4. Visualizar patrones con `VIM`
-
-Para **muchas variables**, `VIM::aggr()` o `naniar` (si está disponible) muestran el patrón gráficamente:
-
-```{r}
-#| label: vim
-#| fig-width: 8
-#| fig-height: 4
-library(VIM)
-aggr(ckd[, c("uacr", "hba1c", "pas")], col = c("#0072B2", "#D55E00"), numbers = TRUE, sortVars = TRUE,
-     labels = c("UACR", "HbA1c", "PAS"), cex.axis = 0.8, gap = 3, ylab = c("Proporción de faltantes", "Patrón"))
-```
-
-## Qué documentar en un artículo
-
 ::: {.callout-tip}
-## 💡 Lista de verificación (STROBE)
+## 💡 Qué documentar en un artículo (STROBE)
 
--   [ ] **Número y porcentaje** de datos faltantes **por variable** (incluyendo el desenlace).
--   [ ] **Comparación** de pacientes con y sin datos completos.
--   [ ] **Razones** para los datos faltantes (si se conocen).
--   [ ] Cómo se **trataron** (casos completos, imputación) y **por qué**.
--   [ ] **Análisis de sensibilidad** al supuesto sobre el mecanismo.
+-   **Número y porcentaje** de datos faltantes **por variable** (incluido el desenlace).
+-   **Comparación** de pacientes con y sin datos completos.
+-   **Razones** de los faltantes, si se conocen.
+-   Cómo se **trataron** (casos completos, imputación) y por qué.
+-   **Análisis de sensibilidad** al supuesto sobre el mecanismo (13.6).
 :::
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
 -   Primero **describe**: cuántos faltan por variable, qué **patrones** hay y **quiénes** son los incompletos.
--   Compara completos vs. incompletos con la **Tabla 1** por indicador de falta, y modela la falta con una **logística**.
+-   Cuenta también los **pacientes** con algún faltante: pocos valores faltantes pueden dejar fuera a mucha gente.
+-   Compara completos vs. incompletos con una **Tabla 1** por indicador de falta y modela la falta con una **logística**.
 -   Si la falta se **asocia con variables observadas**, no es MCAR; probablemente MAR.
 -   Que el modelo de falta ajuste bien **no descarta MNAR**.
 :::
 
 ## Ejercicio
 
-1.  Calcula la **proporción de pacientes con al menos un dato faltante** y compara su pendiente de TFGe con la de los completos.
+1.  Compara la **pendiente de TFGe** de los pacientes con al menos un dato faltante frente a la de los completos.
 2.  Haz una Tabla 1 por el indicador de falta de **HbA1c**. ¿Se parece al mecanismo de la UACR?
-3.  Ajusta el modelo de falta de la PAS. ¿Qué variable es la que más predice la falta?
+3.  Ajusta el modelo de falta de la PAS. ¿Qué variable la predice más?

@@ -1,42 +1,58 @@
-# Control de calidad: faltantes, imposibles y duplicados
+# Control de calidad: duplicados, faltantes disfrazados y valores imposibles
 
-Una base bien formateada todavía puede estar **equivocada**. Este subcapítulo reúne las cuatro revisiones que deberías hacer **siempre**.
+::: {.callout-note}
+## 🩺 Escenario
+
+La base ya tiene buenos nombres, categorías unificadas y fechas reales, y aun así sigue **mal**: el archivo trae 434 filas pero el servicio atiende a menos pacientes, hay presiones de 999 y de 1400 mmHg, y alguien de 176 años. Una base bien *formateada* todavía puede estar *equivocada*. Este subcapítulo reúne las revisiones que deberías hacer **siempre** antes de analizar.
+:::
+
+**Lo que vamos a hacer**
+
+-   Resolver **duplicados** con una regla escrita.
+-   Convertir los **faltantes disfrazados** (`999`, `-1`) en `NA`.
+-   Detectar **valores imposibles** con reglas clínicas y decidir según la causa.
+-   Llevar un **diario de limpieza** y un **diccionario de datos**.
 
 ```{r}
 #| label: setup-55
 library(tidyverse)
 source("R/funciones_epi.R")
+source("R/funciones_extra_cap456.R")
 source("R/limpiar_registro.R")
 
-registro <- read_csv("Bases/registro_nefro_sucio.csv") |> limpiar_basico()
-nrow(registro); n_distinct(registro$id_paciente)
+registro <- read_csv("Bases/registro_nefro_sucio.csv", show_col_types = FALSE) |> limpiar_basico()
+
+# El diario de limpieza empieza con el archivo tal como llegó
+diario <- registrar_paso(NULL, "Archivo original", registro)
+diario
 ```
 
-La base tiene `r nrow(registro)` filas pero solo `r n_distinct(registro$id_paciente)` pacientes distintos: hay **duplicados**.
+El archivo tiene `r nrow(registro)` filas pero solo `r n_distinct(registro$id_paciente)` pacientes distintos: hay **duplicados**.
 
-## 1. Duplicados
+## Paso 1: duplicados
 
 Hay dos tipos y se tratan distinto:
 
 | Tipo | Qué es | Qué hacer |
 |---|---|---|
 | **Fila idéntica** | La misma fila repetida (error de exportación) | Eliminar las copias |
-| **Mismo ID con datos distintos** | Dos registros del mismo paciente que no coinciden | **Decidir con una regla explícita** (más reciente, más completo) y documentarla |
+| **Mismo ID, datos distintos** | Dos registros del mismo paciente que no coinciden | **Decidir con una regla explícita** (más reciente, más completo) y documentarla |
 
 ```{r}
 #| label: dups
 # 1a. Filas completamente idénticas
 sum(duplicated(registro))
 registro <- distinct(registro)
+diario <- registrar_paso(diario, "Quitar filas idénticas", registro)
 
 # 1b. Mismo ID, filas distintas
 conflictos <- registro |> group_by(id_paciente) |> filter(n() > 1) |> ungroup() |> arrange(id_paciente)
 n_distinct(conflictos$id_paciente)
 
-conflictos |> select(id_paciente, sexo, fecha_nac, creatinina, pas, fecha_registro) |> head(8)
+conflictos |> select(id_paciente, sexo, fecha_nac, creatinina, pas, fecha_registro)
 ```
 
-En esta base, cuando un ID aparece dos veces, las filas pueden diferir **porque la segunda es una actualización** (fecha de registro posterior) **o porque el ID está mal digitado** (dos pacientes distintos con el mismo ID). Distinguirlos requiere mirar los datos que no deberían cambiar (sexo, fecha de nacimiento):
+Los `r n_distinct(conflictos$id_paciente)` pacientes con dos filas distintas pueden ser **dos cosas**: la segunda fila es una **actualización** (fecha de registro posterior) o el ID está **mal digitado** (dos personas distintas con el mismo ID). Se distingue mirando lo que *no debería cambiar* (sexo, fecha de nacimiento):
 
 ```{r}
 #| label: dups-tipo
@@ -48,8 +64,10 @@ conflictos |>
   count(mismo_nacimiento, mismo_sexo)
 ```
 
--   `mismo_nacimiento = TRUE`: el **mismo paciente** con datos actualizados → aplicar la regla "conservar el más reciente".
--   `mismo_nacimiento = FALSE`: **dos personas con el mismo ID** → **no se pueden fusionar**; hay que volver a la fuente para corregir el ID.
+-   `mismo_nacimiento = TRUE`: el **mismo paciente** con datos actualizados → regla "conservar el más reciente".
+-   `mismo_nacimiento = FALSE`: **dos personas con el mismo ID** → **no se pueden fusionar**; hay que volver a la fuente.
+
+Aquí los `r n_distinct(conflictos$id_paciente)` casos son actualizaciones, así que aplicamos la regla:
 
 ```{r}
 #| label: dups-regla
@@ -58,24 +76,26 @@ registro <- registro |>
   slice_max(fecha_registro, n = 1, with_ties = FALSE) |>     # regla: el registro más reciente
   ungroup()
 
-nrow(registro)
+diario <- registrar_paso(diario, "Un registro por paciente (el más reciente)", registro)
 ```
 
 ::: {.callout-warning}
 ## ⚠️ Cuidado: ¿qué ID está mal?
 
-Con la regla "el más reciente" se descarta un registro **sin saber si era correcto**. En un estudio real, los ID discordantes se **devuelven al equipo de captura** para su corrección. Guarda un archivo con los registros descartados.
+Con la regla "el más reciente" se descarta un registro **sin saber si era el correcto**. En un estudio real, los ID discordantes se **devuelven al equipo de captura** para corregirlos. Guarda un archivo con los registros descartados.
 :::
 
-## 2. Faltantes disfrazados
+## Paso 2: faltantes disfrazados
 
-Los faltantes rara vez llegan como `NA`. Códigos habituales: `999`, `-1`, `9999`, `"ND"`, `"-"`, `""`. Si los dejas, **contaminan los promedios**.
+Los faltantes rara vez llegan como `NA`. Códigos habituales: `999`, `-1`, `9999`, `"ND"`, `"-"`, `""`. Si los dejas, **contaminan los promedios**. Búscalos con un resumen:
 
 ```{r}
 #| label: faltantes-codigos
-registro |> count(pas) |> filter(pas > 300) |> arrange(desc(pas))     # PAS = 999
+registro |> count(pas) |> filter(pas > 300) |> arrange(desc(pas))     # PAS = 999 (y otro código raro: 1400)
 registro |> count(uacr_mg_g) |> filter(uacr_mg_g < 0)                 # UACR = -1
 ```
+
+Los `999` y `-1` son códigos de "no medido": se convierten en `NA`. (El 1400 es otra cosa: un error de digitación; lo vemos en el Paso 3.)
 
 ```{r}
 #| label: faltantes-na
@@ -83,18 +103,14 @@ registro <- registro |>
   mutate(pas = na_if(pas, 999),
          uacr = na_if(uacr_mg_g, -1))
 
-registro |> summarise(across(c(pas, pad, uacr), ~ sum(is.na(.x))))
+registro |> summarise(across(c(pas, pad, uacr), \(x) sum(is.na(x))))
 ```
 
-::: {.callout-warning}
-## ⚠️ Un faltante no es un cero ni un valor "normal"
+Un faltante **no es un cero ni un valor "normal"**: reemplazarlo por 0 o por la media no es limpieza, introduce sesgo. Primero **conviértelo a `NA`**; qué hacer después (casos completos, imputación) es el tema del Capítulo 13.
 
-Reemplazar faltantes por 0 o por la media **no es limpieza**: introduce sesgo. Primero **conviértelos a `NA`**; qué hacer con ellos (casos completos, imputación) es el tema del Capítulo 13.
-:::
+## Paso 3: valores imposibles o improbables
 
-## 3. Valores imposibles o improbables
-
-Define **reglas clínicas** con rangos plausibles y cuéntalas antes de modificar nada:
+Define **reglas clínicas** con rangos plausibles y cuéntalas **antes** de modificar nada:
 
 ```{r}
 #| label: reglas
@@ -109,17 +125,16 @@ reglas <- tribble(
 )
 
 registro_largo <- registro |>
-  mutate(uacr = uacr) |>
   select(id_paciente, edad, peso_kg, talla_cm, pas, pad, uacr) |>
   pivot_longer(-id_paciente, names_to = "variable", values_to = "valor") |>
-  left_join(reglas, by = "variable")
+  left_join(reglas, by = "variable")                 # a cada valor, los límites de su variable
 
 registro_largo |>
   filter(!is.na(valor), valor < minimo | valor > maximo) |>
   count(variable, name = "fuera_de_rango")
 ```
 
-El resultado señala: `edad` (los +100), `peso_kg` (los 0) y `pas` (los 1400). Veamos cada caso y **decide según la causa**:
+El truco: al pasar a formato largo (5.1) y unir la tabla de `reglas` (5.6), **una sola regla revisa todas las variables**. Veamos cada caso y **decide según la causa**:
 
 ```{r}
 #| label: imposibles-ver
@@ -130,7 +145,7 @@ registro_largo |>
 
 | Variable | Causa probable | Decisión |
 |---|---|---|
-| `edad` (143, 169…) | `+100` por digitación | **Recalcular** desde las fechas (Cap. 5.3) |
+| `edad` (143, 169, 176) | `+100` por digitación | **Recalcular** desde las fechas (5.3) |
 | `peso_kg` = 0 | Peso no medido registrado como 0 | `NA` |
 | `pas` = 1400 | ¿140? ¿1.40? Imposible de saber | `NA` y marcar para revisión en la fuente |
 
@@ -144,8 +159,11 @@ registro <- registro |>
     pas = if_else(pas > 260, NA_real_, pas)
   )
 
-registro |> summarise(across(c(edad, peso_kg, pas), list(min = ~ min(.x, na.rm = TRUE), max = ~ max(.x, na.rm = TRUE))))
+registro |> summarise(across(c(edad, peso_kg, pas),
+                             list(min = \(x) min(x, na.rm = TRUE), max = \(x) max(x, na.rm = TRUE))))
 ```
+
+Después de corregir, los rangos son plausibles: edad de `r min(registro$edad)` a `r max(registro$edad)` años y PAS máxima de `r max(registro$pas, na.rm = TRUE)` mmHg.
 
 ::: {.callout-important}
 ## 🎯 Regla de oro: no corrijas "a ojo"
@@ -153,27 +171,41 @@ registro |> summarise(across(c(edad, peso_kg, pas), list(min = ~ min(.x, na.rm =
 No cambies `1400` por `140` "porque seguramente era un error de tipeo": **inventarías un dato**. Si la fuente puede confirmarlo, corrígelo allí; si no, es un faltante. Cada corrección debe estar en el código, con su motivo.
 :::
 
-## 4. Coherencia entre variables
+## Paso 4: coherencia entre variables
 
-Algunas combinaciones son imposibles aunque cada valor aislado sea razonable:
+Algunas combinaciones son imposibles aunque cada valor, por separado, sea razonable. Escribe cada regla como una condición y **cuenta** los casos:
 
 ```{r}
-#| label: coherencia
+#| label: coherencia-variables
 registro |>
   summarise(
-    pad_mayor_que_pas = sum(pad >= pas, na.rm = TRUE),
-    hombres_embarazo_ejemplo = 0   # ejemplo: reglas del tipo "sexo == 'M' y embarazo == 'Sí'"
+    pad_mayor_o_igual_que_pas = sum(pad >= pas, na.rm = TRUE),                # presión de pulso <= 0
+    sin_diabetes_pero_erc_diabetica = sum(dm == "No" & diagnostico == "ERC diabética"),
+    pas_y_pad_faltantes = sum(is.na(pas) & is.na(pad))
   )
 ```
 
-## Un reporte de calidad reutilizable
+Dos pacientes tienen la PAD igual o mayor que la PAS; no se corrigen (podría ser real o un error de orden), se **marcan para revisión** en la fuente. Las otras dos reglas dan 0: no hay incoherencias de ese tipo.
+
+## Paso 5: el balance, en el diario
+
+```{r}
+#| label: diario
+diario
+```
+
+Es la base del **diagrama de flujo** que piden STROBE y CONSORT: filas iniciales → sin duplicados exactos → un registro por paciente. Si añades exclusiones (por ejemplo, TFGe < 15), regístralas también con `registrar_paso()`.
+
+## Paso 6: un reporte de calidad reutilizable
+
+Una función pequeña resume tipos y faltantes de cualquier base:
 
 ```{r}
 #| label: reporte
 reporte_calidad <- function(datos) {
   tibble(variable = names(datos),
-         tipo = map_chr(datos, ~ class(.x)[1]),
-         n_faltantes = map_int(datos, ~ sum(is.na(.x))),
+         tipo = map_chr(datos, \(x) class(x)[1]),
+         n_faltantes = map_int(datos, \(x) sum(is.na(x))),
          pct_faltantes = round(100 * n_faltantes / nrow(datos), 1),
          n_distintos = map_int(datos, n_distinct))
 }
@@ -181,26 +213,22 @@ reporte_calidad <- function(datos) {
 registro |> select(id_paciente, sexo, edad, peso_kg, pas, pad, uacr, diagnostico) |> reporte_calidad()
 ```
 
-::: {.callout-tip}
-## 💡 Tip práctico: un diario de limpieza
+El paquete `naniar` (que usa el autor) hace lo mismo con gráficos: `naniar::gg_miss_var(registro)` (no se ejecuta aquí).
 
-Lleva un registro de **cuántas filas o valores cambió cada paso** (filas iniciales → tras quitar duplicados → tras exclusiones). Es la base del **diagrama de flujo** (STROBE/CONSORT) que pedirán los revisores.
-:::
+## Paso 7: el diccionario de datos
 
-## Diccionario de datos
-
-Un **diccionario** documenta cada variable: nombre, descripción, unidad, valores permitidos. Se crea una vez y acompaña a la base:
+Un **diccionario** documenta cada variable: nombre, descripción, unidad y valores permitidos. Se crea una vez y acompaña a la base:
 
 ```{r}
 #| label: diccionario
 diccionario <- tribble(
   ~variable,      ~descripcion,                          ~tipo,     ~unidad,       ~valores,
-  "id_paciente",  "Código del paciente",                 "texto",   "",            "P001–P420",
+  "id_paciente",  "Código del paciente",                 "texto",   "",            "P001-P420",
   "sexo",         "Sexo biológico",                      "texto",   "",            "F, M",
-  "edad",         "Edad al ingreso (calculada)",         "entero",  "años",        "18–100",
-  "creat_mgdl",   "Creatinina sérica",                   "numérico","mg/dL",       "0.3–15",
-  "tfge",         "TFGe CKD-EPI 2021",                   "numérico","mL/min/1.73m²","1–150",
-  "uacr",         "Albuminuria",                         "numérico","mg/g",        "0–10000; NA = no medido",
+  "edad",         "Edad al ingreso (calculada)",         "entero",  "años",        "18-100",
+  "creat_mgdl",   "Creatinina sérica",                   "numérico","mg/dL",       "0.3-15",
+  "tfge",         "TFGe CKD-EPI 2021",                   "numérico","mL/min/1.73m²","1-150",
+  "uacr",         "Albuminuria",                         "numérico","mg/g",        "0-10000; NA = no medido",
   "diagnostico",  "Diagnóstico etiológico principal",    "texto",   "",            "ERC diabética, ERC hipertensiva, Glomerulopatía, Otro"
 )
 diccionario
@@ -209,15 +237,15 @@ diccionario
 ::: {.callout-important}
 ## 🎯 En resumen
 
-1.  **Duplicados**: elimina filas idénticas; decide con una **regla explícita** cuando el mismo ID tiene datos distintos (y distingue "actualización" de "ID mal digitado").
+1.  **Duplicados**: elimina filas idénticas; con el mismo ID y datos distintos, usa una **regla explícita** (y distingue "actualización" de "ID mal digitado").
 2.  **Faltantes disfrazados** (`999`, `-1`, `ND`): conviértelos a `NA`; no los rellenes con ceros ni medias.
 3.  **Valores imposibles**: define rangos clínicos, cuéntalos y decide **según la causa**; no inventes datos.
-4.  **Coherencia** entre variables (PAD < PAS, fechas, sexo y diagnósticos).
+4.  **Coherencia** entre variables (PAD < PAS, diabetes y diagnóstico).
 5.  Deja un **diario de limpieza** y un **diccionario de datos**.
 :::
 
 ## Ejercicio
 
-1.  Agrega a `reglas` los límites plausibles de `creat_mgdl` (0.3 a 15 mg/dL) y TFGe (1 a 150). ¿Cuántos valores quedan fuera?
+1.  Agrega a `reglas` los límites plausibles de `creat_mgdl` (0.3 a 15 mg/dL) y TFGe (1 a 150). ¿Cuántos valores quedan fuera? (Necesitas haber calculado ambas variables, como en 5.4.)
 2.  ¿Cuántos pacientes tienen `pas` y `pad` ambos faltantes?
-3.  Escribe una regla de coherencia (por ejemplo, `uacr` faltante pero diagnóstico "ERC diabética") y cuenta los casos.
+3.  Escribe otra regla de coherencia (por ejemplo, UACR ≥ 300 con diagnóstico "Otro") y cuenta los casos.

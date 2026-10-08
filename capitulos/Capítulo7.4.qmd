@@ -1,21 +1,86 @@
 # Intervalos de confianza y *bootstrap*
 
-## Del dato al intervalo
+::: {.callout-note}
+## 🩺 Escenario
 
-Una estimación sin su incertidumbre es incompleta. En el Cap. 6 vimos que el IC refleja el **error de muestreo**; aquí aprendemos a construirlo para los estadísticos más usados en nefrología. Simulamos un escenario realista: una **pequeña cohorte de 120 pacientes** extraída de nuestra población de 5 000 (así sabemos la verdad para comparar).
+En tu servicio revisaste 120 historias y encontraste una TFGe media de 45 mL/min/1.73 m². Un colega pregunta: "¿y si hubieras revisado otras 120?". Tiene razón: tu cifra depende de **los pacientes que cayeron en la muestra**. El intervalo de confianza (IC) es la forma honesta de decir "esto es lo que vi, y esto es cuánto podría moverse".
+:::
+
+**Lo que vamos a hacer**
+
+-   Entender qué significa de verdad un IC 95 % (simulando 100 estudios repetidos).
+-   Calcular los IC clásicos de una media, una proporción y una diferencia.
+-   Usar el ***bootstrap*** cuando **no existe una fórmula** (mediana, razón de medianas, diferencia de riesgos).
+
+## Paso 1. Montamos un "estudio" pequeño con verdad conocida
+
+En el Cap. 6 vimos que el IC refleja el **error de muestreo**. Para comprobarlo simulamos tu escenario: una **cohorte de 120 pacientes** extraída de la población de 5 000 (simulada). Como conocemos la población completa, podremos comparar cada IC con la **verdad**.
 
 ```{r}
 #| label: setup-74
 library(tidyverse)
 library(boot)
 
-ckd <- read_csv("Bases/ckd_isglt2.csv")
+ckd <- read_csv("Bases/ckd_isglt2.csv", show_col_types = FALSE)
 set.seed(1)
 s <- slice_sample(ckd, n = 120)     # "nuestro estudio"
 nrow(s)
 ```
 
-## IC clásicos
+## Paso 2. ¿Qué significa un IC del 95 %?
+
+La respuesta corta: **si repitieras el estudio muchas veces, el 95 % de los intervalos construidos así contendría el valor verdadero**. Lo comprobamos haciendo 100 "estudios" de 120 pacientes cada uno y dibujando sus IC para la TFGe media (la verdad, en los 5 000, es `r sprintf("%.1f", mean(ckd$tfg_basal))`):
+
+```{r}
+#| label: ic-simulacion
+#| fig-width: 7
+#| fig-height: 5
+verdad_tfg <- mean(ckd$tfg_basal)
+
+set.seed(2025)
+estudios <- map_dfr(1:100, \(i) {
+  x  <- slice_sample(ckd, n = 120)$tfg_basal
+  ci <- t.test(x)$conf.int
+  tibble(estudio = i, media = mean(x), inf = ci[1], sup = ci[2])
+}) |>
+  mutate(cubre = inf <= verdad_tfg & sup >= verdad_tfg)
+
+ggplot(estudios, aes(y = estudio, x = media, xmin = inf, xmax = sup, color = cubre)) +
+  geom_pointrange(size = 0.25) +
+  geom_vline(xintercept = verdad_tfg, linetype = "dashed") +
+  scale_color_manual(values = c(`TRUE` = "grey50", `FALSE` = "#D55E00"),
+                     labels = c(`TRUE` = "Contiene la verdad", `FALSE` = "No la contiene"), name = NULL) +
+  labs(x = "TFGe media (mL/min/1.73 m²)", y = "Estudio simulado",
+       caption = "100 muestras de n = 120. Línea punteada: media verdadera en los 5 000. Datos simulados.") +
+  theme_minimal(base_size = 11) + theme(legend.position = "bottom")
+```
+
+**Qué vemos.** `r sum(estudios$cubre)` de los 100 intervalos contienen la media verdadera (los naranjas no), cerca del 95 % prometido. Dos advertencias de interpretación:
+
+-   El 95 % es una propiedad del **procedimiento** (de la "receta"), no una probabilidad sobre un intervalo concreto: tu intervalo contiene la verdad o no la contiene, y nunca lo sabrás.
+-   El **ancho** del IC depende de tres ingredientes: la **variabilidad** de los datos (más DE, más ancho), el **tamaño de muestra** (más *n*, más estrecho) y el **nivel de confianza** (99 % es más ancho que 95 %).
+
+La fórmula del IC de una media junta esos tres ingredientes: media ± *t* × (DE / √*n*). Con nuestra muestra `s` y a mano:
+
+```{r}
+#| label: ic-a-mano
+n <- nrow(s); m <- mean(s$tfg_basal); ee <- sd(s$tfg_basal) / sqrt(n)    # ee = error estándar
+m + c(-1, 1) * qt(0.975, df = n - 1) * ee
+```
+
+Es el mismo intervalo que dará `t.test()` en el siguiente paso. Y el efecto de *n* sobre el ancho, con la DE real de la TFGe en la población:
+
+```{r}
+#| label: ancho-vs-n
+tibble(n = c(30, 120, 500, 5000)) |>
+  mutate(ancho_del_ic = round(2 * qt(0.975, n - 1) * sd(ckd$tfg_basal) / sqrt(n), 2))
+```
+
+Para cuadruplicar la precisión (dividir el ancho a la mitad) necesitas **cuatro veces más pacientes**: la precisión sube con la **raíz** de *n*.
+
+## Paso 3. Los IC clásicos
+
+Para los estadísticos más comunes ya existen fórmulas implementadas en R:
 
 | Estadístico | Método | Función en R |
 |---|---|---|
@@ -37,24 +102,16 @@ prop.test(sum(s$ecv), nrow(s))$conf.int
 t.test(tfg_basal ~ isglt2, data = s)
 ```
 
-Los valores verdaderos en la población de 5 000 son: TFGe media = `r sprintf("%.1f", mean(ckd$tfg_basal))`, ECV = `r sprintf("%.1f", 100 * mean(ckd$ecv))` %. Ambos quedan dentro de sus intervalos.
+**Cómo se lee.** Para la media: la TFGe media en esta cohorte es `r sprintf("%.1f", mean(s$tfg_basal))` y el IC va de `r sprintf("%.1f", t.test(s$tfg_basal)$conf.int[1])` a `r sprintf("%.1f", t.test(s$tfg_basal)$conf.int[2])`. Para la proporción con ECV: `r sprintf("%.1f", 100 * mean(s$ecv))` % (IC `r sprintf("%.0f", 100 * prop.test(sum(s$ecv), nrow(s))$conf.int[1])`-`r sprintf("%.0f", 100 * prop.test(sum(s$ecv), nrow(s))$conf.int[2])` %). Los valores verdaderos en la población de 5 000 son TFGe = `r sprintf("%.1f", mean(ckd$tfg_basal))` y ECV = `r sprintf("%.1f", 100 * mean(ckd$ecv))` %: ambos caen dentro de sus intervalos. Para la diferencia entre grupos, el intervalo es de aproximadamente −9.3 a −2.7: como no incluye 0, los tratados tienen una TFGe mayor.
 
-::: {.callout-tip}
-## 💡 Tip práctico: IC de una media geométrica
+Una nota práctica: el **IC de una media geométrica** se calcula en escala logarítmica y se devuelve con `exp()`, p. ej. `exp(t.test(log(s$uacr))$conf.int)`.
 
-Calcula el IC en la **escala logarítmica** y devuélvelo con `exp()`:
+## Paso 4. ¿Y si no existe una fórmula? El *bootstrap*
 
-```r
-exp(t.test(log(s$uacr))$conf.int)
-```
-:::
+¿Cuál es el error estándar de la **mediana** de la UACR? ¿Y de una **razón de medianas** o de un **NNT**? No hay fórmulas simples. El *bootstrap* las sustituye por un procedimiento (la idea es: tu muestra es lo mejor que sabes de la población, así que **remuestréala**):
 
-## ¿Y si no existe una fórmula? El *bootstrap*
-
-¿Cuál es el error estándar de la **mediana** de la UACR? ¿Y el de una **razón de medianas** o de un **NNT**? No hay fórmulas simples. El *bootstrap* las sustituye por un procedimiento:
-
-1.  Toma, **con reposición**, una muestra del mismo tamaño que la tuya (una "muestra *bootstrap*").
-2.  Calcula el estadístico en esa muestra.
+1.  Toma, **con reposición**, una muestra del mismo tamaño que la tuya (una "muestra *bootstrap*"): algunos pacientes se repiten y otros no aparecen.
+2.  Calcula el estadístico (aquí, la mediana) en esa muestra.
 3.  Repite **miles de veces**.
 4.  La **variación** de esos estadísticos aproxima la variación que tendrías en muestras nuevas.
 
@@ -84,9 +141,11 @@ tibble(mediana = medianas) |>
   theme_minimal(base_size = 11)
 ```
 
-## El paquete `boot`
+**Qué vemos.** La mediana observada en la muestra es `r median(s$uacr)` mg/g y el IC *bootstrap* por percentiles va de `r quantile(medianas, 0.025)` a `r quantile(medianas, 0.975)`; la mediana verdadera (`r median(ckd$uacr)`) cae dentro. El histograma es la "distribución de muestreo" de la mediana, construida sin ninguna fórmula.
 
-`boot()` hace lo mismo con más control y permite métodos de IC más finos (**BCa**, que corrige sesgo y asimetría). Se le entrega una función que recibe los datos y los **índices** de la muestra *bootstrap*:
+## Paso 5. El paquete `boot`
+
+`boot()` hace lo mismo con más control y permite métodos de IC más finos (**BCa**, que corrige sesgo y asimetría). Le entregas una función que recibe los datos y los **índices** de la muestra *bootstrap*:
 
 ```{r}
 #| label: boot-paquete
@@ -97,16 +156,11 @@ b
 boot.ci(b, type = c("perc", "bca"))
 ```
 
-::: {.callout-note}
-## Percentil vs. BCa
-
--   **Percentil**: simple y casi siempre razonable.
--   **BCa**: corrige sesgo y asimetría; es la opción más recomendada con muestras de tamaño pequeño o moderado, pero necesita más réplicas (≥ 2 000) y falla con muestras muy pequeñas.
-:::
+**Cómo elegir.** El método **percentil** es simple y casi siempre razonable. El **BCa** corrige sesgo y asimetría y es la opción más recomendada con muestras de tamaño pequeño o moderado, pero necesita más réplicas (≥ 2 000). Aquí los dos dan intervalos parecidos.
 
 ### Razón de medianas entre dos grupos
 
-El *bootstrap* de dos muestras debe **remuestrear dentro de cada grupo** (`strata`), para mantener el tamaño de cada uno:
+El *bootstrap* de dos muestras debe **remuestrear dentro de cada grupo** (`strata`) para mantener el tamaño de cada uno:
 
 ```{r}
 #| label: boot-razon
@@ -121,11 +175,11 @@ c(estimado = b2$t0)
 boot.ci(b2, type = "perc")
 ```
 
-La UACR mediana es mayor en los tratados (es lo que vimos en la Tabla 1): la razón de medianas es > 1 y su IC no incluye 1.
+La UACR mediana es `r sprintf("%.2f", b2$t0)` veces mayor en los tratados (lo vimos en la Tabla 1, Cap. 7.2); el IC `r sprintf("%.2f", boot.ci(b2, type = "perc")$percent[4])`-`r sprintf("%.2f", boot.ci(b2, type = "perc")$percent[5])` **no incluye 1**.
 
 ### Diferencia de riesgos con IC *bootstrap*
 
-El riesgo de evento renal a 36 meses es 19.2 % en los no tratados y 10.9 % en los tratados (**crudo**, sin ajustar). Su diferencia y su IC:
+El riesgo crudo de evento renal a 36 meses es `r sprintf("%.1f", 100 * mean(ckd$evento[ckd$isglt2 == 0]))` % en los no tratados y `r sprintf("%.1f", 100 * mean(ckd$evento[ckd$isglt2 == 1]))` % en los tratados. Su diferencia, con IC *bootstrap* y con la fórmula de Wald para compararlos:
 
 ```{r}
 #| label: boot-rd
@@ -144,28 +198,26 @@ p0 <- mean(ckd$evento[ckd$isglt2 == 0]); n0 <- sum(ckd$isglt2 == 0)
 (p1 - p0) + c(-1, 1) * 1.96 * sqrt(p1 * (1 - p1) / n1 + p0 * (1 - p0) / n0)
 ```
 
-Los dos IC casi coinciden: para estadísticos con fórmula, el *bootstrap* da lo mismo; su ventaja aparece cuando **no hay fórmula** (estimadores ajustados con IPW, g-fórmula, NNT). **Esta diferencia es cruda**: sin ajustar por las diferencias de la Tabla 1 no es el efecto causal.
-
-## Reglas del *bootstrap*
+Los dos IC casi coinciden (la diferencia es de unos `r sprintf("%.1f", abs(100 * b3$t0))` puntos porcentuales menos de riesgo en los tratados): para estadísticos con fórmula, el *bootstrap* da lo mismo. Su ventaja aparece cuando **no hay fórmula** (estimadores ajustados con IPW, g-fórmula, NNT). **Esta diferencia es cruda**: sin ajustar por las diferencias de la Tabla 1 no es el efecto causal.
 
 ::: {.callout-warning}
 ## ⚠️ Cuándo el *bootstrap* falla o necesita cuidado
 
 -   **Datos agrupados** (varios registros por paciente, pacientes dentro de centros): se remuestrean **los pacientes (o centros) completos**, no las filas.
--   **Muestras muy pequeñas** (n < 20) o estadísticos de **extremos** (máximo, percentil 99): el *bootstrap* no funciona bien.
+-   **Muestras muy pequeñas** (*n* < 20) o estadísticos de **extremos** (máximo, percentil 99): el *bootstrap* no funciona bien.
 -   **No corrige sesgos** de selección ni de medición; solo cuantifica el error de muestreo.
 -   **Fija la semilla** (`set.seed()`) y usa **suficientes réplicas** (2 000-10 000).
--   Si el estimador incluye **varios pasos** (ajustar un modelo de propensión y luego ponderar), todo el proceso debe repetirse en **cada** muestra *bootstrap*.
+-   Si el estimador incluye **varios pasos** (ajustar un modelo de propensión y luego ponderar), **todo** el proceso debe repetirse en cada muestra *bootstrap*.
 :::
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
--   Reporta **siempre** el IC junto a la estimación.
+-   Reporta **siempre** el IC junto a la estimación. Un IC 95 % describe la "receta": 95 de cada 100 estudios repetidos lo contendrían.
+-   Su ancho depende de la **variabilidad**, el **tamaño de muestra** (√*n*) y el **nivel de confianza**.
 -   Para medias, proporciones y diferencias existen **fórmulas** (`t.test`, `prop.test`).
 -   Para **medianas, razones y estimadores complejos**, el ***bootstrap***: remuestrear con reposición, recalcular, repetir y mirar la variación.
--   Con `boot()`: función `f(datos, i)`, `R = 2000+`, `strata` para dos grupos, `boot.ci(type = c("perc","bca"))`.
--   Remuestrea **unidades independientes** (pacientes o centros), no filas dependientes.
+-   Con `boot()`: función `f(datos, i)`, `R = 2000+`, `strata` para dos grupos, `boot.ci(type = c("perc", "bca"))`.
 :::
 
 ## Ejercicio

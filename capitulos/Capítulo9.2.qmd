@@ -1,14 +1,16 @@
 # Kaplan-Meier y log-rank
 
-## La curva de Kaplan-Meier
+::: {.callout-note}
+## 🩺 Escenario
 
-El estimador de **Kaplan-Meier (KM)** calcula la probabilidad de **seguir libre del evento** a lo largo del tiempo. En cada instante en que ocurre un evento, la curva baja en proporción a los pacientes que **todavía estaban en riesgo**; los censurados salen del denominador sin hacer bajar la curva.
+Un paciente con ERC G4 te pregunta: *"Doctor, ¿cuál es la probabilidad de que dentro de tres años aún no necesite diálisis?"*. Y una residente quiere saber si los pacientes con diabetes llegan a diálisis antes que los demás. Las dos preguntas se responden con la misma herramienta: la **curva de Kaplan-Meier**, que usa a cada paciente durante el tiempo que se le observó, incluidos los censurados.
+:::
 
-$$
-\hat S(t) = \prod_{t_i \le t}\left(1 - \frac{d_i}{n_i}\right)
-$$
+**Lo que vamos a hacer**
 
-con $d_i$ eventos y $n_i$ pacientes en riesgo en el instante $t_i$.
+-   Construir la curva de Kaplan-Meier **a mano** con 10 pacientes y comprobar que `survfit()` hace lo mismo.
+-   Estimarla en la cohorte de 3 000 pacientes, graficarla y **compararla con la verdad**.
+-   Comparar grupos con el **log-rank** y expresar la diferencia en números que un paciente entienda.
 
 ```{r}
 #| label: setup-92
@@ -16,38 +18,93 @@ library(tidyverse)
 library(survival)
 library(survminer)
 library(broom)
+source("R/simular_cohorte_pronostico.R")
+theme_set(theme_minimal(base_size = 12))
 
 coh <- read_csv("Bases/cohorte_pronostico.csv") |>
   mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")),
          dm = factor(dm, levels = 0:1, labels = c("Sin DM", "Con DM")),
          krt = as.integer(estado == 1))
+```
 
+## Paso 1: la idea, con 10 pacientes y una calculadora
+
+Retomamos los 10 pacientes hipotéticos de 9.1. La idea de Kaplan-Meier cabe en una frase: **cada vez que ocurre un evento, la probabilidad de seguir libre de él se multiplica por la fracción de pacientes en riesgo que sobrevivió ese momento**.
+
+$$
+\hat S(t) = \prod_{t_i \le t}\left(1 - \frac{d_i}{n_i}\right)
+$$
+
+con $d_i$ = eventos en el instante $t_i$ y $n_i$ = pacientes todavía **en riesgo** (vivos, sin evento y aún observados) justo antes de $t_i$. Los censurados no hacen bajar la curva: simplemente **salen del denominador** cuando dejamos de verlos.
+
+```{r}
+#| label: mini-datos-92
+mini <- tibble(
+  paciente = LETTERS[1:10],
+  tiempo   = c(2, 3, 5, 5, 7, 8, 10, 12, 12, 15),
+  evento   = c(1, 0, 1, 1, 0, 1, 0,  1,  0,  0)     # 1 = falla renal; 0 = censurado
+)
+```
+
+Construimos la tabla paso a paso: para cada instante, cuántos estaban en riesgo, cuántos tuvieron el evento y cuántos salieron censurados.
+
+```{r}
+#| label: km-a-mano
+km_mano <- mini |>
+  group_by(tiempo) |>
+  summarise(eventos = sum(evento), censurados = sum(1 - evento), .groups = "drop") |>
+  mutate(en_riesgo = nrow(mini) - lag(cumsum(eventos + censurados), default = 0),   # quedan al inicio del instante
+         prob_seguir_libre = 1 - eventos / en_riesgo,                                 # 1 - d/n
+         S = cumprod(prob_seguir_libre))                                              # producto acumulado
+km_mano
+```
+
+**Cómo leerla.** En el mes 2 estaban en riesgo 10 pacientes y 1 tuvo el evento: $S = 1 - 1/10 = 0.90$. En el mes 3 sale un censurado (B): la curva **no baja**, pero el denominador pasa de 9 a 8. En el mes 5 hay 2 eventos entre 8 en riesgo: $S = 0.90 \times (1 - 2/8) = 0.675$. Y así sucesivamente. Comprobemos que R obtiene lo mismo:
+
+```{r}
+#| label: km-survfit-mini
+km_mini <- survfit(Surv(tiempo, evento) ~ 1, data = mini)
+tibble(tiempo = km_mini$time, S_survfit = km_mini$surv) |>
+  left_join(km_mano |> select(tiempo, S_a_mano = S), by = "tiempo")
+```
+
+Las dos columnas coinciden: `survfit()` no tiene magia, hace esta multiplicación. Y la mediana de supervivencia es el primer momento en que la curva cae a 0.50 o menos (aquí, el mes `r summary(km_mini)$table["median"]`). Dibujada, la curva es una **escalera**:
+
+```{r}
+#| label: fig-km-mini
+#| fig-width: 7
+#| fig-height: 3.6
+#| fig-cap: "Kaplan-Meier de los 10 pacientes hipotéticos. Las marcas + son censuras: la curva no baja en ellas."
+ggsurvplot(km_mini, data = mini, conf.int = FALSE, censor.shape = "+", censor.size = 5,
+           surv.median.line = "hv", break.time.by = 3, palette = "#0072B2", legend = "none",
+           xlab = "Meses desde el tiempo cero", ylab = "Probabilidad libre de falla renal",
+           ggtheme = theme_minimal(base_size = 12))
+```
+
+## Paso 2: la curva de la cohorte completa
+
+Con 3 000 pacientes el procedimiento es idéntico; solo cambia el tamaño de la escalera.
+
+```{r}
+#| label: km-cohorte
 km <- survfit(Surv(tiempo_meses, krt) ~ 1, data = coh)
 km
 ```
 
-La mediana de supervivencia libre de falla renal es `NA` (no se alcanzó): menos del 50 % tuvo falla renal durante el seguimiento. Para describir la curva se reporta la **supervivencia a tiempos fijos**, con IC:
+La **mediana** de supervivencia libre de falla renal es `NA`: la curva nunca llegó a 0.50 (menos de la mitad tuvo falla renal en el seguimiento). Por eso, en vez de la mediana, se reporta la **supervivencia a tiempos fijos** con su IC:
 
 ```{r}
 #| label: km-tiempos
 resumen_km <- summary(km, times = c(12, 24, 36, 60))
-tibble(meses = resumen_km$time, en_riesgo = resumen_km$n.risk,
-       supervivencia = resumen_km$surv, ic_inf = resumen_km$lower, ic_sup = resumen_km$upper,
-       riesgo_acumulado = 1 - resumen_km$surv) |>
-  mutate(across(c(supervivencia, ic_inf, ic_sup, riesgo_acumulado), \(x) round(x, 3)))
+tab_km <- tibble(meses = resumen_km$time, en_riesgo = resumen_km$n.risk,
+                 supervivencia = resumen_km$surv, ic_inf = resumen_km$lower, ic_sup = resumen_km$upper,
+                 riesgo_acumulado = 1 - resumen_km$surv)
+tab_km |> mutate(across(c(supervivencia, ic_inf, ic_sup, riesgo_acumulado), \(x) round(x, 3)))
 ```
 
-Interpretación: la probabilidad de seguir sin falla renal a los 36 meses es ~71 % (IC 69-73 %); el riesgo acumulado es 1 − *S*(*t*) ≈ 29 %. A los 60 meses quedan muy pocos pacientes en riesgo (37): la cola derecha es poco confiable, y el IC se ensancha.
+**Qué vemos.** A los 36 meses, la probabilidad de seguir sin falla renal es **`r round(100 * tab_km$supervivencia[3])` %** (IC 95 %: `r round(100 * tab_km$ic_inf[3])` a `r round(100 * tab_km$ic_sup[3])` %), es decir, un **riesgo acumulado de `r round(100 * tab_km$riesgo_acumulado[3])` %**. Es la respuesta a la pregunta de tu paciente. Y a los 60 meses quedan solo `r tab_km$en_riesgo[4]` pacientes en riesgo: la cola derecha es poco fiable y el IC se ensancha.
 
-::: {.callout-warning}
-## ⚠️ Cuidado con el final de la curva
-
-Cuando quedan pocos pacientes en riesgo, la curva "salta" con cada evento y el IC es muy amplio. Muestra siempre la **tabla de pacientes en riesgo** debajo de la curva y no interpretes la cola con < 10-20 pacientes en riesgo.
-:::
-
-## Graficar la curva
-
-`survminer::ggsurvplot()` produce un gráfico listo para publicar, con IC y tabla de riesgo:
+### Dibujar la curva
 
 ```{r}
 #| label: km-plot
@@ -59,16 +116,53 @@ ggsurvplot(km, data = coh, conf.int = TRUE, risk.table = TRUE, risk.table.height
            palette = "#0072B2", ggtheme = theme_minimal(base_size = 11))
 ```
 
-::: {.callout-tip}
-## 💡 Tip práctico: ¿curva de supervivencia o de riesgo acumulado?
+La **tabla de pacientes en riesgo** debajo de la curva no es decorativa: te dice cuánto confiar en cada tramo. Cuando quedan pocos pacientes, la curva "salta" con cada evento; no interpretes colas con menos de 10-20 pacientes en riesgo.
 
--   Si el evento es **frecuente** y lo que importa es "cuántos se salvan", usa la **supervivencia** (curva descendente).
--   Si el evento es **raro** (diálisis a 5 años en un 8 %), la curva de supervivencia queda pegada al 100 % y no se aprecian diferencias; usa el **riesgo acumulado** (`fun = "event"`), que sube desde 0 y amplía la escala.
+::: {.callout-tip}
+## 💡 Otras formas de ver la misma curva (`fun=`, `ncensor.plot`)
+
+`ggsurvplot(km, fun = "event")` dibuja el **riesgo acumulado** $1 - S(t)$ (sube desde 0; útil cuando el evento es raro y la supervivencia queda pegada al 100 %). `fun = "cumhaz"` dibuja el **riesgo instantáneo acumulado** $H(t) = -\ln S(t)$. Con `ncensor.plot = TRUE` aparece debajo un gráfico con cuántos censurados hay en cada momento, y con `surv.median.line = "hv"` una línea que marca la mediana (cuando existe).
 :::
 
-## Comparar grupos: log-rank
+### Por dentro de `survfit`: la curva como tabla
 
-¿Los pacientes con diabetes llegan antes a la falla renal?
+El objeto `survfit` es una lista con todo lo que hace falta para armar tus propias figuras o tablas. `broom::tidy()` lo convierte en una tabla ordenada:
+
+```{r}
+#| label: km-tidy
+tidy(km) |> select(time, n.risk, n.event, n.censor, estimate, conf.low, conf.high) |> head(6)
+```
+
+Cada fila es un instante con algún evento o censura: cuántos estaban en riesgo (`n.risk`), cuántos tuvieron el evento (`n.event`), cuántos se censuraron (`n.censor`) y la estimación `estimate` = $S(t)$. Es exactamente la tabla que armamos a mano.
+
+## Paso 3: ¿funciona? Comparamos con la verdad
+
+La cohorte tiene censura (los pacientes entran escalonadamente y algunos se pierden). Como la simulamos, podemos generar la **misma población sin censura alguna**, con 60 000 pacientes, y ver qué fracción tuvo falla renal. Comparamos tres cosas a distintos tiempos: la **proporción cruda** de la cohorte observada (eventos / total), el **1 − KM** y la verdad.
+
+```{r}
+#| label: km-vs-verdad
+meses <- c(12, 36, 60)
+
+# Verdad: cohorte grande SIN censura; la muerte se trata igual que aquí (se deja de observar al paciente)
+v <- simular_cohorte_pronostico(60000, semilla = 99, censura = FALSE)
+km_v <- survfit(Surv(tiempo_meses, estado == 1) ~ 1, data = v)
+verdad_1mkm <- 1 - summary(km_v, times = meses)$surv
+
+cruda <- sapply(meses, \(m) mean(coh$krt == 1 & coh$tiempo_meses <= m))   # proporción: eventos / todos
+uno_menos_km <- 1 - summary(km, times = meses)$surv
+
+tibble(meses = meses,
+       `Proporción cruda (eventos / n)` = cruda,
+       `1 - Kaplan-Meier` = uno_menos_km,
+       `Verdad (sin censura)` = verdad_1mkm) |>
+  mutate(across(-meses, \(x) round(100 * x, 1)))
+```
+
+**Qué vemos.** La proporción cruda **subestima** el riesgo y la brecha crece con el tiempo: `r round(100 * (verdad_1mkm[1] - cruda[1]), 1)` puntos a los 12 meses, `r round(100 * (verdad_1mkm[3] - cruda[3]), 1)` a los 60, porque incluye a pacientes que ya no se observaban. El **1 − KM** queda muy cerca de la verdad aun con la censura (a los 60 meses se aleja algo más, porque solo quedan unos 37 pacientes en riesgo). Es la gracia del método: corrige la censura **siempre que sea no informativa** (aquí lo es por construcción). Ojo: esta "verdad" responde *"¿qué riesgo habría si las muertes no impidieran la falla renal?"*; en 9.5 veremos que esa no es la pregunta clínica real y qué hacer.
+
+## Paso 4: comparar grupos con el log-rank
+
+La residente pregunta: ¿los pacientes con diabetes llegan antes a la falla renal? Dibujamos una curva por grupo, ahora como **riesgo acumulado** para ver mejor la separación:
 
 ```{r}
 #| label: km-dm
@@ -81,67 +175,61 @@ ggsurvplot(km_dm, data = coh, conf.int = TRUE, risk.table = TRUE, pval = TRUE, p
            palette = c("#999999", "#D55E00"), ggtheme = theme_minimal(base_size = 11))
 ```
 
-El **log-rank** compara las curvas completas: en cada instante con evento, compara los eventos observados en cada grupo con los esperados si no hubiera diferencia:
+La prueba **log-rank** compara las curvas completas. En cada instante con un evento, compara los eventos **observados** en cada grupo con los que se **esperarían** si no hubiera diferencia:
 
 ```{r}
 #| label: logrank
-survdiff(Surv(tiempo_meses, krt) ~ dm, data = coh)
+lr <- survdiff(Surv(tiempo_meses, krt) ~ dm, data = coh)
+lr
 ```
 
-El valor *p* es diminuto: la diabetes se asocia con falla renal más temprana. Pero el log-rank **solo dice que las curvas difieren**, no **cuánto**. Para cuantificar, se reportan las **diferencias de riesgo a tiempos fijos** o el **HR de Cox** (9.3):
+Entre los pacientes con diabetes se observaron `r lr$obs[2]` fallas renales y se esperaban `r round(lr$exp[2])` si no hubiera diferencia; entre los que no tienen diabetes, `r lr$obs[1]` observadas frente a `r round(lr$exp[1])` esperadas. El valor *p* es diminuto. Pero el log-rank **solo dice que las curvas difieren, no cuánto**. Para cuantificar, se reportan las **diferencias de riesgo a tiempos fijos** (aquí) o el **HR de Cox** (9.3):
 
 ```{r}
 #| label: dif-tiempos
 rs <- summary(km_dm, times = c(12, 24, 36, 60))
-tibble(grupo = as.character(rs$strata), meses = rs$time,
-       riesgo_acumulado = 1 - rs$surv, ic_inf = 1 - rs$upper, ic_sup = 1 - rs$lower) |>
-  mutate(across(where(is.numeric), \(x) round(x, 3)))
+tab_dm <- tibble(grupo = as.character(rs$strata), meses = rs$time,
+                 riesgo_acumulado = 1 - rs$surv, ic_inf = 1 - rs$upper, ic_sup = 1 - rs$lower)
+tab_dm |> mutate(across(where(is.numeric), \(x) round(x, 3)))
 ```
 
-Observa que **la distancia entre las curvas se abre en los primeros 18-24 meses y luego se mantiene casi paralela**: lo retomaremos en 9.4.
+A los 24 meses el riesgo acumulado es `r round(100 * tab_dm$riesgo_acumulado[tab_dm$grupo == "dm=Con DM" & tab_dm$meses == 24])` % con diabetes frente a `r round(100 * tab_dm$riesgo_acumulado[tab_dm$grupo == "dm=Sin DM" & tab_dm$meses == 24])` % sin ella. Observa también que **la distancia entre las curvas se abre en los primeros 18-24 meses y luego se mantiene casi paralela**: lo retomaremos en 9.4.
 
-::: {.callout-note}
-## Variantes del log-rank
-
-El log-rank da **igual peso** a todos los instantes y es más potente cuando el cociente de riesgos es **constante** (riesgos proporcionales). Si las diferencias son tempranas, `survdiff(..., rho = 1)` (Peto-Peto) da más peso al inicio. Elige la variante **antes** de ver los datos.
-:::
-
-## Comparar más de dos grupos y ajustar por estratos
+### Más de dos grupos y log-rank estratificado
 
 ```{r}
 #| label: km-albuminuria
 coh <- coh |> mutate(cat_a = cut(uacr, c(0, 30, 300, Inf), right = FALSE, labels = c("A1", "A2", "A3")))
 survdiff(Surv(tiempo_meses, krt) ~ cat_a, data = coh)
 
-## Log-rank estratificado por diabetes (compara albuminuria dentro de cada estrato de DM)
+# Log-rank estratificado: compara albuminuria DENTRO de cada estrato de diabetes
 survdiff(Surv(tiempo_meses, krt) ~ cat_a + strata(dm), data = coh)
 ```
 
-El log-rank **estratificado** compara grupos **dentro** de los estratos de otra variable y luego combina. Es una forma simple de ajustar por una sola variable categórica; para varias se usa Cox.
+Con tres categorías, el log-rank da **una sola prueba** para "¿alguna difiere?". El **estratificado** compara los grupos **dentro** de cada estrato de otra variable y luego combina: es una forma simple de ajustar por **una** variable categórica. Para ajustar por varias, se usa Cox (9.3).
 
-## Mediana y media
+## Trampas frecuentes
 
--   **Mediana de supervivencia**: tiempo en que la curva cruza 0.5. Es **robusta**, pero puede no estar definida (como aquí) si pocos pacientes tienen el evento.
--   **Media**: no se puede calcular con censura a la derecha sin extrapolar; por eso se usa la **media restringida** (9.6).
+::: {.callout-warning}
+## ⚠️ Lo que el log-rank no te dice
 
-```{r}
-#| label: medianas
-km_a <- survfit(Surv(tiempo_meses, 1 - krt) ~ 1, data = coh)   # seguimiento mediano
-km_a
-```
+-   **Un valor *p* no es un tamaño de efecto.** Complementa siempre con riesgos a tiempos fijos o con el HR.
+-   El log-rank da **igual peso** a todos los instantes y tiene más potencia cuando el cociente de riesgos es **constante**. Si el efecto es temprano, `survdiff(..., rho = 1)` (Peto-Peto) pesa más el inicio. Decide la variante **antes** de ver los datos.
+-   **No hay mediana** si la curva no cruza 0.50 (como aquí). No la inventes: reporta supervivencia o riesgo a tiempos fijos.
+:::
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
--   **KM** estima la probabilidad de seguir libre del evento; censurados salen de los "en riesgo" sin bajar la curva.
--   Reporta **supervivencia (o riesgo acumulado) a tiempos fijos con IC** y la **mediana** si se alcanza; muestra la **tabla de riesgo**.
--   **Log-rank** compara curvas completas: da un valor *p*, no un tamaño de efecto; complementa con diferencias a tiempos fijos o HR.
--   Evita interpretar el **final** de la curva (pocos en riesgo).
--   Un **log-rank estratificado** ajusta por una variable; para varias, usa Cox.
+-   **Kaplan-Meier** multiplica, en cada evento, la fracción de pacientes en riesgo que lo sobrevivió; los censurados salen del denominador sin bajar la curva.
+-   Reporta **supervivencia o riesgo acumulado a tiempos fijos con IC**, la mediana solo si existe, y la **tabla de pacientes en riesgo**.
+-   La proporción cruda subestima el riesgo; el 1 − KM recupera la verdad cuando la censura es no informativa.
+-   El **log-rank** compara curvas completas: da un *p*, no un tamaño de efecto.
+-   Un log-rank **estratificado** ajusta por una variable; para varias, usa Cox.
 :::
 
 ## Ejercicio
 
 1.  Grafica el KM por **sexo** y por **categoría de albuminuria** (A1-A3). ¿Qué grupo tiene mayor riesgo?
-2.  Calcula el **riesgo acumulado a 36 meses** en pacientes con TFGe < 20 vs. ≥ 20 con IC.
-3.  Haz el KM de **muerte** (estado = 2) como evento, tratando la falla renal como censura. ¿Qué problema aparece al interpretarlo? (Pista: lo veremos en 9.5.)
+2.  Calcula el **riesgo acumulado a 36 meses** en pacientes con TFGe < 20 vs. ≥ 20, con IC.
+3.  Haz el KM de **muerte** (`estado == 2`) tratando la falla renal como censura. ¿Qué problema aparece al interpretarlo? (Pista: lo veremos en 9.5.)

@@ -1,26 +1,32 @@
 # El análisis causal completo, paso a paso
 
-Hasta aquí vimos las piezas por separado: resultados potenciales (Capítulo 3.2) y DAG y métodos de ajuste (Capítulo 3.3). Ahora las juntamos en **un flujo de trabajo reproducible** que puedes copiar para tus propios análisis. Seguiremos seis pasos:
+::: {.callout-note}
+## 🩺 Escenario
 
-::: {.callout-important}
-## 🎯 El flujo en seis pasos
+Tu jefe de servicio te pide un informe: *"¿Los iSGLT2 enlentecen la progresión de la enfermedad renal en nuestros pacientes con diabetes?"* Tienes el registro de la consulta, nadie fue aleatorizado y los pacientes que reciben el fármaco son distintos de los que no. Haces todo "bien": dibujas el DAG, ajustas por los confusores, compruebas el balance y calculas intervalos con *bootstrap*. Entregas el informe... y el resultado es **incorrecto**. En este subcapítulo seguimos ese recorrido completo y descubrimos por qué.
+:::
+
+## Lo que vamos a hacer
+
+Hasta aquí vimos las piezas por separado: resultados potenciales (Capítulo 3.2) y DAG y métodos de ajuste (Capítulo 3.3). Ahora las juntamos en **un flujo reproducible** de seis pasos que puedes copiar para tus propios análisis:
 
 | Paso | Pregunta | Herramienta |
 |---|---|---|
 | 1. **Especificar** la pregunta causal | ¿Efecto de qué, contra qué, en quién, medido cómo? | Ensayo objetivo (*target trial*), PICO |
 | 2. **Dibujar** las suposiciones | ¿Qué causa qué? ¿Qué debo ajustar? | DAG |
 | 3. **Modelar** las suposiciones | ¿Cómo ajusto? | Puntaje de propensión, pesos |
-| 4. **Diagnosticar** el modelo | ¿Quedaron comparables los grupos? ¿Hay pesos extremos? | SMD, solapamiento, pesos |
-| 5. **Estimar** el efecto | ¿Cuál es el efecto y con qué incertidumbre? | Modelo ponderado + *bootstrap* |
+| 4. **Diagnosticar** el modelo | ¿Quedaron comparables los grupos? ¿Hay pesos extremos? | Tabla 1, DEM, solapamiento, pesos |
+| 5. **Estimar** el efecto | ¿Cuál es el efecto y con qué incertidumbre? | Modelo ponderado y *bootstrap* |
 | 6. **Evaluar la sensibilidad** | ¿Y si faltó un confusor? | E-value, análisis de sesgo cuantitativo |
-:::
 
-No te preocupes por entender cada detalle ahora: esta es la visión de conjunto del resto del programa.
+No te preocupes por entender cada detalle ahora: esta es la visión de conjunto del resto del programa (el Capítulo 12 desarrolla cada paso). Los pasos siguen el esquema de la "partida completa" de *Causal Inference in R*, que el autor usa en sus cursos con otro ejemplo.
 
 ```{r}
 #| label: setup-34
 library(tidyverse)
-source("R/funciones_epi.R")
+source("R/funciones_epi.R")          # smd(), e_value(), love_plot()
+source("R/tabla1.R")                 # tabla1()
+source("R/funciones_extra_a.R")      # pct(), num()
 
 theme_set(theme_minimal(base_size = 13) + theme(panel.grid.minor = element_blank()))
 
@@ -30,13 +36,11 @@ glimpse(ckd)
 
 ## Paso 1. Especificar una pregunta causal
 
-**Pregunta inicial:** *¿Los iSGLT2 enlentecen la progresión de la enfermedad renal?*
-
-Es demasiado vaga. Un ensayo clínico para responderla tendría que decir quiénes, qué, contra qué, y cómo se mide el resultado. Especificamos el **ensayo objetivo**:
+La pregunta inicial ("¿los iSGLT2 enlentecen la progresión?") es demasiado vaga. Un ensayo para responderla tendría que decir quiénes, qué, contra qué y cómo se mide el resultado. Especificamos el **ensayo objetivo**:
 
 | Elemento | Especificación |
 |---|---|
-| **P**oblación | Adultos con ERC G3-G4 (TFGe 20-59) y diabetes tipo 2, atendidos en nefrología, sin diálisis ni trasplante |
+| **P**oblación | Adultos con ERC G3-G4 (TFGe 20-59) y diabetes tipo 2 en nefrología, sin diálisis ni trasplante |
 | **I**ntervención | Iniciar un iSGLT2 (dosis habitual) en el momento cero |
 | **C**omparador | No iniciar iSGLT2 (atención habitual) |
 | **O**utcome primario | Pendiente anual de TFGe (mL/min/1.73 m²/año) |
@@ -45,13 +49,7 @@ Es demasiado vaga. Un ensayo clínico para responderla tendría que decir quién
 | **Contraste causal** | Efecto de **iniciar** vs. **no iniciar** (análogo al ITT) |
 | **Estimando** | **ATE** en la población de la consulta |
 
-::: {.callout-note}
-## 🩺 Por qué importa especificar
-
-"iSGLT2" puede significar tres cosas: haber recibido *alguna* receta, estar tomándolo *de forma continua*, o haberlo tomado *durante todo el seguimiento*. Son preguntas distintas con respuestas distintas. Escribirlo evita comparar sin saber qué se compara.
-:::
-
-Los ensayos aleatorizados (DAPA-CKD, EMPA-KIDNEY, CREDENCE) ya han mostrado beneficio renal con esta clase de fármacos. Aquí, el objetivo es **didáctico**: queremos ver si, con datos de una consulta real (simulada) donde nadie fue aleatorizado, podemos acercarnos al efecto verdadero.
+"iSGLT2" puede significar tres cosas: haber recibido *alguna* receta, estar tomándolo *de forma continua* o haberlo tomado *durante todo el seguimiento*. Son preguntas distintas con respuestas distintas; escribirlo evita comparar sin saber qué se compara. Los ensayos aleatorizados (DAPA-CKD, EMPA-KIDNEY, CREDENCE) ya mostraron beneficio renal con esta clase de fármacos; aquí el objetivo es **didáctico**: ver si, con datos de una consulta (simulada) donde nadie fue aleatorizado, podemos acercarnos al efecto verdadero.
 
 ## Paso 2. Dibujar nuestras suposiciones
 
@@ -59,12 +57,12 @@ Usamos el DAG del Capítulo 3.3. Lo importante para el análisis:
 
 -   La **exposición** (iniciar iSGLT2) depende de edad, TFGe, albuminuria, HbA1c, ECV previa **y fragilidad** (no medida).
 -   El **desenlace** depende de esas mismas variables y de la PAS.
--   Conjunto de ajuste con lo medido: **edad, sexo, HbA1c, PAS, TFGe basal, albuminuria y ECV previa** (según el DAG, la PAS y el sexo no son estrictamente necesarios; los incluimos porque predicen el desenlace o la ECV y suelen mejorar la precisión sin introducir sesgo).
--   La **fragilidad** no se mide: *sabemos* que dejará un sesgo residual (paso 6).
+-   Conjunto de ajuste con lo medido: **edad, sexo, HbA1c, PAS, TFGe basal, albuminuria y ECV previa**. Según el DAG, la PAS y el sexo no son estrictamente necesarios; los incluimos porque predicen el desenlace o la ECV y suelen mejorar la precisión sin introducir sesgo.
+-   La **fragilidad** no se mide: *sabemos* que dejará un sesgo residual (Paso 6).
 
 ## Paso 3. Modelar las suposiciones
 
-Estimaremos el **puntaje de propensión** (probabilidad de iniciar iSGLT2 dado el perfil del paciente) con regresión logística y calcularemos los pesos de probabilidad inversa para el ATE.
+Estimamos el **puntaje de propensión** (probabilidad de iniciar iSGLT2 dado el perfil del paciente) con regresión logística y calculamos los pesos de probabilidad inversa para el ATE.
 
 ```{r}
 #| label: ps-34
@@ -81,13 +79,46 @@ ckd <- ckd |>
 ckd |> select(id, isglt2, ps, w_ate) |> head()
 ```
 
-Interpretación de los pesos: el paciente `r ckd$id[1]` `r if (ckd$isglt2[1] == 1) "inició" else "no inició"` iSGLT2; su probabilidad estimada de iniciarlo era `r scales::percent(ckd$ps[1], 0.1)`, por lo que su peso es `r round(ckd$w_ate[1], 2)`. **Cuanto más "inesperado" es lo que le ocurrió, más pesa.**
+Interpretación: el paciente `r ckd$id[1]` `r if (ckd$isglt2[1] == 1) "inició" else "no inició"` iSGLT2; su probabilidad estimada de iniciarlo era `r pct(ckd$ps[1])`, por lo que su peso es `r num(ckd$w_ate[1])`. **Cuanto más "inesperado" es lo que le ocurrió, más pesa.**
 
 ## Paso 4. Diagnosticar el modelo
 
-El objetivo del ajuste no es predecir bien el tratamiento: es **lograr comparabilidad**. Tres revisiones:
+El objetivo del ajuste no es predecir bien el tratamiento: es **lograr comparabilidad**. Cuatro revisiones:
 
-### 4a. Solapamiento (positividad)
+### 4a. Tabla 1 por grupo de tratamiento
+
+Antes de ponderar, ¿en qué difieren los grupos? La columna DEM (diferencia de medias estandarizada) resume cuánto:
+
+```{r}
+#| label: tabla1-34
+ckd |>
+  mutate(grupo = factor(isglt2, levels = 0:1, labels = c("Sin iSGLT2", "Con iSGLT2"))) |>
+  tabla1(vars = c("edad", "sexo", "hba1c", "pas", "tfg_basal", "uacr", "ecv"),
+         grupo = "grupo", no_normales = "uacr", binarias = "ecv",
+         etiquetas = c(edad = "Edad, años", sexo = "Sexo", hba1c = "HbA1c, %", pas = "PAS, mmHg",
+                       tfg_basal = "TFGe basal", uacr = "UACR, mg/g", ecv = "ECV previa")) |>
+  knitr::kable()
+```
+
+Los tratados son más jóvenes (DEM −0.58), con mejor TFGe (DEM 0.44) y más albuminuria (0.31). **Con los paquetes gtsummary y tableone (no se ejecuta aquí).** La función `tabla1()` del libro evita estas dependencias, pero en la literatura verás el mismo resultado así:
+
+```{r}
+#| label: tabla1-paquetes
+#| eval: false
+library(gtsummary)
+ckd |>
+  select(isglt2, edad, sexo, hba1c, pas, tfg_basal, uacr, ecv) |>
+  tbl_summary(by = isglt2) |>     # una columna por grupo de tratamiento
+  add_overall() |>                # columna del total
+  add_p()                         # valores p
+
+library(tableone)
+CreateTableOne(vars = c("edad", "sexo", "hba1c", "pas", "tfg_basal", "uacr", "ecv"),
+               strata = "isglt2", data = ckd) |>
+  print(smd = TRUE)               # incluye la diferencia de medias estandarizada
+```
+
+### 4b. Solapamiento (positividad)
 
 Debe haber pacientes tratados y no tratados en todo el rango del puntaje de propensión.
 
@@ -104,43 +135,31 @@ ckd |>
   labs(x = "Puntaje de propensión", y = "Densidad", fill = NULL)
 ```
 
-### 4b. Balance de los confusores (SMD)
+### 4c. Balance de los confusores tras ponderar
 
-```{r}
-#| label: balance-34
-vars <- c("edad", "hba1c", "pas", "tfg_basal", "uacr", "ecv")
-
-balance <- tibble(
-  variable = vars,
-  `Sin ponderar`  = map_dbl(vars, ~ smd(ckd[[.x]], ckd$isglt2)),
-  `Ponderado`     = map_dbl(vars, ~ smd(ckd[[.x]], ckd$isglt2, ckd$w_ate))
-)
-balance |> mutate(across(where(is.numeric), ~ round(., 3)))
-```
+La función `love_plot()` del libro calcula la DEM de cada variable antes y después de ponderar y dibuja el gráfico de Love:
 
 ```{r}
 #| label: fig-love-34
-#| fig-cap: "Gráfico de Love. Antes de ponderar hay desequilibrios; después, los |SMD| son < 0.1 (línea punteada)."
+#| fig-cap: "Gráfico de Love. Antes de ponderar hay desequilibrios; después, los |DEM| son < 0.1 (línea punteada)."
 #| fig-width: 6.5
 #| fig-height: 3.4
-balance |>
-  pivot_longer(-variable, names_to = "método", values_to = "smd") |>
-  mutate(`método` = factor(`método`, levels = c("Sin ponderar", "Ponderado"))) |>
-  ggplot(aes(abs(smd), variable, color = `método`)) +
-  geom_vline(xintercept = 0.1, linetype = "dashed") +
-  geom_point(size = 3) +
-  scale_color_manual(values = c("#D55E00", "#0072B2")) +
-  labs(x = "|Diferencia de medias estandarizada|", y = NULL, color = NULL)
+vars <- c("edad", "hba1c", "pas", "tfg_basal", "uacr", "ecv")
+
+love_plot(ckd, vars, grupo = "isglt2", pesos = list(`IPW (ATE)` = ckd$w_ate))
+
+dem_antes   <- map_dbl(vars, \(v) smd(ckd[[v]], ckd$isglt2))
+dem_despues <- map_dbl(vars, \(v) smd(ckd[[v]], ckd$isglt2, ckd$w_ate))
 ```
 
-Antes de ponderar, los tratados eran más jóvenes (SMD `r round(balance$"Sin ponderar"[1], 2)`) y con mejor TFGe (SMD `r round(balance$"Sin ponderar"[4], 2)`); después, todos los |SMD| son menores de 0.1.
+Antes de ponderar, el |DEM| máximo era `r num(max(abs(dem_antes)))`; después, `r num(max(abs(dem_despues)), 3)`: todos están muy por debajo de 0.1. **Con `{cobalt}` (no se ejecuta aquí)** el mismo diagnóstico se hace con `bal.tab(w, un = TRUE)` y `love.plot(w)` sobre un objeto de `{WeightIt}` (ver el bloque del Capítulo 3.2).
 
-### 4c. Pesos extremos
+### 4d. Pesos extremos
 
 Pesos muy grandes dan a unos pocos pacientes demasiada influencia y desestabilizan la estimación.
 
 ```{r}
-#| label: pesos
+#| label: pesos-34
 summary(ckd$w_ate)
 quantile(ckd$w_ate, c(0.9, 0.99, 0.999))
 ```
@@ -148,12 +167,12 @@ quantile(ckd$w_ate, c(0.9, 0.99, 0.999))
 ::: {.callout-warning}
 ## ⚠️ Cuidado con los pesos extremos
 
-Pesos > 10 señalan pacientes cuyo tratamiento era **muy improbable**: casi no hay comparables. Opciones: **recortar** (truncar) los pesos en percentiles (p. ej., 1 % y 99 %), **estabilizarlos**, o restringir la población al rango donde hay solapamiento (recorte por PS). Reporta qué hiciste y si cambia el resultado.
+Aquí el peso máximo es `r num(max(ckd$w_ate), 1)`. Pesos > 10 señalan pacientes cuyo tratamiento era **muy improbable**: casi no hay comparables. Opciones: **recortar** los pesos en percentiles (p. ej., 1 % y 99 %), **estabilizarlos**, o restringir la población al rango donde hay solapamiento. Reporta qué hiciste y si cambia el resultado.
 :::
 
 ## Paso 5. Estimar el efecto causal
 
-Con los pesos, ajustamos un modelo del desenlace. El coeficiente de `isglt2` es el **ATE**:
+Con los pesos, ajustamos un modelo del desenlace; el coeficiente de `isglt2` es el **ATE**:
 
 ```{r}
 #| label: efecto-ponderado
@@ -191,12 +210,12 @@ resultados <- tibble(
   ic_inf     = apply(remuestras, 2, quantile, probs = 0.025),
   ic_sup     = apply(remuestras, 2, quantile, probs = 0.975)
 )
-resultados |> mutate(across(where(is.numeric), ~ round(., 3)))
+resultados |> mutate(across(where(is.numeric), \(x) round(x, 3)))
 ```
 
 ```{r}
 #| label: fig-bootstrap
-#| fig-cap: "Distribución de 500 estimaciones bootstrap del efecto sobre la pendiente de TFGe. La línea es la estimación puntual; la zona sombreada, el IC 95 % por percentiles."
+#| fig-cap: "Distribución de 500 estimaciones bootstrap del efecto sobre la pendiente de TFGe. La línea es la estimación puntual."
 #| fig-width: 6.5
 #| fig-height: 3.2
 ggplot(tibble(efecto = remuestras[, "efecto"]), aes(efecto)) +
@@ -205,15 +224,11 @@ ggplot(tibble(efecto = remuestras[, "efecto"]), aes(efecto)) +
   labs(x = "Efecto estimado (mL/min/1.73 m²/año)", y = "Remuestras")
 ```
 
-**Resultado principal:** iniciar iSGLT2 se asocia, tras ajustar por los confusores medidos, con una pendiente de TFGe **`r round(estimado[["efecto"]], 2)`** mL/min/1.73 m²/año mejor (IC 95 % bootstrap `r round(resultados$ic_inf[1], 2)` a `r round(resultados$ic_sup[1], 2)`), en comparación con no iniciar.
+**Resultado principal.** Iniciar iSGLT2 se asocia, tras ajustar por los confusores medidos, con una pendiente de TFGe **`r num(estimado[["efecto"]])`** mL/min/1.73 m²/año mejor (IC 95 % bootstrap `r num(resultados$ic_inf[1])` a `r num(resultados$ic_sup[1])`), en comparación con no iniciar.
 
-**Resultado secundario (escala de riesgo):** el riesgo ajustado de evento renal a 36 meses fue `r scales::percent(estimado[["riesgo_iSGLT2"]], 0.1)` con iSGLT2 vs. `r scales::percent(estimado[["riesgo_control"]], 0.1)` sin él: diferencia de `r round(100 * estimado[["dif_riesgo"]], 1)` puntos porcentuales (IC 95 % `r round(100 * resultados$ic_inf[4], 1)` a `r round(100 * resultados$ic_sup[4], 1)`) y **NNT ≈ `r round(1 / abs(estimado[["dif_riesgo"]]))`** a 36 meses.
+**Resultado secundario (escala de riesgo).** El riesgo ajustado de evento renal a 36 meses fue `r pct(estimado[["riesgo_iSGLT2"]])` con iSGLT2 vs. `r pct(estimado[["riesgo_control"]])` sin él: diferencia de `r num(100 * estimado[["dif_riesgo"]], 1)` puntos porcentuales (IC 95 % `r num(100 * resultados$ic_inf[4], 1)` a `r num(100 * resultados$ic_sup[4], 1)`) y **NNT ≈ `r round(1 / abs(estimado[["dif_riesgo"]]))`** a 36 meses.
 
-::: {.callout-tip}
-## 💡 Tip práctico: mismos pasos, otro desenlace
-
-Para una **diferencia de medias** (pendiente de TFGe) usa un modelo lineal ponderado; para un **evento binario** compara las proporciones ponderadas (diferencia y razón de riesgos); para **tiempo hasta un evento**, usa un modelo de Cox ponderado o curvas de Kaplan-Meier ponderadas (capítulos de supervivencia). El flujo (PS → pesos → estimación → *bootstrap*) es el mismo.
-:::
+Los mismos pasos (PS, pesos, estimación y *bootstrap*) sirven para otros desenlaces: para una **diferencia de medias**, un modelo lineal ponderado; para un **evento binario**, proporciones ponderadas (diferencia y razón de riesgos); para **tiempo hasta un evento**, un modelo de Cox ponderado o curvas de Kaplan-Meier ponderadas (Capítulo 9).
 
 Hasta aquí, un informe típico diría: *"tras ajustar por confusores, el iSGLT2 mejora la pendiente de TFGe."* **Pero la respuesta que acabamos de calcular es incorrecta.** Veamos por qué.
 
@@ -226,23 +241,29 @@ Nuestra estimación asume que **no hay confusores no medidos**. Eso rara vez es 
 El **E-value** (VanderWeele y Ding) es la fuerza mínima de asociación que un confusor no medido tendría que tener, **con la exposición y con el desenlace** (en escala de razón de riesgos, y tras ajustar por lo medido), para **explicar completamente** el resultado observado.
 
 ```{r}
-#| label: evalue
+#| label: evalue-34
 ev <- e_value(rr = estimado[["riesgo_relativo"]], lim = resultados$ic_sup[5])
 ev
 ```
 
-El riesgo relativo ajustado fue `r round(estimado[["riesgo_relativo"]], 2)`. El **E-value es `r round(ev$e_value_punto, 2)`**: un confusor no medido tendría que asociarse tanto con el tratamiento como con el evento renal con un riesgo relativo de al menos `r round(ev$e_value_punto, 1)` cada uno para anular el resultado, y de `r round(ev$e_value_ic, 1)` para que el IC incluya 1.
+El riesgo relativo ajustado fue `r num(estimado[["riesgo_relativo"]])`. El **E-value es `r num(ev$e_value_punto)`**: un confusor no medido tendría que asociarse tanto con el tratamiento como con el evento renal con un riesgo relativo de al menos `r num(ev$e_value_punto, 1)` cada uno para anular el resultado, y de `r num(ev$e_value_ic, 1)` para que el IC incluya 1. Pero cuidado: un E-value alto **no demuestra** que no haya sesgo; solo dice cuánta confusión haría falta para *anular* el efecto, no cuánta hay. Compáralo con la fuerza de los confusores que **sí mediste** y con tu conocimiento clínico de lo que podría faltar (fragilidad, adherencia, acceso a la atención).
 
-::: {.callout-warning}
-## ⚠️ Cómo (no) interpretar el E-value
+**Con el paquete EValue (no se ejecuta aquí).** `evalues.RR()` calcula lo mismo para un RR y su IC, y `{tipr}` hace análisis de "punto de inflexión" del confusor:
 
--   Un E-value alto **no demuestra** que no haya sesgo: solo dice cuánta confusión haría falta para *anular* el efecto, no cuánta hay.
--   Compáralo con la fuerza de los confusores que **sí mediste** (¿la edad se asocia con riesgos relativos de 2 con el desenlace?) y con tu conocimiento clínico de lo que podría faltar (fragilidad, adherencia, acceso a la atención).
-:::
+```{r}
+#| label: evalue-paquetes
+#| eval: false
+library(EValue)
+evalues.RR(est = 0.57, lo = 0.49, hi = 0.67)       # introduce tu RR y su IC
+
+library(tipr)
+tip_coef(0.5, exposure_confounder_effect = 1:5)    # ¿cuánto debe afectar un confusor al desenlace
+                                                   #  para anular un efecto de 0.5, según su desequilibrio?
+```
 
 ### 6b. Análisis de sesgo cuantitativo
 
-Si podemos **imaginar** el confusor no medido (aquí, la fragilidad), podemos **cuantificar** su efecto. Para un confusor $U$ estandarizado (media 0, DE 1), el sesgo de un estimador ajustado es aproximadamente:
+Si podemos **imaginar** el confusor no medido (aquí, la fragilidad), podemos **cuantificar** su efecto. Para un confusor $U$ estandarizado (media 0, DE 1), el sesgo de un estimador ajustado es aproximadamente
 
 $$
 \text{sesgo} \approx \gamma \times \delta
@@ -273,11 +294,11 @@ ggplot(escenarios, aes(delta, gamma, fill = corregido)) +
        y = "γ: efecto de la fragilidad (por DE) sobre la pendiente de TFGe")
 ```
 
-Con confusión moderada (γ = −0.5 y δ = −0.5) el efecto corregido sería `r round(est - (-0.5) * (-0.5), 2)`; con confusión muy fuerte (γ = −1.2 y δ = −1.0) sería `r round(est - (-1.2) * (-1), 2)`. **El efecto estimado depende mucho de qué tan frágiles eran los pacientes que no recibieron el fármaco**, algo que el registro no capta.
+Con confusión moderada (γ = −0.5 y δ = −0.5) el efecto corregido sería `r num(est - (-0.5) * (-0.5))`; con confusión muy fuerte (γ = −1.2 y δ = −1.0), `r num(est - (-1.2) * (-1))`. **El efecto estimado depende mucho de qué tan frágiles eran los pacientes que no recibieron el fármaco**, algo que el registro no capta.
 
 ### 6c. La revelación (solo posible con datos simulados)
 
-Como simulamos los datos, sabemos que la fragilidad existe. Usemos la versión "oráculo" para ver qué ocurre si la hubiéramos medido:
+Como simulamos los datos, sabemos que la fragilidad existe. Usamos la versión "oráculo" para ver qué ocurre si la hubiéramos medido:
 
 ```{r}
 #| label: revelacion
@@ -304,15 +325,36 @@ tibble(
 ) |> mutate(efecto = round(efecto, 2))
 ```
 
--   Los parámetros reales de la fragilidad son γ = `r round(gamma_real, 2)` y δ = `r round(delta_real, 2)`: **cae en la zona de confusión "moderada-fuerte" del gráfico**.
--   La corrección por sesgo con esos valores devuelve casi exactamente el ATE verdadero (`r round(ate_verdadero, 2)`), y al **medir la fragilidad** el IPW lo recupera (`r round(ate_con_fragilidad, 2)`).
+-   Los parámetros reales de la fragilidad son γ = `r num(gamma_real)` y δ = `r num(delta_real)`: **caen en la zona de confusión "moderada-fuerte" del gráfico**.
+-   La corrección por sesgo con esos valores devuelve casi exactamente el ATE verdadero (`r num(ate_verdadero)`), y al **medir la fragilidad** el IPW lo recupera (`r num(ate_con_fragilidad)`).
+
+El mismo problema aparece en la **escala de riesgo**, la que se usa para decidir a cuántos tratar:
+
+```{r}
+#| label: revelacion-riesgo
+riesgo_ponderado <- function(w) {
+  c(con = weighted.mean(oraculo$evento[oraculo$isglt2 == 1], w[oraculo$isglt2 == 1]),
+    sin = weighted.mean(oraculo$evento[oraculo$isglt2 == 0], w[oraculo$isglt2 == 0]))
+}
+r_con_frag <- riesgo_ponderado(w_f)
+
+tibble(
+  análisis = c("Verdad (oráculo)", "IPW sin fragilidad (lo que tendríamos)", "IPW con fragilidad medida"),
+  riesgo_con = c(mean(oraculo$evento_36m_1), estimado[["riesgo_iSGLT2"]], r_con_frag[["con"]]),
+  riesgo_sin = c(mean(oraculo$evento_36m_0), estimado[["riesgo_control"]], r_con_frag[["sin"]])
+) |>
+  mutate(dif_riesgo = riesgo_con - riesgo_sin, nnt = round(1 / abs(dif_riesgo)),
+         across(c(riesgo_con, riesgo_sin, dif_riesgo), \(x) round(x, 3)))
+```
+
+El análisis sin la fragilidad habría sugerido un NNT de ≈ `r round(1 / abs(estimado[["dif_riesgo"]]))`; la verdad es ≈ `r round(1 / abs(mean(oraculo$evento_36m_1) - mean(oraculo$evento_36m_0)))`. Un comité que decidiera con ese NNT estaría **sobrestimando casi al doble** el beneficio.
 
 ::: {.callout-important}
 ## 🎯 La lección
 
 El análisis "bien hecho" (DAG, balance excelente, *bootstrap*) dio un resultado **precisamente estimado pero sesgado**, porque faltaba un confusor. En la práctica **no sabremos** cuánto sesgo hay; lo que sí podemos hacer es:
 
-1.  **Pensar qué confusores faltan** (con el DAG) y **medirlos** cuando sea posible (en este caso, una escala de fragilidad en la consulta).
+1.  **Pensar qué confusores faltan** (con el DAG) y **medirlos** cuando sea posible (aquí, una escala de fragilidad en la consulta).
 2.  **Cuantificar** cuánto podrían cambiar los resultados (E-value, análisis de sesgo).
 3.  **Reportar con honestidad** las limitaciones: *"estimaciones ajustadas por X, Y, Z; no se midió W"*.
 :::
@@ -346,12 +388,7 @@ c(estimado = est, quantile(boot, c(0.025, 0.975)))
 # 5. Diagnóstico y sensibilidad: balance (smd), pesos, E-value ---------------
 ```
 
-## Preguntas para reflexionar
-
-1.  ¿Es creíble el DAG? ¿Qué flechas añadirías o quitarías?
-2.  ¿Qué otro confusor podría faltar en una consulta real (adherencia, nutrición, acceso a la atención, otras terapias)?
-3.  ¿Responde la estimación a la pregunta clínica (ATE vs. ATT)?
-4.  ¿Qué le pedirías a un autor que te presente este análisis en un artículo?
+**Ejercicio.** (1) ¿Es creíble el DAG? ¿Qué flechas añadirías o quitarías? (2) ¿Qué otro confusor podría faltar en una consulta real (adherencia, nutrición, acceso a la atención, otras terapias)? (3) ¿La estimación responde a la pregunta clínica (ATE o ATT)? (4) Repite el análisis recortando los pesos al percentil 99: ¿cambia el efecto? (5) ¿Qué le pedirías a un autor que presente este análisis en un artículo?
 
 ## Referencias
 
@@ -364,4 +401,4 @@ c(estimado = est, quantile(boot, c(0.025, 0.975)))
 
 ## Nota editorial
 
--   Esta sección fue editada con asistencia de IA (ChatGPT; revisión editorial con Claude). Los datos son simulados. Se reescribió el capítulo con un ejemplo nefrológico original, siguiendo la secuencia de seis pasos de la bibliografía citada.
+-   Esta sección fue editada con asistencia de IA (ChatGPT; revisión editorial con Claude). Los datos son simulados. Se reescribió el capítulo con un ejemplo nefrológico original, siguiendo la secuencia de seis pasos de la bibliografía citada y del material del autor.

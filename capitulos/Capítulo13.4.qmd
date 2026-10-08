@@ -1,60 +1,105 @@
-# Imputación múltiple con `mice`
+# Imputación múltiple con `mice`: paso a paso
 
-## La idea
+::: {.callout-note}
+## 🩺 Escenario
 
-La **imputación múltiple** (IM) reemplaza cada dato faltante **no por un solo valor**, sino por **varios valores plausibles** (por ejemplo, 20), creando **20 bases completas**. Se analiza **cada una** igual y se **combinan** los resultados con las **reglas de Rubin**. La variabilidad entre las bases refleja la **incertidumbre** por los datos que faltan: un solo valor imputado la ignoraría.
+Quieres analizar a los **5 000 pacientes**, no solo a los 2 991 con todo completo. Pero ¿cómo "rellenar" la UACR de un tercio de ellos sin inventar datos? Imagina que le pasas cada historia incompleta a **20 colegas** y le pides a cada uno que, según el resto del paciente (edad, TFGe, tratamiento, evolución), **proponga un valor plausible** de UACR. Los 20 valores no coincidirán, y esa **discrepancia** es justo la medida de cuánto *no sabes*.
+:::
 
-Tres pasos:
+Eso es la **imputación múltiple** (IM): en vez de reemplazar cada dato faltante por **un** valor, se generan **varios valores plausibles** (por ejemplo, 20) y por tanto **20 bases completas**. Se analiza **cada una** igual y se **combinan** los resultados con las **reglas de Rubin**. Un solo valor imputado ocultaría la incertidumbre; veinte la **reflejan**.
 
-1.  **Imputar** (`mice()`): crear *m* bases completas.
-2.  **Analizar** (`with()`): ajustar el modelo en cada una.
-3.  **Combinar** (`pool()`): unir las estimaciones con las reglas de Rubin.
+```{r}
+#| label: flujo-mice
+#| echo: false
+#| fig-width: 9
+#| fig-height: 2
+library(tidyverse)
+source("R/funciones_epi.R")
+source("R/funciones_extra_cap1213.R")
+diagrama_flujo(c("Datos\nincompletos", "1. mice()\ncrea m bases\ncompletas", "2. with()\nanaliza cada\nbase igual", "3. pool()\ncombina con\nRubin", "Un resultado\ncon su IC"),
+               resaltar = 2:4)
+```
+
+**Lo que vamos a hacer**
+
+-   Imputar con `mice()`, revisar que la imputación sea razonable, analizar y combinar.
+-   Comparar con casos completos y con los **datos completos** (la verdad).
+-   Aprender qué debe incluir el modelo de imputación y cuántas imputaciones hacer.
 
 ```{r}
 #| label: setup-134
-library(tidyverse)
 library(mice)
 
-ckd <- read_csv("Bases/ckd_faltantes.csv") |>
+ckd <- read_csv("Bases/ckd_faltantes.csv", show_col_types = FALSE) |>
   mutate(sexo = factor(sexo, levels = c("Mujer", "Hombre")),
          luacr = log(uacr)) |>                        # imputar ln(UACR): distribución más simétrica
   select(pendiente_tfg, isglt2, edad, sexo, hba1c, pas, tfg_basal, luacr, ecv)
 
-oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv") |>
+oraculo <- read_csv("Bases/ckd_isglt2_oraculo.csv", show_col_types = FALSE) |>
   mutate(luacr = log(uacr), sexo = factor(sexo, levels = c("Mujer", "Hombre")))
 formula_mod <- pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv
 referencia <- coef(lm(formula_mod, data = oraculo))     # estimaciones con los datos completos (solo posible por la simulación)
 ```
 
-## Paso 1: imputar
+## Paso 1: imputar con `mice()`
 
-Cada variable con faltantes se imputa con un **modelo de regresión** que usa **todas las demás** como predictores (**ecuaciones encadenadas**, *FCS*). La imputación se repite en **ciclos** (iteraciones) hasta que se estabiliza.
+Cada variable con faltantes se imputa con un **modelo de regresión que usa todas las demás** como predictores (**ecuaciones encadenadas**, *FCS*). Se repite en **ciclos** (iteraciones) hasta que se estabiliza.
 
 ```{r}
 #| label: mice
-set.seed(2025)
 imp <- mice(ckd, m = 20, maxit = 10, method = "pmm", printFlag = FALSE, seed = 2025)
 imp
 ```
 
--   `m = 20`: 20 bases imputadas.
--   `method = "pmm"`: ***predictive mean matching***: imputa tomando valores **observados** de pacientes con predicción parecida. Mantiene la **forma** de la distribución y evita valores imposibles. Es una buena opción por defecto para variables continuas. (Otros: `norm` para continuas normales, `logreg` para binarias, `polyreg` para categóricas.)
--   `maxit = 10`: iteraciones.
+-   `m = 20`: se crean 20 bases imputadas.
+-   `method = "pmm"` (*predictive mean matching*): imputa **tomando valores observados** de pacientes con una predicción parecida. Conserva la **forma** de la distribución y evita valores imposibles (UACR negativa); es una buena opción por defecto para variables continuas. (Otros: `norm` para continuas normales, `logreg` para binarias, `polyreg` para categóricas.)
+-   `maxit = 10`: iteraciones. `seed` fija la semilla para poder reproducir.
 
-### Reglas para especificar el modelo de imputación
+### ¿Cómo se ven las "20 opiniones"?
 
-::: {.callout-important}
-## 🎯 Lo que debe incluir el modelo de imputación
+Veamos qué valores propuso `mice` para la ln(UACR) de cinco pacientes a quienes les faltaba, junto con su **valor verdadero** (que solo conocemos porque la base es simulada):
 
-1.  **Todas las variables del modelo de análisis**, incluido el **desenlace** (aquí, la pendiente de TFGe). Omitir el desenlace **atenúa** la asociación con el desenlace.
-2.  Las **interacciones** y **no linealidades** que luego se usarán en el análisis (o imputar por separado en cada grupo).
-3.  **Variables auxiliares**: predictores de la falta o de la variable imputada, aunque no estén en el modelo de análisis (mejoran la plausibilidad de MAR).
+```{r}
+#| label: opiniones
+filas <- as.integer(rownames(imp$imp$luacr))[1:5]
+tibble(paciente = filas,
+       verdadero = oraculo$luacr[filas],
+       imputacion_1 = imp$imp$luacr[1:5, 1], imputacion_2 = imp$imp$luacr[1:5, 2],
+       imputacion_3 = imp$imp$luacr[1:5, 3], imputacion_4 = imp$imp$luacr[1:5, 4]) |>
+  mutate(across(where(is.numeric) & !paciente, \(x) round(x, 2)))
+```
+
+**Qué vemos:** cada paciente recibe valores **distintos** en cada imputación, y el verdadero suele caer **dentro** del rango propuesto. La variación entre columnas es la incertidumbre que la imputación única esconde.
+
+### Qué debe incluir el modelo de imputación
+
+La regla de oro: el modelo de imputación debe ser **al menos tan rico** como el de análisis. Concretamente:
+
+1.  **Todas las variables del modelo de análisis, incluido el desenlace** (aquí, la pendiente de TFGe). Omitirlo **atenúa** la asociación con el desenlace.
+2.  Las **interacciones** y **no linealidades** que se usarán después (o imputar por separado en cada grupo).
+3.  **Variables auxiliares**: predictores de la falta o de la variable imputada, aunque no estén en el análisis (hacen más creíble MAR).
 4.  Variables en la **misma escala** que se analizará (aquí `luacr`, no `uacr`).
-:::
 
-## Revisar la imputación
+Comprobamos la regla 1 con un contraste "feo / bueno": imputamos **sin** el desenlace como predictor y comparamos el coeficiente de la UACR:
 
-### Convergencia
+```{r}
+#| label: sin-desenlace
+pm <- make.predictorMatrix(ckd)
+pm[, "pendiente_tfg"] <- 0                          # feo: nadie usa el desenlace para imputar
+imp_sin <- mice(ckd, m = 20, maxit = 10, method = "pmm", predictorMatrix = pm, printFlag = FALSE, seed = 2025)
+coef_luacr <- function(imputado) {
+  r <- summary(pool(with(imputado, lm(pendiente_tfg ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv))))
+  r$estimate[r$term == "luacr"]
+}
+c(`Datos completos` = unname(referencia["luacr"]), `Imputando SIN el desenlace` = coef_luacr(imp_sin),
+  `Imputando CON el desenlace` = coef_luacr(imp)) |> round(3)
+```
+
+**Qué vemos:** sin el desenlace, el coeficiente de la UACR se **atenúa hacia 0** (el imputador no sabía que una UACR alta se asocia con peor pendiente, así que imputó valores "neutros"). Con el desenlace, queda más cerca de la referencia.
+
+## Paso 2: revisar la imputación
+
+### ¿Convergió?
 
 ```{r}
 #| label: convergencia
@@ -63,9 +108,9 @@ imp
 plot(imp, c("luacr", "hba1c", "pas"))
 ```
 
-Las líneas (una por imputación) deben **mezclarse** sin tendencia: ya es el caso.
+**Qué vemos:** las líneas (una por imputación) deben **mezclarse** como un "bosque" sin tendencia ni separación. Es el caso.
 
-### Los valores imputados, ¿son plausibles?
+### ¿Son plausibles los valores imputados?
 
 ```{r}
 #| label: densidad-imp
@@ -74,9 +119,11 @@ Las líneas (una por imputación) deben **mezclarse** sin tendencia: ya es el ca
 densityplot(imp, ~ luacr + hba1c + pas, layout = c(3, 1))
 ```
 
-La línea azul (**observados**) y las rojas (**imputados**) deben ser **parecidas** salvo que haya razones para que difieran. Aquí los imputados de `luacr` tienen **un promedio algo menor**, porque quienes faltan son **mayores y con mejor TFGe**, que tienen **menos albuminuria**: es lo esperado bajo MAR.
+**Qué vemos:** la línea azul (**observados**) y las rojas (**imputados**) deben ser **parecidas**, salvo que haya razones para que difieran. Aquí los imputados de `luacr` tienen **un promedio algo menor**, porque a quienes les falta son **mayores y con peor TFGe**: es lo esperable bajo MAR.
 
-## Paso 2 y 3: analizar y combinar
+## Paso 3: analizar cada base y combinar
+
+`with()` ajusta el modelo en cada una de las 20 bases y `pool()` combina los resultados con las reglas de Rubin:
 
 ```{r}
 #| label: pool
@@ -91,19 +138,21 @@ resumen_pool |> select(term, estimate, std.error, `2.5 %`, `97.5 %`) |> mutate(a
 ```{r}
 #| label: comparar
 cc <- lm(formula_mod, data = ckd)
-tibble(
+est_im <- function(term) resumen_pool$estimate[resumen_pool$term == term]
+comparacion <- tibble(
   analisis = c("Datos completos (referencia)", "Casos completos", "Imputación múltiple (m = 20)"),
-  efecto_isglt2 = c(referencia["isglt2"], coef(cc)["isglt2"], resumen_pool$estimate[resumen_pool$term == "isglt2"]),
-  coef_luacr = c(referencia["luacr"], coef(cc)["luacr"], resumen_pool$estimate[resumen_pool$term == "luacr"]),
+  efecto_isglt2 = c(referencia["isglt2"], coef(cc)["isglt2"], est_im("isglt2")),
+  coef_luacr = c(referencia["luacr"], coef(cc)["luacr"], est_im("luacr")),
   n_analisis = c(nrow(oraculo), nobs(cc), nrow(ckd))
-) |> mutate(across(c(efecto_isglt2, coef_luacr), \(x) round(x, 3)))
+)
+comparacion |> mutate(across(c(efecto_isglt2, coef_luacr), \(x) round(x, 3)))
 ```
 
-La IM usa **a los 5 000 pacientes**; el efecto del iSGLT2 (1.32) se aproxima más a la referencia (1.34) que el de casos completos (1.25). Para la UACR, ambos están por debajo de la referencia (−0.18 y −0.19 vs −0.22) pero **dentro del intervalo**, porque el coeficiente de una variable con 33 % de faltantes **lleva mucha incertidumbre**, que la IM reconoce con un error estándar mayor.
+**Qué vemos:** la IM usa a **los 5 000** pacientes y su efecto del iSGLT2 (**`r round(comparacion$efecto_isglt2[3], 2)`**) queda más cerca de la referencia (**`r round(comparacion$efecto_isglt2[1], 2)`**) que el de casos completos (**`r round(comparacion$efecto_isglt2[2], 2)`**). Para la UACR, el coeficiente de la IM es `r round(comparacion$coef_luacr[3], 2)` y el de casos completos `r round(comparacion$coef_luacr[2], 2)`, frente a `r round(comparacion$coef_luacr[1], 2)` de la referencia: ambos algo por debajo, pero dentro del intervalo, porque una variable con 33 % de faltantes **conlleva mucha incertidumbre**, que la IM reconoce con un error estándar mayor.
 
-## Las reglas de Rubin
+## Paso 4: las reglas de Rubin (qué hace `pool()`)
 
-Con *m* imputaciones, cada una da una estimación $\hat Q_j$ y una varianza $U_j$. Rubin combina:
+Con *m* imputaciones, cada una da una estimación $\hat Q_j$ y una varianza $U_j$. Rubin las combina:
 
 $$
 \bar Q = \frac{1}{m}\sum_{j=1}^m \hat Q_j \qquad
@@ -112,20 +161,20 @@ B = \frac{1}{m-1}\sum_j (\hat Q_j - \bar Q)^2 \quad(\text{entre}) \qquad
 T = \bar U + \left(1 + \frac{1}{m}\right)B
 $$
 
-El error estándar total es $\sqrt{T}$. La **fracción de información perdida** ($\lambda$) mide cuánta incertidumbre se debe a los faltantes:
+La estimación final es el **promedio** $\bar Q$; el error estándar total es $\sqrt{T}$, que suma la variabilidad **dentro** de cada base (la habitual) y **entre** bases (la que causan los faltantes). La **fracción de información perdida** (`fmi`) dice cuánta incertidumbre se debe a los faltantes:
 
 ```{r}
 #| label: fmi
-combinado$pooled |> as_tibble() |> select(term, estimate, riv, lambda, fmi) |>
-  mutate(across(where(is.numeric), \(x) round(x, 3)))
+tab_fmi <- combinado$pooled |> as_tibble() |> select(term, estimate, riv, lambda, fmi)
+tab_fmi |> mutate(across(where(is.numeric), \(x) round(x, 3)))
 ```
 
-`fmi` (*fraction of missing information*): para `luacr` es **alta (≈ 0.45)**, porque **un tercio** de sus valores se imputó; para `isglt2` (sin faltantes) es baja. Con una `fmi` alta, se necesitan **más imputaciones** (regla práctica: *m* ≥ porcentaje de casos incompletos, aquí ≥ 40 %).
+**Qué vemos:** para `luacr` la `fmi` es **alta (`r round(tab_fmi$fmi[tab_fmi$term == "luacr"], 2)`)**, porque un tercio de sus valores se imputó; para `isglt2` (sin faltantes) es baja (`r round(tab_fmi$fmi[tab_fmi$term == "isglt2"], 2)`).
 
 ## Cuántas imputaciones
 
 -   Hace unos años se usaban 5; hoy se recomiendan **20-100**, porque es barato.
--   **Regla práctica**: *m* ≥ al **porcentaje de casos incompletos** (aquí ~40 → 40).
+-   **Regla práctica**: *m* ≥ al **porcentaje de casos incompletos** (aquí, 40 % → *m* ≈ 40).
 -   Más imputaciones **reducen el error de Monte Carlo** (resultados distintos con cada semilla).
 
 ```{r}
@@ -134,40 +183,38 @@ combinado$pooled |> as_tibble() |> select(term, estimate, riv, lambda, fmi) |>
 imp40 <- mice(ckd, m = 40, maxit = 10, method = "pmm", printFlag = FALSE, seed = 1)
 ```
 
-## Detalles prácticos
-
 ::: {.callout-tip}
 ## 💡 Tips para `mice`
 
 -   **Fija la semilla** (`seed`) para reproducir.
--   `method` por variable: `meth <- make.method(ckd)`; cambia el que quieras (`meth["luacr"] <- "norm"`).
+-   `meth <- make.method(ckd)` y `meth["luacr"] <- "norm"` cambian el método de **una** variable.
 -   **`predictorMatrix`**: qué variables predicen a cuál. `quickpred(ckd, mincor = 0.1)` la acorta si hay muchas.
--   **Variables derivadas** (índice, TFGe calculada): impútalas **pasivamente** (`~ I(...)`) o imputa los componentes y recalcula; imputar una variable y su derivada **por separado** rompe la coherencia.
--   **Categóricas**: asegúrate de que sean `factor` (para que use `logreg` o `polyreg`).
+-   **Variables derivadas** (índices, TFGe calculada): imputa los **componentes** y recalcula, o impútalas **pasivamente** (`~ I(...)`). Imputar una variable y su derivada por separado rompe la coherencia.
+-   **Categóricas**: asegúrate de que sean `factor` (así usa `logreg` o `polyreg`).
 -   `complete(imp, 1)` devuelve la base completada de la imputación 1; `complete(imp, "long")`, todas apiladas.
--   **Nunca** analices una sola base imputada y reportes sus errores estándar como si fueran de datos observados.
+-   **Nunca** analices **una sola** base imputada y reportes sus errores estándar como si fueran de datos observados.
 :::
 
 ::: {.callout-warning}
-## ⚠️ Cosas que la IM no hace
+## ⚠️ Lo que la imputación múltiple no hace
 
--   **No crea información**: si faltan muchísimos datos o no hay predictores, la imputación solo expresa **incertidumbre**.
--   **No corrige MNAR** (13.6).
--   Un modelo de imputación **más simple** que el de análisis (sin el desenlace, sin la interacción) **sesga hacia el nulo**: debe ser al menos tan rico (compatibilidad).
+-   **No crea información**: si faltan muchísimos datos o no hay buenos predictores, la IM solo expresa **incertidumbre**.
+-   **No corrige MNAR** (13.6): asume MAR.
+-   Un modelo de imputación **más simple** que el de análisis (sin el desenlace, sin la interacción) **sesga hacia el nulo**.
 :::
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
--   **Imputación múltiple**: imputar *m* veces → analizar cada base → combinar con las **reglas de Rubin** (`mice`, `with`, `pool`).
--   El modelo de imputación debe incluir **el desenlace**, las variables del análisis (en su escala) e **interacciones** si las hay; añade **auxiliares**.
--   **PMM** es una buena opción por defecto; verifica **convergencia** y la **plausibilidad** de lo imputado.
+-   **Imputación múltiple**: imputar *m* veces (`mice`) → analizar cada base (`with`) → combinar con las **reglas de Rubin** (`pool`).
+-   El modelo de imputación incluye **el desenlace**, las variables del análisis (en su escala), las **interacciones** y variables **auxiliares**.
+-   **PMM** es una buena opción por defecto; verifica **convergencia** y **plausibilidad** de lo imputado.
 -   Usa **20-100 imputaciones** (≥ % de casos incompletos).
--   **Rubin** suma la varianza **dentro** y **entre** imputaciones; `fmi` dice cuánta información se perdió.
+-   **Rubin** suma la varianza **dentro** y **entre** imputaciones; `fmi` indica cuánta información se perdió.
 :::
 
 ## Ejercicio
 
 1.  Imputa con **`method = "norm"`** en lugar de `pmm` y compara el coeficiente de `isglt2` y de `luacr`.
-2.  **Quita el desenlace** del modelo de imputación (`predictorMatrix["luacr", "pendiente_tfg"] <- 0`). ¿Cómo cambia el coeficiente de `luacr`?
-3.  Aumenta a `m = 50`. ¿Cuánto cambia el error estándar del efecto de `isglt2`?
+2.  Aumenta a **`m = 50`**. ¿Cuánto cambia el error estándar del efecto de `isglt2`?
+3.  Añade una **variable auxiliar** (por ejemplo, `tiempo_meses` de `ckd_faltantes.csv`) al modelo de imputación. ¿Cambia el coeficiente de `luacr`?

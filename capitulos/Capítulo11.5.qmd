@@ -1,14 +1,23 @@
 # Subgrupos y heterogeneidad
 
-## ¿Para quién funciona?
+::: {.callout-note}
+## 🩺 Escenario
 
-Un efecto **promedio** puede esconder que el tratamiento **funciona mejor en unos pacientes que en otros**. En nuestro ECA se anticipa que el bicarbonato beneficia más a quienes tienen una **acidosis más marcada**. Es **modificación del efecto** (8.4) en un ensayo.
+El bicarbonato mejora la TFGe en promedio. Un nefrólogo del comité pregunta: *"¿funciona igual en diabéticos que en no diabéticos? ¿En mayores de 65? ¿En quienes tienen la acidosis más marcada?"*. Si miras suficientes subgrupos, **alguno** saldrá "significativo" por puro azar, y la tentación de publicarlo como hallazgo es enorme. Este subcapítulo te enseña a hacer la pregunta bien y a decidir cuándo creer la respuesta.
+:::
+
+**Lo que vamos a hacer**
+
+-   Probar si el efecto **difiere** entre subgrupos con una **prueba de interacción** (y ver por qué no se comparan los *p* de cada subgrupo).
+-   Resumir los resultados en un *forest plot*.
+-   Medir cuánto engaña la **multiplicidad** y modelar el efecto de forma **continua**, contra la verdad.
 
 ```{r}
 #| label: setup-115
 library(tidyverse)
 library(broom)
 library(emmeans)
+theme_set(theme_minimal(base_size = 12))
 
 eca <- read_csv("Bases/eca_bicarbonato.csv") |>
   mutate(brazo = factor(brazo, levels = c("Placebo", "Bicarbonato")),
@@ -20,9 +29,22 @@ eca <- read_csv("Bases/eca_bicarbonato.csv") |>
          tfg_g = factor(tfg0 < 30, labels = c("TFGe basal ≥30", "TFGe basal <30")))
 ```
 
-## El análisis correcto: prueba de interacción
+## Paso 1: la pregunta correcta es la interacción
 
-La pregunta **no es** "¿es significativo el efecto en cada subgrupo?" sino "**¿difiere el efecto entre subgrupos?**" Se contesta con el término de **interacción** `brazo × subgrupo`:
+Un efecto **promedio** puede esconder que el tratamiento funciona mejor en unos pacientes que en otros: es **modificación del efecto** (8.4) en un ensayo. En este ECA se anticipa que el bicarbonato beneficia más a quienes tienen **acidosis más marcada**.
+
+La tentación es estimar el efecto en cada subgrupo y ver en cuál es "significativo". Veamos qué pasa con el bicarbonato basal:
+
+```{r}
+#| label: subgrupos-ingenuo
+efecto_en <- function(d) {
+  m <- lm(tfg_24 ~ brazo + tfg0, data = d)
+  tidy(m) |> filter(term == "brazoBicarbonato") |> transmute(n = nobs(m), efecto = estimate, p = p.value)
+}
+eca |> group_by(bic_g) |> group_modify(\(d, k) efecto_en(d)) |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+En el subgrupo con bicarbonato basal **< 20** el efecto es grande y claramente significativo; en el de **≥ 20** es menor y **no significativo** (*p* ≈ 0.10). Concluir *"el bicarbonato solo funciona en los más acidóticos"* sería un error clásico: **que uno sea significativo y otro no, no demuestra que difieran**. Puede deberse solo a la precisión de cada estimación. La pregunta correcta no es *"¿es significativo el efecto en cada subgrupo?"* sino ***"¿difiere el efecto entre subgrupos?"***, y se contesta con el término de **interacción** `brazo × subgrupo`:
 
 ```{r}
 #| label: interaccion-bic
@@ -31,11 +53,11 @@ m_sin <- lm(tfg_24 ~ brazo + bic_g + tfg0, data = eca)
 anova(m_sin, m_int)                        # prueba de la interacción
 ```
 
-Hay **cierta evidencia de interacción** (*p* ≈ 0.06): el efecto es mayor en quienes tienen bicarbonato basal < 20 mEq/L (1.9 vs. 0.8). Con un umbral dicotómico y un ensayo de este tamaño, el resultado queda en el límite; con el bicarbonato como variable continua (más abajo) la señal es algo más clara.
+Hay **cierta evidencia de interacción** (*p* ≈ 0.06): el efecto es mayor con bicarbonato basal < 20 mEq/L (1.9 frente a 0.7), pero la evidencia es **limitada**, no un hallazgo establecido. Con el bicarbonato como variable continua (Paso 4) la señal es más clara.
 
-## Forest plot de subgrupos
+## Paso 2: el *forest plot* de subgrupos
 
-Se estima el efecto en cada subgrupo (con ANCOVA) y se prueba la interacción por separado. Una función reutilizable:
+Estimamos el efecto en cada subgrupo (con ANCOVA) y probamos la interacción por separado. Una función reutilizable:
 
 ```{r}
 #| label: forest-sub
@@ -64,65 +86,60 @@ forest |> mutate(across(where(is.numeric), \(x) round(x, 2)))
 #| label: graf-forest
 #| fig-width: 8
 #| fig-height: 4.2
+x_texto <- max(forest$sup) + 0.3
 ggplot(forest, aes(diferencia, etiqueta, xmin = inf, xmax = sup)) +
   geom_vline(xintercept = 0, linetype = "dashed") +
   geom_vline(xintercept = global$diferencia, color = "#D55E00", alpha = 0.6) +
   geom_pointrange(aes(color = variable == "Global"), show.legend = FALSE) +
-  geom_text(aes(x = max(forest$sup) + 0.3, label = ifelse(is.na(p_interaccion), "", paste0("p int. = ", sprintf("%.2f", p_interaccion)))),
+  geom_text(aes(x = x_texto, label = ifelse(is.na(p_interaccion), "", paste0("p int. = ", sprintf("%.2f", p_interaccion)))),
             hjust = 0, size = 3) +
   scale_color_manual(values = c(`TRUE` = "#D55E00", `FALSE` = "#0072B2")) +
-  coord_cartesian(xlim = c(min(forest$inf) - 0.2, max(forest$sup) + 1.6), clip = "off") +
+  coord_cartesian(xlim = c(min(forest$inf) - 0.2, x_texto + 1.3), clip = "off") +
   labs(x = "Diferencia en TFGe a 24 meses, bicarbonato − placebo (mL/min/1.73 m²)", y = NULL,
-       caption = "ANCOVA ajustado por TFGe basal. Línea naranja: efecto global. Datos simulados.") +
-  theme_minimal(base_size = 11)
+       caption = "ANCOVA ajustado por TFGe basal. Línea naranja: efecto global. Datos simulados.")
 ```
 
-Solo el subgrupo por **bicarbonato basal** muestra una señal de interacción (*p* ≈ 0.06); los demás tienen *p* de interacción de 0.2 o más y sus IC se solapan con el global: las diferencias entre ellos son compatibles con el azar.
+**Qué vemos.** Solo el subgrupo por **bicarbonato basal** muestra una señal de interacción (*p* ≈ `r sprintf("%.2f", forest$p_interaccion[forest$variable == "bic_g"][1])`); los demás tienen *p* de interacción de `r sprintf("%.2f", min(forest$p_interaccion[forest$variable %in% c("edad_g", "dm_g", "tfg_g")]))` o más y sus IC se solapan con el global: las diferencias entre ellos son **compatibles con el azar**.
 
-::: {.callout-warning}
-## ⚠️ El problema de la multiplicidad: "encontrar" subgrupos que no existen
+## Paso 3: la multiplicidad, o cómo "encontrar" subgrupos que no existen
 
-Con **cuatro subgrupos** ya hay riesgo de hallazgos falsos; con 10-20, casi seguro. Lo comprobamos con **una simulación sin ningún efecto** (permutando el brazo al azar), midiendo la frecuencia con que **al menos una de 10 interacciones** sale con *p* < 0.05:
-:::
+Con **cuatro subgrupos** ya hay riesgo de hallazgos falsos; con 10-20, es casi seguro. Lo comprobamos con una simulación **sin ningún efecto**: permutamos el brazo al azar (así el tratamiento no puede tener efecto ni interacción) y medimos con qué frecuencia **al menos una de 10 interacciones** sale con *p* < 0.05:
 
 ```{r}
 #| label: falso-positivo
 set.seed(2)
 cuantos <- replicate(300, {
   d <- eca |> filter(!is.na(tfg_24)) |> mutate(brazo = sample(brazo))          # brazo permutado: sin efecto
-  vars <- replicate(10, sample(c("a", "b"), nrow(d), TRUE))
+  vars <- replicate(10, sample(c("a", "b"), nrow(d), TRUE))                    # 10 "subgrupos" inventados
   p <- apply(vars, 2, \(sg) {
     anova(lm(tfg_24 ~ brazo + sg + tfg0, d), lm(tfg_24 ~ brazo * sg + tfg0, d))$`Pr(>F)`[2]
   })
   any(p < 0.05)
 })
-mean(cuantos)       # proporción de ensayos "falsos" con al menos un subgrupo "significativo"
+prop_falsos <- mean(cuantos)       # proporción de ensayos "falsos" con al menos un subgrupo "significativo"
+prop_falsos
 ```
 
-Con 10 subgrupos aleatorios, **~40 %** de los ensayos **sin efecto** mostrarían al menos un "subgrupo significativo". Por eso:
+Con 10 subgrupos aleatorios, **`r round(100 * prop_falsos)` %** de los ensayos **sin efecto** mostrarían al menos un "subgrupo significativo" (la teoría dice $1 - 0.95^{10}$ = `r round(100 * (1 - 0.95^10))` %).
 
-::: {.callout-tip}
-## 💡 Reglas para creer un subgrupo (Sun et al., *BMJ* 2010)
+::: {.callout-warning}
+## ⚠️ Subgrupos = generadores de hipótesis, salvo que se cumplan las reglas
 
-1.  **Preespecificado** en el protocolo, con la dirección esperada.
-2.  **Pocos subgrupos** (idealmente ≤ 3-5) con justificación biológica.
-3.  Basado en una **prueba de interacción**, **no** en comparar valores *p* dentro de subgrupos.
-4.  **Consistente** con otros ensayos o con datos biológicos.
-5.  Una **característica basal** (no posterior a la aleatorización).
-6.  Resultado **replicado** o **confirmado** en otro estudio.
+Un subgrupo "significativo" descubierto después de ver los datos es una **hipótesis para otro ensayo**, no un resultado. Para creerlo (Sun *et al.*, *BMJ* 2010): que esté **preespecificado** en el protocolo y con la dirección esperada; que sean **pocos** (idealmente ≤ 3-5) y con justificación biológica; que se base en una **prueba de interacción**, no en comparar valores *p* entre subgrupos; que sea **consistente** con otros ensayos o con datos biológicos; que se defina por una **característica basal**; y que se **replique** en otro estudio.
 :::
 
-## Heterogeneidad continua: no dicotomices
+## Paso 4: heterogeneidad continua, no dicotomices
 
-Dicotomizar el bicarbonato (< 20 vs. ≥ 20) pierde información. El efecto se puede modelar **como función continua**:
+Dicotomizar el bicarbonato (< 20 frente a ≥ 20) pierde información. El efecto se puede modelar **como función continua** del bicarbonato basal:
 
 ```{r}
 #| label: continua
 m_cont <- lm(tfg_24 ~ brazo * I(bic0 - 20) + tfg0, data = eca)
-tidy(m_cont, conf.int = TRUE) |> filter(str_detect(term, "brazo")) |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+tab_cont <- tidy(m_cont, conf.int = TRUE) |> filter(str_detect(term, "brazo"))
+tab_cont |> mutate(across(where(is.numeric), \(x) round(x, 3)))
 ```
 
-El coeficiente de la interacción (≈ −0.37, *p* ≈ 0.03) indica que el beneficio **aumenta ~0.4 mL/min/1.73 m² por cada mEq/L menos de bicarbonato basal** (el valor verdadero ITT es ≈ −0.4; el IC es amplio). Un gráfico lo hace evidente:
+El coeficiente de la interacción (`r round(tab_cont$estimate[2], 2)`, *p* = `r round(tab_cont$p.value[2], 2)`) indica que el beneficio **aumenta ~`r round(abs(tab_cont$estimate[2]), 1)` mL/min/1.73 m² por cada mEq/L menos de bicarbonato basal**. Lo comparamos con la **verdad** simulada (el efecto ITT real a 24 meses por tramos de bicarbonato):
 
 ```{r}
 #| label: graf-continua
@@ -145,21 +162,22 @@ ggplot(pred, aes(bic0, diferencia)) +
   geom_line(color = "#0072B2", linewidth = 1) +
   geom_point(data = verdad, aes(bic, efecto_itt_real), color = "#D55E00", size = 3) +
   labs(x = "Bicarbonato sérico basal (mEq/L)", y = "Efecto sobre la TFGe a 24 meses",
-       caption = "Línea azul: efecto estimado por el modelo. Puntos naranjas: verdad simulada por grupos de bicarbonato.") +
-  theme_minimal(base_size = 11)
+       caption = "Línea azul: efecto estimado por el modelo. Puntos naranjas: verdad simulada por grupos de bicarbonato.")
 ```
 
-## Efecto heterogéneo y decisiones
+El modelo sigue la tendencia de la verdad (mayor beneficio con menor bicarbonato), con un IC amplio, como corresponde a un ensayo de 640 pacientes.
 
-La heterogeneidad **relativa** (HR o RR) y la **absoluta** (diferencia de riesgos o de medias) pueden no coincidir (8.4). Para **decidir a quién tratar**, importa el **beneficio absoluto** esperado, que depende del efecto relativo **y** del riesgo basal del paciente. Los métodos que estiman el **efecto individual esperado** con muchas covariables (*causal forests*, *meta-learners*) se presentan en el Cap. 19; en un ECA pequeño son **exploratorios**.
+## Paso 5: efecto heterogéneo y decisiones
+
+La heterogeneidad **relativa** (HR, RR) y la **absoluta** (diferencia de riesgos o de medias) pueden no coincidir (8.4). Para **decidir a quién tratar** importa el **beneficio absoluto**, que depende del efecto relativo **y** del riesgo basal del paciente. Los métodos que estiman el **efecto individual esperado** con muchas covariables (*causal forests*, *meta-learners*) se presentan en el Cap. 19; en un ECA pequeño son **exploratorios**.
 
 ::: {.callout-important}
 ## 🎯 En resumen
 
--   **Prueba la interacción**; nunca compares valores *p* de subgrupos.
+-   **Prueba la interacción**; nunca compares valores *p* de subgrupos (que uno sea significativo y otro no, no prueba diferencia).
 -   **Preespecifica pocos** subgrupos, basados en una **característica basal** con justificación biológica.
--   La **multiplicidad** produce falsos hallazgos: con 10 subgrupos, ~40 % de ensayos sin efecto muestran uno "significativo".
--   Modela la variable modificadora **como continua** cuando sea posible; presenta un **forest plot** con el *p* de interacción.
+-   La **multiplicidad** produce falsos hallazgos: con 10 subgrupos, ~`r round(100 * prop_falsos)` % de los ensayos sin efecto muestran uno "significativo".
+-   Modela la variable modificadora **como continua** cuando sea posible y presenta un *forest plot* con el *p* de interacción.
 -   Los subgrupos son **generadores de hipótesis**, salvo que estén preespecificados y confirmados.
 :::
 
