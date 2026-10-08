@@ -1,0 +1,387 @@
+# Regresión ordinal, multinomial y binomial negativa
+
+::: {.callout-note}
+## 🩺 Escenario
+
+En tu consulta de ERC miras la albuminuria a 12 meses y la clasificas en **A1, A2 o A3**. Colapsarla en "mejoró / no mejoró" tira información; tratarla como número (UACR) la distorsiona. Otro día, la unidad debe prever cuántos pacientes con ERC G5 irán a **hemodiálisis, diálisis peritoneal o manejo conservador**: tres opciones **sin orden**. Y la enfermera de enlace te pregunta si su programa **reduce los ingresos hospitalarios** en hemodiálisis: un **conteo** con pacientes que ingresan mucho más que otros. Tres desenlaces, tres modelos que completan los del 8.3.
+:::
+
+**Lo que vamos a hacer**
+
+-   Ajustar un modelo de **odds proporcionales** para un desenlace **ordinal**, interpretar su OR común y **comprobar** el supuesto (y qué hacer si falla).
+-   Ajustar una **regresión multinomial** para un desenlace **nominal** y traducirla a **probabilidades y diferencias de probabilidad** con `marginaleffects`.
+-   Comparar **Poisson, cuasi-Poisson y binomial negativa** en conteos con sobredispersión, y cerrar con una tabla de "qué modelo para qué desenlace".
+
+Todos los datos de este subcapítulo son **simulados** (no provienen de pacientes reales) y tienen **verdad conocida**: los simuladores están en `R/simular_cap87.R`.
+
+```{r}
+#| label: c87-setup
+library(tidyverse)
+library(broom)
+library(marginaleffects)
+library(patchwork)
+source("R/simular_cap87.R")      # simuladores (datos SIMULADOS, con verdad conocida)
+source("R/funciones_cap87.R")    # funciones auxiliares
+f2 <- \(x) sprintf("%.2f", x)    # para dar formato a las cifras del texto
+```
+
+## Paso 1. Desenlace ordinal: odds proporcionales
+
+### La idea
+
+Un desenlace **ordinal** tiene categorías con orden (A1 < A2 < A3) pero sin distancias conocidas. El modelo más usado es el de **odds proporcionales** (*proportional odds*, o logit acumulado): en vez de una sola logística, "corta" el desenlace en cada punto (A1 vs. A2-A3; A1-A2 vs. A3) y **fuerza un único OR** para todos los cortes:
+
+$$
+\operatorname{logit} P(Y \le k) = \theta_k - (\beta_1 X_1 + \dots + \beta_p X_p) \qquad \Rightarrow \qquad \text{OR común} = e^{\beta}
+$$
+
+Hay un **umbral** ($\theta_k$) por corte y **un coeficiente** por variable. Es un modelo económico, pero con un supuesto que hay que revisar (Paso 2).
+
+### Los datos
+
+Simulamos 2000 pacientes con ERC y diabetes: la categoría de albuminuria a 12 meses depende de la HbA1c, la PAS, la ECV y la edad, y de iSGLT2, que **reduce las odds de una categoría superior con OR verdadero = `r f2(exp(-0.7))`** en ambos cortes. La indicación del iSGLT2 depende solo de covariables medidas, así que no hay confusión oculta.
+
+```{r}
+#| label: c87-datos-alb
+alb_po <- simular_albuminuria()           # SIMULADO: odds proporcionales ciertos (OR verdadero 0.50)
+alb_po |> count(alb12) |> mutate(pct = round(100 * n / sum(n), 1))
+```
+
+### El modelo con `MASS::polr`
+
+```{r}
+#| label: c87-polr
+#| message: false
+m_po <- MASS::polr(alb12 ~ isglt2 + I(edad / 10) + hba1c + pas + ecv, data = alb_po, Hess = TRUE)
+or_po <- exp(coef(m_po)["isglt2"])
+ic_po <- exp(confint(m_po)["isglt2", ])        # IC por verosimilitud perfilada
+round(c(OR = or_po, ic_po), 3)
+```
+
+**Qué vemos.** El OR del iSGLT2 es **`r f2(or_po)`** (IC `r f2(ic_po[1])`-`r f2(ic_po[2])`); la verdad es `r f2(exp(-0.7))`, dentro del IC. Se lee así: con iSGLT2, las **odds de estar en una categoría de albuminuria más alta** (A2 o A3 en vez de A1, **y también** A3 en vez de A1 o A2) se multiplican por `r f2(or_po)`, a igualdad de las demás covariables. Dicho al revés: las odds de estar en una categoría **menor** son `r f2(1 / or_po)` veces mayores. Un solo número para todos los cortes. El paquete `ordinal` ajusta el mismo modelo con `ordinal::clm()`; lo usaremos en el Paso 2 para probar el supuesto.
+
+### Del OR a lo clínicamente legible: probabilidades por categoría
+
+Un OR de 0.45 no dice cuántos pacientes pasan a A1. Con `avg_predictions()` obtenemos la **probabilidad promedio de cada categoría** si todos recibieran el fármaco y si ninguno (estandarización, como en 8.3), y la comparamos con la verdad:
+
+```{r}
+#| label: c87-prob-alb-tabla
+verdad_alb <- bind_rows(
+  tibble(isglt2 = 0, group = c("A1", "A2", "A3"), verdad = colMeans(prob_alb_verdad(alb_po, 0))),
+  tibble(isglt2 = 1, group = c("A1", "A2", "A3"), verdad = colMeans(prob_alb_verdad(alb_po, 1))))
+pred_alb <- avg_predictions(m_po, by = "isglt2") |> as_tibble() |>
+  select(group, isglt2, estimate, conf.low, conf.high) |>
+  left_join(verdad_alb, by = c("group", "isglt2")) |>
+  mutate(across(where(is.numeric), \(x) round(x, 3)))
+pred_alb
+```
+
+**Qué vemos.** La probabilidad de **A3** pasa de `r f2(pred_alb$estimate[pred_alb$group == "A3" & pred_alb$isglt2 == 0])` (sin iSGLT2) a `r f2(pred_alb$estimate[pred_alb$group == "A3" & pred_alb$isglt2 == 1])` (con iSGLT2); la verdad es `r f2(pred_alb$verdad[pred_alb$group == "A3" & pred_alb$isglt2 == 0])` y `r f2(pred_alb$verdad[pred_alb$group == "A3" & pred_alb$isglt2 == 1])`. Esto sí se puede contar en sesión clínica: "de cada 100 pacientes, unos `r round(100 * (pred_alb$estimate[pred_alb$group == "A3" & pred_alb$isglt2 == 0] - pred_alb$estimate[pred_alb$group == "A3" & pred_alb$isglt2 == 1]))` menos terminarían en A3".
+
+## Paso 2. ¿Se cumplen las odds proporcionales?
+
+El OR común es una **promesa**: que el efecto del fármaco sea el mismo en cada corte. Dos formas de comprobarla.
+
+**Mirada rápida.** Ajusta una logística por corte y compara los OR. Lo hacemos en dos mundos simulados: en el primero (el de arriba) el supuesto es cierto; en el segundo el iSGLT2 actúa **poco** sobre "A1 vs. más" (OR verdadero `r f2(exp(-0.3))`) y **mucho** sobre "A3 vs. menos" (OR verdadero `r f2(exp(-1.2))`).
+
+```{r}
+#| label: c87-or-corte
+#| fig-width: 8
+#| fig-height: 3.6
+alb_nopo <- simular_albuminuria(semilla = 88, beta_trat = c(-0.3, -1.2))   # SIMULADO: supuesto falso
+
+chequeo <- bind_rows(
+  `Supuesto cierto` = or_por_corte(alb_po) |> mutate(verdad = exp(c(-0.7, -0.7))),
+  `Supuesto falso`  = or_por_corte(alb_nopo) |> mutate(verdad = exp(c(-0.3, -1.2))),
+  .id = "mundo")
+
+ggplot(chequeo, aes(corte, or)) +
+  geom_hline(yintercept = 1, linetype = 3) +
+  geom_pointrange(aes(ymin = inf, ymax = sup)) +
+  geom_point(aes(y = verdad), shape = 4, size = 3, stroke = 1.2, colour = "firebrick") +
+  scale_y_log10() + facet_wrap(~ mundo) +
+  labs(x = NULL, y = "OR del iSGLT2 (escala log)",
+       caption = "Punto con IC: estimado en cada corte. Cruz roja: verdad (datos simulados).")
+```
+
+```{r}
+#| label: c87-or-corte-cifras
+or_c <- chequeo |> filter(mundo == "Supuesto falso")
+```
+
+**Qué vemos.** A la izquierda, los dos OR son casi iguales y la cruz (verdad) cae dentro de cada IC: un OR común es razonable. A la derecha, los OR son **distintos** (`r f2(or_c$or[1])` y `r f2(or_c$or[2])`) y la cruz roja confirma que son diferentes **de verdad**: el efecto del fármaco se concentra en frenar el paso a A3.
+
+**La prueba formal.** Es una **razón de verosimilitud** entre el modelo de odds proporcionales y uno más flexible donde cada variable puede tener un OR distinto por corte. `ordinal::nominal_test()` la calcula variable por variable (sustituye al test de Brant, que aquí no está instalado):
+
+```{r}
+#| label: c87-nominal-test
+f_alb <- alb12 ~ isglt2 + I(edad / 10) + hba1c + pas + ecv
+clm_po   <- ordinal::clm(f_alb, data = alb_po)
+clm_nopo <- ordinal::clm(f_alb, data = alb_nopo)
+nt_po   <- ordinal::nominal_test(clm_po)
+nt_nopo <- ordinal::nominal_test(clm_nopo)
+nt_nopo                                  # prueba en el mundo con supuesto falso
+```
+
+```{r}
+#| label: c87-nominal-test-p
+c(`supuesto cierto: p de isglt2` = nt_po["isglt2", "Pr(>Chi)"],
+  `supuesto falso: p de isglt2`  = nt_nopo["isglt2", "Pr(>Chi)"])
+```
+
+**Qué vemos.** (De paso: `clm()` da para `isglt2` el mismo OR que `polr`, `r f2(exp(coef(clm_po)["isglt2"]))`.) Con el supuesto cierto, la *p* para el iSGLT2 es `r sprintf("%.2f", nt_po["isglt2", "Pr(>Chi)"])` (sin evidencia contra las odds proporcionales). Con el supuesto falso, la prueba lo detecta para `isglt2` (*p* < 0.001). Fíjate en que en el segundo mundo la prueba también marca otras covariables (`ecv`, *p* = `r format.pval(nt_nopo["ecv", "Pr(>Chi)"], digits = 2)`) aunque el simulador da a `ecv` el **mismo** efecto en todos los cortes: es un falso positivo de este conjunto de datos. Con varias pruebas a la vez alguna sale "significativa" por azar, así que mira primero la variable que te importa y el **tamaño** de la diferencia entre cortes, no solo la *p*.
+
+### Si el supuesto falla: tres salidas
+
+1.  **Odds proporcionales parciales**: dejar un OR por corte **solo** para la variable problemática y mantener común el resto. Con `VGAM::vglm()` (`parallel = FALSE ~ isglt2`), o con `ordinal::clm(nominal = ~ isglt2)`.
+2.  **Dicotomizar** en el corte clínicamente relevante (aquí, A3 vs. resto) y usar una logística: pierdes información, pero la pregunta queda clara.
+3.  **Multinomial** (Paso 3): sin orden y sin supuesto, a costa de más parámetros.
+
+La primera salida recupera la verdad que el OR común promedia mal:
+
+```{r}
+#| label: c87-parcial
+pp <- VGAM::vglm(f_alb, VGAM::cumulative(parallel = FALSE ~ isglt2, reverse = TRUE), data = alb_nopo)
+po <- VGAM::vglm(f_alb, VGAM::cumulative(parallel = TRUE, reverse = TRUE), data = alb_nopo)
+or_parcial <- exp(coef(pp)[c("isglt2:1", "isglt2:2")])       # un OR por corte (A2+ y A3)
+or_comun   <- exp(coef(po)["isglt2"])                          # OR común (forzado)
+lrt_pp <- VGAM::lrtest(pp, po)
+rbind(parcial = or_parcial, verdad = exp(c(-0.3, -1.2)))
+```
+
+**Qué vemos.** El modelo parcial estima `r f2(or_parcial[1])` y `r f2(or_parcial[2])` (verdad: `r f2(exp(-0.3))` y `r f2(exp(-1.2))`). El OR común (`r f2(or_comun)`) queda **en medio**: no es verdad para ningún corte, y subestima el beneficio justo donde más importa (la progresión a A3). La razón de verosimilitud contra el modelo restringido da *p* < 0.001.
+
+## Paso 3. Desenlace nominal: regresión multinomial
+
+### La idea
+
+Cuando las categorías **no tienen orden** (hemodiálisis, diálisis peritoneal, manejo conservador) se elige una categoría de **referencia** y se ajusta una logística de cada categoría **frente a la referencia**: el modelo tiene un juego de coeficientes por cada categoría no referencial. `nnet::multinom()` lo hace.
+
+Simulamos 1500 pacientes con ERC G5: `lejos` = vive a más de 1 hora de un centro de HD; `autonomo` = autonomía y apoyo para técnica domiciliaria; `comorb` = índice de comorbilidad. La edad aumenta el manejo conservador y reduce la diálisis peritoneal.
+
+```{r}
+#| label: c87-datos-trs
+trs <- simular_trs()           # SIMULADO. Referencia = hemodiálisis (primer nivel del factor)
+trs |> count(modalidad) |> mutate(pct = round(100 * n / sum(n), 1))
+```
+
+```{r}
+#| label: c87-multinom
+m_nom <- nnet::multinom(modalidad ~ I(edad / 10) + comorb + lejos + autonomo, data = trs, trace = FALSE)
+
+rrr <- tidy(m_nom, exponentiate = TRUE, conf.int = TRUE) |>
+  filter(term != "(Intercept)") |>
+  left_join(
+    as_tibble(exp(coef_trs_verdad()[, -1]), rownames = "y.level") |>
+      pivot_longer(-y.level, names_to = "term", values_to = "verdad") |>
+      mutate(term = recode(term, edad10 = "I(edad/10)")),
+    by = c("y.level", "term"))
+rrr |> select(y.level, term, OR = estimate, conf.low, conf.high, verdad) |>
+  mutate(across(where(is.numeric), \(x) round(x, 2)))
+```
+
+### Cómo leer los "OR relativos"
+
+Cada coeficiente exponenciado compara una categoría con la **referencia** (hemodiálisis). Por ejemplo, vivir lejos: las odds de **diálisis peritoneal vs. hemodiálisis** se multiplican por `r f2(rrr$estimate[rrr$y.level == "Diálisis peritoneal" & rrr$term == "lejos"])` (verdad: `r f2(rrr$verdad[rrr$y.level == "Diálisis peritoneal" & rrr$term == "lejos"])`), y las de **manejo conservador vs. hemodiálisis**, por `r f2(rrr$estimate[rrr$y.level == "Manejo conservador" & rrr$term == "lejos"])` (verdad: `r f2(rrr$verdad[rrr$y.level == "Manejo conservador" & rrr$term == "lejos"])`). Los coeficientes de la edad van en sentidos **opuestos** en las dos filas, algo que un modelo ordinal no permitiría.
+
+Estos OR tienen dos defectos clínicos: dependen de la categoría de referencia y **no dicen cuántos pacientes** acaban en cada modalidad. Para eso, `marginaleffects`.
+
+### Probabilidades predichas y efectos marginales promedio
+
+La idea (inspirada en la guía *Marginalia* de Heiss) es la misma que en 8.3: predecir la probabilidad de cada modalidad para **cada paciente** del estudio, con `lejos = 0` y con `lejos = 1`, y promediar. La **diferencia** entre promedios es el **efecto marginal promedio** (AME), en puntos de probabilidad, y no depende de qué categoría sea la referencia:
+
+```{r}
+#| label: c87-ame
+p_lejos <- avg_predictions(m_nom, by = "lejos")                      # probabilidades promedio
+ame <- avg_comparisons(m_nom, variables = "lejos") |> as_tibble()    # diferencias de probabilidad
+
+## Verdad: el mismo contraste calculado con los parámetros verdaderos
+ame_verdad <- tibble(group = modalidades_trs,
+  verdad = colMeans(prob_trs_verdad(mutate(trs, lejos = 1))) - colMeans(prob_trs_verdad(mutate(trs, lejos = 0))))
+ame |> select(group, estimate, conf.low, conf.high) |>
+  left_join(ame_verdad, by = "group") |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+```{r}
+#| label: c87-ame-cifras
+g <- \(m) ame$estimate[ame$group == m]
+pl <- \(m, l) p_lejos$estimate[p_lejos$group == m & p_lejos$lejos == l]
+```
+
+**Qué vemos.** Vivir lejos de un centro reduce la probabilidad de HD en `r round(100 * abs(g("Hemodiálisis")))` puntos porcentuales (de `r round(100 * pl("Hemodiálisis", 0))` % a `r round(100 * pl("Hemodiálisis", 1))` %) y aumenta la de diálisis peritoneal en `r round(100 * g("Diálisis peritoneal"))` puntos (de `r round(100 * pl("Diálisis peritoneal", 0))` % a `r round(100 * pl("Diálisis peritoneal", 1))` %); el manejo conservador sube mucho menos (`r round(100 * g("Manejo conservador"))` puntos, con un IC que casi toca el cero). Los tres cambios **suman cero** (la probabilidad total es 1) y la verdad cae dentro de cada IC. Esto es lo que se lleva a la sesión clínica; el OR de 3 de la tabla anterior no lo cuenta.
+
+Para una variable continua se hace igual: la curva completa con `avg_predictions(variables = list(edad = ...))`, o el efecto de **+10 años** con `avg_comparisons(m_nom, variables = list(edad = 10))`. La figura compara las probabilidades estimadas con las verdaderas:
+
+```{r}
+#| label: c87-fig-edad
+#| fig-width: 8
+#| fig-height: 3.8
+edades <- seq(45, 90, by = 5)
+est_edad <- avg_predictions(m_nom, newdata = trs, variables = list(edad = edades)) |> as_tibble()
+ver_edad <- map_dfr(edades, \(a) {
+  p <- prob_trs_verdad(mutate(trs, edad = a))
+  tibble(edad = a, group = colnames(p), verdad = colMeans(p))
+})
+
+ggplot(est_edad, aes(edad, estimate, colour = group, fill = group)) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = 0.15, colour = NA) +
+  geom_line(linewidth = 0.9) +
+  geom_line(data = ver_edad, aes(y = verdad), linetype = "dashed", colour = "black") +
+  facet_wrap(~ group) + guides(colour = "none", fill = "none") +
+  labs(x = "Edad (años)", y = "Probabilidad promedio",
+       caption = "Línea de color: estimado con IC. Línea negra discontinua: verdad (datos simulados).")
+```
+
+## Paso 4. ¿Ordinal o multinomial?
+
+-   **Ordinal** cuando las categorías tienen un orden natural y quieres **un solo efecto** por variable (más potencia, un OR resumen). Exige odds proporcionales.
+-   **Multinomial** cuando no hay orden (o el supuesto falla): un efecto **por categoría**, más parámetros y menos potencia si el orden existe.
+
+Una forma práctica de decidir es comparar ajuste y complejidad con el **AIC** (menor es mejor) en los dos mundos de albuminuria:
+
+```{r}
+#| label: c87-aic-ord-nom
+#| message: false
+comparar <- function(d) {
+  m_o <- MASS::polr(f_alb, data = d, Hess = TRUE)
+  m_n <- nnet::multinom(update(f_alb, factor(alb12, ordered = FALSE) ~ .), data = d, trace = FALSE)
+  tibble(modelo = c("Ordinal (polr)", "Multinomial"), parametros = c(length(coef(m_o)) + 2, length(coef(m_n))),
+         AIC = c(AIC(m_o), AIC(m_n)))
+}
+aic_comp <- bind_rows(`Supuesto cierto` = comparar(alb_po), `Supuesto falso` = comparar(alb_nopo), .id = "mundo")
+aic_comp |> mutate(AIC = round(AIC, 1))
+```
+
+**Qué vemos.** Con el supuesto cierto, el ordinal gana (AIC `r round(aic_comp$AIC[1], 1)` vs. `r round(aic_comp$AIC[2], 1)`) con **menos parámetros** (`r aic_comp$parametros[1]` vs. `r aic_comp$parametros[2]`). Con el supuesto falso, la ventaja **se invierte**: gana el multinomial (AIC `r round(aic_comp$AIC[4], 1)` vs. `r round(aic_comp$AIC[3], 1)` del ordinal). El AIC no sustituye al criterio clínico: si el desenlace **es** ordinal, empieza por el ordinal y revisa el supuesto.
+
+## Paso 5. Conteos con sobredispersión: Poisson, cuasi-Poisson y binomial negativa
+
+En 8.3 vimos el Poisson con `offset`. Aquí profundizamos en qué hacer cuando la varianza **supera** a la media. Caso: **ingresos hospitalarios** en el primer año de hemodiálisis, con y sin un programa de enfermería de enlace. Simulamos 1000 pacientes (con distinto tiempo de seguimiento) en los que unos son más "frágiles" que otros sin que lo midamos. Verdad: **IRR del programa = 0.70**, **IRR de diabetes = 1.30**.
+
+```{r}
+#| label: c87-datos-ingresos
+ing <- simular_ingresos(n = 1000)        # SIMULADO
+f_ing <- ingresos ~ programa + diabetes + offset(log(seguimiento_anios))
+m_pois <- glm(f_ing, data = ing, family = poisson)
+m_nb   <- MASS::glm.nb(f_ing, data = ing)
+
+c(media = mean(ing$ingresos), varianza = var(ing$ingresos))
+```
+
+### Diagnosticar la sobredispersión
+
+Tres miradas rápidas: (1) el cociente **desviación o Pearson / gl** (≈ 1 si Poisson basta); (2) **ceros observados vs. esperados** por Poisson; (3) una **prueba formal** (`performance::check_overdispersion()`).
+
+```{r}
+#| label: c87-diagnostico
+disp <- c(desviacion_gl = deviance(m_pois) / df.residual(m_pois),
+          pearson_gl = sum(residuals(m_pois, "pearson")^2) / df.residual(m_pois))
+ceros <- c(observados = mean(ing$ingresos == 0), esperados_poisson = mean(dpois(0, fitted(m_pois))),
+           esperados_nb = mean(dnbinom(0, mu = fitted(m_nb), size = m_nb$theta)))
+round(disp, 2); round(ceros, 3)
+performance::check_overdispersion(m_pois)
+```
+
+**Qué vemos.** El cociente de Pearson es `r f2(disp["pearson_gl"])` (> 1) y la prueba formal detecta sobredispersión. El Poisson predice `r round(100 * ceros["esperados_poisson"])` % de pacientes sin ingresos y observamos `r round(100 * ceros["observados"])` %; la binomial negativa predice `r round(100 * ceros["esperados_nb"])` %. Los **ceros de más** son la huella típica de la heterogeneidad no medida.
+
+### Comparar los modelos: AIC e IRR frente a la verdad
+
+La binomial negativa añade un parámetro ($\theta$) que permite que la varianza sea $\mu + \mu^2/\theta$: cuanto **menor** el $\theta$, mayor la sobredispersión. La cuasi-Poisson no tiene verosimilitud y por eso **no tiene AIC**.
+
+```{r}
+#| label: c87-comparar
+tab_conteos <- ajustar_conteos(ing) |>
+  mutate(AIC = c(AIC(m_pois), NA, NA, AIC(m_nb)), verdad = 0.70)
+tab_conteos |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+
+lr <- as.numeric(2 * (logLik(m_nb) - logLik(m_pois)))
+p_lr <- pchisq(lr, df = 1, lower.tail = FALSE) / 2     # se divide entre 2: theta = infinito está en el borde
+```
+
+```{r}
+#| label: c87-comparar-cifras
+tc <- \(m, v) tab_conteos[[v]][tab_conteos$modelo == m]
+```
+
+**Qué vemos.**
+
+-   **Las estimaciones puntuales casi coinciden** (IRR `r f2(tc("Poisson", "irr"))` en Poisson y `r f2(tc("Binomial negativa", "irr"))` en binomial negativa; verdad 0.70): la sobredispersión no sesga el IRR, **estropea los errores estándar**. El de Poisson (`r sprintf("%.3f", tc("Poisson", "ee"))`) es mucho menor que el de los demás (`r sprintf("%.3f", tc("Binomial negativa", "ee"))` en la binomial negativa): intervalos demasiado estrechos.
+-   El AIC prefiere con claridad la binomial negativa (`r round(tc("Binomial negativa", "AIC"))` vs. `r round(tc("Poisson", "AIC"))`), y la razón de verosimilitud (*p* < 0.001) coincide. El $\theta$ estimado es `r f2(m_nb$theta)`.
+-   Poisson con sándwich, cuasi-Poisson y binomial negativa dan IC casi iguales y **todos contienen la verdad**. En la práctica elegirás por lo que necesites: sándwich o cuasi-Poisson si solo quieres corregir el IC; binomial negativa si quieres una verosimilitud (AIC, predicciones de ceros) o hay mucha heterogeneidad.
+
+### ¿Cuántas veces sale bien? Cobertura en 300 repeticiones
+
+Un solo conjunto de datos no demuestra nada. Repetimos la simulación 300 veces (300 pacientes cada vez) y contamos cuántas veces el IC del 95 % contiene el IRR verdadero (0.70), que debería ser ≈ 95 %:
+
+```{r}
+#| label: c87-cobertura
+rep_sim <- map_dfr(1:300, \(s) ajustar_conteos(simular_ingresos(n = 300, semilla = 1000 + s)))
+cobertura <- rep_sim |> group_by(modelo) |>
+  summarise(irr_medio = mean(irr), cobertura_ic95 = mean(inf <= 0.70 & sup >= 0.70))
+cobertura |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+**Qué vemos.** El IRR medio es `r f2(cobertura$irr_medio[1])` en todos (la verdad es 0.70). Pero el IC del Poisson sin corregir contiene la verdad solo el `r round(100 * cobertura$cobertura_ic95[cobertura$modelo == "Poisson"])` % de las veces, en vez del 95 %; las otras tres estrategias cubren entre `r sprintf("%.1f", 100 * min(cobertura$cobertura_ic95[cobertura$modelo != "Poisson"]))` y `r sprintf("%.1f", 100 * max(cobertura$cobertura_ic95[cobertura$modelo != "Poisson"]))` %.
+
+::: {.callout-tip}
+## 💡 ¿Y si hay más ceros de los que la binomial negativa explica?
+
+A veces una parte de los pacientes **no puede** tener el evento (p. ej., los que ya viven con cuidados domiciliarios nunca consultan a urgencias): son ceros **estructurales**. Los modelos con **inflación de ceros** (*zero-inflated*) mezclan una logística para "siempre cero" con un conteo para el resto. Con `glmmTMB` (simulamos un 35 % de ceros estructurales):
+
+```{r}
+#| label: c87-zi
+ing_zi <- simular_ingresos(n = 1000, prop_ceros = 0.35, theta = 4)       # SIMULADO
+nb_zi <- glmmTMB::glmmTMB(f_ing, family = glmmTMB::nbinom2, data = ing_zi)
+zinb  <- glmmTMB::glmmTMB(f_ing, ziformula = ~ 1, family = glmmTMB::nbinom2, data = ing_zi)
+c(AIC_nb = AIC(nb_zi), AIC_zinb = AIC(zinb))
+round(c(IRR_nb = exp(glmmTMB::fixef(nb_zi)$cond["programa"]), IRR_zinb = exp(glmmTMB::fixef(zinb)$cond["programa"]),
+        prop_ceros_estructurales = plogis(glmmTMB::fixef(zinb)$zi[[1]])), 2)
+```
+
+El AIC mejora poco (`r round(AIC(nb_zi) - AIC(zinb), 1)` puntos) porque la binomial negativa, con su sobredispersión, ya genera muchos ceros por sí sola; el modelo con inflación recupera la proporción verdadera de ceros estructurales (`r f2(plogis(glmmTMB::fixef(zinb)$zi[[1]]))`; verdad 0.35) y el IRR del programa (`r f2(exp(glmmTMB::fixef(zinb)$cond["programa"]))`). **Úsalo solo si hay una razón clínica** para los ceros estructurales: ajustar un modelo así "por si acaso" complica la interpretación sin ganancia.
+:::
+
+## Qué modelo para qué desenlace (complemento de la tabla de 8.3)
+
+La tabla de 8.3 cubría binario, conteo/tasa y tiempo hasta evento. Estas son las filas que faltaban:
+
+| Desenlace | Ejemplo | Modelo en R | Medida | Supuesto que hay que revisar |
+|---|---|---|---|---|
+| Ordinal | Categoría A1/A2/A3 | `MASS::polr`, `ordinal::clm` | OR acumulado **común** | Odds proporcionales (`nominal_test`) |
+| Ordinal con odds no proporcionales | Idem, efecto distinto por corte | `VGAM::vglm(parallel = FALSE ~ x)`, `clm(nominal =)` | OR **por corte** | Menos parsimonia |
+| Nominal | HD / DP / conservador | `nnet::multinom` + `marginaleffects` | OR relativo a la referencia; **probabilidades y AME** | Independencia de alternativas irrelevantes |
+| Conteo sobredisperso | Ingresos por paciente | `MASS::glm.nb`, cuasi-Poisson o Poisson + sándwich | IRR | Dispersión; ceros observados vs. esperados |
+| Conteo con ceros estructurales | Urgencias con subgrupo que nunca consulta | `glmmTMB(ziformula = ~ 1)` | IRR (parte de conteo) y odds de "siempre cero" | Justificación clínica de los ceros |
+
+::: {.callout-warning}
+## ⚠️ Trampas frecuentes
+
+-   **Dar por buenas las odds proporcionales sin comprobarlas**: con el supuesto falso, el OR común es un promedio que no es verdad para ningún corte (aquí quedó entre `r f2(exp(-0.3))` y `r f2(exp(-1.2))`). Y al revés: no abandones el modelo ordinal por una *p* suelta en una covariable secundaria; mira el tamaño de la diferencia entre cortes.
+-   **Leer los coeficientes del multinomial como si fueran del ordinal** (un solo OR por variable) o **presentar solo OR** cuando la audiencia necesita probabilidades: da siempre las probabilidades predichas o los AME. Y recuerda que la sobredispersión no sesga el IRR, pero un Poisson sin corregir te da intervalos demasiado estrechos.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   **Ordinal**: `polr`/`clm` dan **un OR común** para todos los cortes; compruébalo con `nominal_test()` o un modelo parcial (`vglm`), y si falla usa OR por corte o multinomial.
+-   **Nominal**: `multinom` da OR **relativos a una referencia**; para decidir y comunicar usa `avg_predictions()` y `avg_comparisons()`: probabilidades y diferencias de probabilidad, independientes de la referencia.
+-   Ordinal gana en parsimonia si el supuesto se cumple; el AIC ayuda a decidir.
+-   **Conteos**: la sobredispersión no sesga el IRR, pero encoge el error estándar de Poisson. Corrige con sándwich, cuasi-Poisson o **binomial negativa**; esta última aporta AIC y $\theta$.
+-   Los **ceros estructurales** se modelan con inflación de ceros (`glmmTMB`) solo si hay una razón clínica.
+:::
+
+## Ejercicio
+
+1.  En el mundo de odds **no proporcionales**, calcula con `avg_comparisons()` el efecto del iSGLT2 sobre la probabilidad de A3 usando el `polr` y compáralo con la verdad (`prob_alb_verdad(alb_nopo, 1, c(-0.3, -1.2))` menos la del caso 0). ¿Qué error comete el modelo de OR común?
+2.  Cambia la referencia del multinomial a manejo conservador (`relevel()`). ¿Cuáles de estas cifras cambian: los OR relativos, los AME, las probabilidades predichas?
+3.  Simula `simular_ingresos(prop_ceros = 0.5, theta = 4)` y compara Poisson, binomial negativa y ZINB por AIC. ¿Qué pasa con el IRR del programa y con la proporción estimada de ceros estructurales?
+
+## Referencias
+
+-   Karim ME. *Advanced Epidemiological Methods (EpiMethods)*. https://ehsanx.github.io/EpiMethods/ (inspiración para los apartados de regresión politómica, ordinal y de conteos).
+-   Heiss A. *Marginalia: a guide to figuring out what the heck marginal effects, marginal means, and predictions are* (blog). https://www.andrewheiss.com/blog/ (idea de los efectos marginales promedio).
+-   Arel-Bundock V, Greifer N, Heiss A. How to interpret statistical models using `marginaleffects` for R and Python. *J Stat Softw*. 2024;111(9).
+-   McCullagh P. Regression models for ordinal data. *J R Stat Soc B*. 1980;42(2):109-142.
+-   Venables WN, Ripley BD. *Modern Applied Statistics with S* (4.ª ed.). Springer; 2002 (`MASS::polr`, `MASS::glm.nb`, `nnet::multinom`).
+-   Christensen RHB. *ordinal: Regression Models for Ordinal Data* (paquete de R).
+-   Brooks ME, et al. glmmTMB balances speed and flexibility among packages for zero-inflated generalized linear mixed modeling. *R J*. 2017;9(2):378-400.
