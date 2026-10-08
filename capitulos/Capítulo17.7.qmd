@@ -1,0 +1,191 @@
+# Cómo reportar y evaluar un modelo: TRIPOD+AI y PROBAST
+
+::: {.callout-note}
+## 🩺 Escenario
+
+Un colega te pasa un artículo: "Un bosque aleatorio predice la falla renal a 2 años con un AUC de 0.94 en 300 pacientes de un solo hospital". El jefe de servicio quiere incorporar la calculadora a la consulta. Antes de decir que sí, ¿qué le preguntas al artículo? Y cuando seas tú quien publique un modelo, ¿qué debes contar para que otros puedan **usarlo, validarlo o desmontarlo**?
+:::
+
+Dos herramientas responden a esas dos preguntas, y se usan juntas:
+
+-   **TRIPOD+AI** (*Transparent Reporting of a multivariable prediction model for Individual Prognosis Or Diagnosis*, versión que incluye inteligencia artificial; Collins y cols., *BMJ* 2024) es una **guía de reporte**: qué debe contar el artículo. Actualiza la guía TRIPOD de 2015 y cubre modelos de regresión y de aprendizaje automático. Su lista tiene 27 ítems.
+-   **PROBAST** (*Prediction model Risk Of Bias ASsessment Tool*; Wolff, Moons y cols., *Ann Intern Med* 2019) es una **herramienta de evaluación crítica**: qué tan probable es que el estudio esté sesgado y qué tan aplicable es a tu paciente. Tiene 20 preguntas en 4 dominios.
+
+La diferencia, en una frase: TRIPOD+AI es el formulario de la historia clínica completa; PROBAST es el auditor que lee la historia y decide si se puede confiar en ella. Un estudio mal reportado no se puede auditar, y uno bien reportado puede dejar ver sus defectos.
+
+**Lo que vamos a hacer**
+
+-   Revisar la **lista de verificación de TRIPOD+AI** aplicada al modelo de este capítulo.
+-   **Publicar el modelo completo** (coeficientes y riesgo basal) y comprobar que otra persona puede reproducir un riesgo a mano.
+-   Aplicar **PROBAST** a tres estudios: el nuestro, una versión ingenua del mismo y un estudio hipotético de aprendizaje automático.
+
+```{r}
+#| label: setup-c177
+library(tidyverse)
+library(survival)
+source("R/funciones_extra_c17.R")
+theme_set(theme_minimal(base_size = 12))
+
+f1 <- \(x) sprintf("%.1f", x)
+
+dev <- read_csv("Bases/cohorte_pronostico.csv", show_col_types = FALSE) |> preparar_pronostico()
+val <- read_csv("Bases/cohorte_validacion.csv", show_col_types = FALSE) |> preparar_pronostico()   # hospital regional (SIMULADO)
+mm <- ajustar_modelos_pronostico(dev)      # el modelo de 17.2: falla renal (krt) y muerte (competidor)
+```
+
+## Paso 1: la lista de verificación, aplicada a nuestro modelo
+
+La lista oficial tiene 27 ítems con subítems (Collins y cols., *BMJ* 2024;385:e078378). Aquí la **resumimos por secciones, con nuestras palabras**, y marcamos dónde la cumplió (o no) el modelo que construimos en este capítulo. Úsala como plantilla, pero consulta siempre la versión oficial al redactar tu artículo.
+
+```{r}
+#| label: lista-tripod-c177
+tribble(
+  ~Sección, ~`Qué debe contar el informe`, ~`En nuestro modelo`,
+  "Título y resumen", "Que es un estudio de desarrollo o validación de un modelo de predicción; población, desenlace y horizonte.", "Pronóstico de falla renal a 2 y 5 años en ERC G3b-G5.",
+  "Introducción", "Para qué se usará el modelo (quién, cuándo, qué decisión) y qué modelos ya existen.", "Consulta de nefrología; comparamos con la idea de la KFRE (17.2).",
+  "Datos y participantes", "Diseño, fechas, lugar, criterios de inclusión y exclusión, seguimiento.", "Dos cohortes **simuladas** (3 000 y 1 500); seguimiento hasta 60 meses (17.2, 17.5).",
+  "Desenlace y predictores", "Definición exacta, cómo y cuándo se midió; predictores y su momento de medición.", "Falla renal (diálisis o trasplante), con la muerte como evento competidor; 8 predictores basales (17.2).",
+  "Tamaño de muestra", "Cómo se justificó.", "Criterios de Riley y eventos por parámetro (17.1).",
+  "Datos faltantes", "Cuántos hubo y cómo se manejaron.", "No hubo (datos simulados). Con datos reales: imputación múltiple (Cap. 13).",
+  "Métodos analíticos", "Tipo de modelo, preespecificación, forma funcional; en aprendizaje automático, hiperparámetros y cómo se eligieron.", "Cox por causa con predictores preespecificados (17.2); hiperparámetros dentro del entrenamiento (17.6).",
+  "Equidad", "Rendimiento en subgrupos relevantes y riesgo de que el modelo funcione peor en algunos.", "Rendimiento por sexo, diabetes y edad (17.5); la cohorte no tiene otros atributos.",
+  "Salida del modelo", "Qué produce y cómo se usará (horizonte, umbrales).", "Incidencia acumulada a 24 y 60 meses (17.2).",
+  "Evaluación", "Validación interna y externa; discriminación y calibración con IC.", "*Bootstrap* (17.4), validación externa (17.5), C, calibración y Brier (17.3).",
+  "Ciencia abierta y ética", "Aprobación ética, financiación, conflictos, protocolo, acceso al código y a los datos.", "Código en `R/funciones_extra_c17.R`; datos simulados (sin dilema ético).",
+  "Pacientes y público", "Si participaron en el diseño y cómo.", "No aplica (ejercicio docente). En un estudio real, planéalo desde el inicio.",
+  "Resultados: participantes", "Flujo, características y comparación entre desarrollo y evaluación.", "Tabla 1 por cohorte con DEM (17.5).",
+  "Resultados: el modelo", "Ecuación completa, con coeficientes y riesgo basal; en aprendizaje automático, el objeto del modelo.", "Paso 2 de este subcapítulo.",
+  "Resultados: rendimiento", "Medidas con IC, calibración gráfica, subgrupos, actualización.", "17.3 y 17.5.",
+  "Discusión", "Interpretación, limitaciones y utilidad en la práctica.", "Faltaría demostrar la **utilidad clínica** (curvas de decisión, 16.6)."
+) |> knitr::kable()
+```
+
+**Qué vemos.** El modelo cumple casi toda la lista, y los huecos son honestos: faltan la participación de pacientes, la ética y los datos faltantes porque trabajamos con datos simulados, y falta evaluar si el modelo **cambia decisiones** (utilidad clínica). Son las secciones que más fácil se olvidan, sobre todo en aprendizaje automático: hay revisiones que concluyen que el reporte de estos modelos "necesita mejorar" (Dhiman y cols., *J Clin Epidemiol* 2021, en oncología).
+
+## Paso 2: publicar el modelo completo
+
+El ítem más incumplido es el más práctico: **dar el modelo completo**. Sin los coeficientes y el riesgo basal nadie puede calcular un riesgo ni validar el modelo en otro hospital. Riley y cols. (*BMJ* 2024, parte 2) lo dicen sin rodeos: si el riesgo basal $S_0(t)$ no se publica, no se pueden calcular las probabilidades. Y Efthimiou y cols. (*BMJ* 2024) citan una revisión en la que **52 %** de los modelos publicados para esclerosis múltiple no se podía usar en la práctica porque faltaban los coeficientes, una herramienta o instrucciones.
+
+Nuestro modelo usa dos modelos de Cox (falla renal y muerte), así que se publican **dos tablas de coeficientes** (con el valor en que se centró cada predictor) y **una tabla de riesgo basal** por mes.
+
+```{r}
+#| label: ficha-modelo-c177
+# Coeficientes y valores de centrado de cada modelo de Cox
+ficha <- \(m) tibble(termino = names(coef(m)), coeficiente = unname(coef(m)), media_centrado = unname(m$means))
+ficha_krt <- ficha(mm$krt); ficha_muerte <- ficha(mm$muerte)
+
+# Riesgo basal acumulado (H0) al final de cada mes, para cada causa
+basal <- \(m) { bh <- basehaz(m, centered = TRUE)
+  approx(c(0, bh$time), c(0, bh$hazard), xout = 0:60, method = "constant", f = 0, rule = 2)$y }
+tabla_basal <- tibble(mes = 1:60, H0_krt = basal(mm$krt)[-1], H0_muerte = basal(mm$muerte)[-1])
+
+ficha_krt |> mutate(across(where(is.numeric), \(x) round(x, 4)))
+tabla_basal |> filter(mes %in% c(12, 24, 36, 48, 60)) |> mutate(across(where(is.numeric), \(x) round(x, 4)))
+```
+
+Con esas tablas (la segunda, de muerte, es análoga) cualquier persona puede calcular el riesgo de una paciente **sin tener nuestros datos ni R-objetos**. Escribimos la cuenta con lo mínimo: el predictor lineal de cada modelo, los riesgos mensuales y la combinación de ambos:
+
+```{r}
+#| label: riesgo-a-mano-c177
+riesgo_publicado <- function(x, t) {
+  lp <- \(ficha) sum(ficha$coeficiente * (x[ficha$termino] - ficha$media_centrado))   # predictor lineal centrado
+  h1 <- diff(c(0, tabla_basal$H0_krt))[1:t] * exp(lp(ficha_krt))        # riesgo mensual de falla renal
+  h2 <- diff(c(0, tabla_basal$H0_muerte))[1:t] * exp(lp(ficha_muerte))  # riesgo mensual de muerte
+  h <- h1 + h2
+  s_previa <- exp(-c(0, cumsum(h)[-t]))                                # sin evento al inicio de cada mes
+  sum(s_previa * ifelse(h > 0, h1 / h * (1 - exp(-h)), 0))             # incidencia acumulada de falla renal
+}
+
+# La paciente del escenario de 17.2: mujer de 66 años, TFGe 25, UACR 300 mg/g, laboratorios normales
+x <- c(edad = 66, sexoHombre = 0, tfg = 25, lu = log(300), albumina = 4, fosforo = 3.7, bicarbonato = 23, dm = 0, ecv = 0)
+paciente <- tibble(edad = 66, sexo = factor("Mujer", levels = c("Mujer", "Hombre")), tfg = 25, lu = log(300),
+                   albumina = 4, fosforo = 3.7, bicarbonato = 23, dm = 0, ecv = 0)
+
+tibble(horizonte = c("2 años", "5 años"), t = c(24, 60)) |>
+  mutate(a_mano_con_las_tablas = map_dbl(t, \(t) riesgo_publicado(x, t)),
+         con_el_objeto_de_R = map_dbl(t, \(t) cif_cox(mm$krt, mm$muerte, paciente, t))) |>
+  select(-t) |> mutate(across(where(is.numeric), \(x) round(x, 4)))
+```
+
+**Qué vemos.** Las dos columnas coinciden: a esta paciente le corresponde un riesgo de `r f1(100 * riesgo_publicado(x, 24))` % a 2 años y de `r f1(100 * riesgo_publicado(x, 60))` % a 5 años, con solo las tablas del artículo. Esa es la prueba de que el modelo está **bien publicado**. Si en cambio el modelo fuera un bosque aleatorio, no hay ecuación que escribir: hay que compartir el **objeto del modelo** (el archivo, el código y la versión del programa) y los hiperparámetros, como señalan Riley y cols. para los modelos de "caja negra". Compartir el archivo no basta: sin el reporte de cómo se validó, sigue sin saberse si el modelo funciona (17.6).
+
+## Paso 3: PROBAST, cuatro dominios y veinte preguntas
+
+PROBAST organiza la evaluación en **cuatro dominios** (Participantes, Predictores, Desenlace y Análisis). Cada pregunta se contesta con **sí (S), probablemente sí (PS), probablemente no (PN), no (N) o sin información (SI)**. La regla para cada dominio es simple:
+
+-   **Riesgo de sesgo alto**: al menos una respuesta N o PN.
+-   **Riesgo bajo**: todas las respuestas son S o PS.
+-   **Poco claro**: no hay N ni PN, pero falta información (SI).
+
+El juicio **global** es alto si algún dominio es alto, bajo si todos son bajos y poco claro en el resto. Además, los tres primeros dominios incluyen una pregunta de **aplicabilidad** (¿el estudio responde a la población, los predictores y el desenlace que a ti te interesan?). Las preguntas, traducidas y resumidas:
+
+```{r}
+#| label: probast-preguntas-c177
+probast_preguntas() |> rename(Dominio = dominio, `N.°` = id, Pregunta = pregunta) |> knitr::kable()
+```
+
+Observa dónde están los problemas más habituales: en el dominio **Análisis** (tamaño de muestra, selección por valores *p*, sobreajuste) y en el **Predictor** que no existe al momento de usar el modelo. Son los mismos errores que vimos en 17.1, 17.4 y 17.6.
+
+## Paso 4: aplicar PROBAST a tres estudios
+
+Usamos la función `probast_juicio()`, que aplica la regla de arriba. Evaluamos tres estudios (el segundo y el tercero son **hipotéticos**):
+
+-   **A**: el modelo de este capítulo (Cox por causa, con la muerte como competidor, validación con *bootstrap* y externa).
+-   **B**: la calculadora **ingenua** de 17.2 con los mismos datos (1 − supervivencia, solo rendimiento aparente).
+-   **C**: un estudio de aprendizaje automático con **300 pacientes y 40 eventos**, 30 candidatas, selección de variables por análisis univariable, solo AUC aparente y descarte de los pacientes con datos faltantes.
+
+```{r}
+#| label: probast-respuestas-c177
+# Una respuesta por pregunta, en el orden de probast_preguntas(): 1.1, 1.2, 2.1, 2.2, 2.3, 3.1-3.6, 4.1-4.9
+ids <- probast_preguntas()$id
+resp_A <- c("S", "PS",  "S", "S", "S",  "PS", "PS", "S", "S", "PS", "S",  "S", "S", "S", "S", "S", "PS", "S", "S", "S")
+resp_B <- replace(resp_A, ids %in% c("4.6", "4.7", "4.8"), c("N", "PN", "N"))
+resp_C <- c("PS", "SI", "S", "SI", "S",  "PS", "SI", "S", "S", "SI", "PS",  "N", "PN", "PN", "N", "N", "N", "N", "N", "SI")
+
+juicios <- map(list(A = resp_A, B = resp_B, C = resp_C), \(r) probast_juicio(tibble(id = ids, respuesta = r))) |>
+  bind_rows(.id = "estudio") |>
+  pivot_wider(names_from = estudio, values_from = riesgo_sesgo)
+juicios |> rename(Dominio = dominio, `A: nuestro modelo` = A, `B: calculadora ingenua` = B, `C: ML hipotético` = C) |> knitr::kable()
+```
+
+**Qué vemos.**
+
+-   **A** sale con riesgo de sesgo `r tolower(juicios$A[juicios$dominio == "GLOBAL"])` en todos los dominios. Dos matices honestos: la proporcionalidad de la diabetes no se cumple del todo (4.6, "probablemente sí") y la cohorte es simulada, así que la fuente de datos y las exclusiones (1.1 y 1.2) son más un supuesto que un hecho.
+-   **B** tiene exactamente los mismos participantes, predictores y desenlace, pero el dominio **Análisis** pasa a `r tolower(juicios$B[juicios$dominio == "Análisis"])`: ignora el riesgo competitivo (4.6), no evalúa la calibración (4.7) y no corrige el optimismo (4.8). Un mismo conjunto de datos puede dar un modelo confiable o no según el **análisis**.
+-   **C** acumula problemas en el análisis: 40 eventos para 30 candidatas son `r round(epv(40, 30), 1)` eventos por parámetro (17.1), y la selección univariable y las cifras solo aparentes inflan un AUC de 0.94 (17.6). Su riesgo global es `r tolower(juicios$C[juicios$dominio == "GLOBAL"])`, y además varios ítems quedan "sin información", porque el artículo no los cuenta (de ahí la importancia de TRIPOD+AI).
+
+**La aplicabilidad.** Para el hospital regional de 17.5, el modelo A tiene una **preocupación baja a moderada** en el dominio de participantes: los pacientes de allí son `r f1(mean(val$edad) - mean(dev$edad))` años mayores. Los predictores (laboratorios de rutina) y el desenlace (diálisis o trasplante) son los mismos. Aplicabilidad y sesgo son cosas distintas: un estudio impecable puede no servir para **tu** paciente.
+
+::: {.callout-tip}
+## 💡 Plantilla del autor: CHARMS y PROBAST en Excel
+
+El material del autor incluye una plantilla de Excel (CHARMS y PROBAST) para **revisiones sistemáticas de modelos de predicción**, con una hoja por modelo y una tabla resumen con +, − y ? por dominio. Combina la **extracción de datos** (CHARMS: fuente de datos, eventos por parámetro, manejo de continuas y de faltantes, método de selección, validación, medidas de rendimiento y encogimiento) con el juicio de PROBAST. En su ejemplo con **11 puntajes de mortalidad tras cirugía de endocarditis infecciosa** (que no reproducimos aquí), 8 tenían riesgo de sesgo alto en el dominio de análisis y 8 también en el juicio global; en 9 la selección de predictores se hizo por análisis univariable y en 8 no se corrigió el optimismo. Es el mismo patrón de la literatura que motiva los pasos 17.1 y 17.4.
+:::
+
+## Paso 5: aprendizaje automático y reporte
+
+TRIPOD+AI existe porque los modelos de aprendizaje automático dejan **más decisiones sin documentar**: qué algoritmo y versión, qué hiperparámetros y cómo se eligieron, cómo se manejó el desbalance de clases, qué pasó con los subgrupos y dónde está el código. Las preguntas de PROBAST siguen valiendo (Efthimiou y cols. recuerdan que casi todos los pasos del desarrollo aplican igual a la regresión y al aprendizaje automático), y existe una actualización pensada para modelos de IA (**PROBAST+AI**; confirma la versión vigente antes de usarla).
+
+Una buena práctica adicional: **antes de usar un modelo, valídalo en tus pacientes**. Para ello el estudio de 17.5 es la plantilla: perfil de casos, discriminación, calibración con IC y recalibración si hace falta.
+
+::: {.callout-warning}
+## ⚠️ Cumplir la lista no vuelve bueno al modelo
+
+TRIPOD+AI mide la **transparencia**, no la calidad: se puede reportar con todo detalle un modelo sobreajustado. PROBAST mide el **riesgo de sesgo**, no la utilidad clínica: un modelo con bajo riesgo de sesgo puede no cambiar ninguna decisión (16.6). Y ninguna de las dos reemplaza a la **validación externa** en tu población.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   **TRIPOD+AI** (27 ítems) dice qué contar; **PROBAST** (20 preguntas, 4 dominios) dice cómo juzgar si creer. Se usan juntas.
+-   El ítem más importante y más incumplido: **publicar el modelo completo** (coeficientes y riesgo basal; en aprendizaje automático, el objeto del modelo, los hiperparámetros y el código). Si otra persona no puede reproducir un riesgo a mano, el modelo no está publicado.
+-   En PROBAST el sesgo suele estar en el dominio **Análisis** (pocos eventos, selección por valores *p*, solo rendimiento aparente, riesgos competitivos ignorados) y en predictores que **no existen** al momento de usar el modelo.
+-   El **mismo conjunto de datos** puede dar un estudio de bajo riesgo de sesgo (A) o de alto (B): lo que decide es el análisis.
+-   Aplicabilidad y sesgo son distintos; ninguno reemplaza la validación en tu población.
+:::
+
+## Ejercicio
+
+1.  Completa PROBAST para el **modelo de logística a 2 años** de 17.2 (paso 7): ¿qué respuestas cambiarían respecto de A? Pista: mira la pregunta 4.3 (¿se incluyó a todos los participantes?).
+2.  Descomprime el repositorio de ejemplo del autor sobre predicción de insuficiencia cardiaca (`Heart_Failure_Prediction-main`) **sin ejecutar** su código y lee `TrainingModel.R`: el modelo se entrena con `DEATH_EVENT ~ .`, es decir, con todas las columnas. Una de ellas se llama `time` (días de seguimiento). ¿Qué pregunta de PROBAST te hace dudar y en qué dominio?
+3.  Cambia en `ficha_krt` el coeficiente de la TFGe por 0 y recalcula el riesgo de la paciente con `riesgo_publicado()`. ¿Cuánto cambia a 2 y a 5 años? ¿Qué te dice sobre la importancia de publicar **todos** los coeficientes?

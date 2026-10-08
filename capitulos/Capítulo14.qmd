@@ -1,0 +1,103 @@
+# Capítulo 14: Datos longitudinales y multinivel
+
+> *"Cuarenta pacientes de la misma unidad no son cuarenta experimentos independientes."* Hasta aquí casi todo suponía que cada fila de la base era una observación **independiente**. En nefrología rara vez lo es: los pacientes comparten unidad de diálisis, enfermeras y protocolos, y un mismo paciente se mide una y otra vez a lo largo de los años. Este capítulo enseña a analizar datos **agrupados** (multinivel) y **repetidos** (longitudinales) sin engañarse con la precisión.
+
+::: {.callout-note}
+## 🩺 El problema de todos los días
+
+Tu red tiene **40 unidades de hemodiálisis** y estrena un protocolo de EPO y hierro en la mitad de ellas. La regresión con los 1 778 pacientes dice *p* < 0.001; tu colega estadístico pregunta cuántas observaciones **independientes** tienes en realidad. En otro proyecto sigues a **600 pacientes con ERC** durante tres años, con TFGe cada "más o menos" tres meses; unos faltan a citas, otros empiezan diálisis, y quieres saber **cuánto cae la TFGe por año** y si el iSGLT2 la enlentece. Dos problemas, una misma raíz: **observaciones correlacionadas**.
+:::
+
+Piensa en una **muñeca rusa**: los pacientes viven dentro de unidades, las mediciones dentro de pacientes. Si miras solo la muñeca más pequeña, crees tener muchísimas; si cuentas las muñecas grandes, tienes menos de las que pensabas. Los métodos de este capítulo contabilizan **cada nivel** en su lugar.
+
+Este capítulo usa dos bases **simuladas** (con la verdad conocida, para juzgar cada método):
+
+-   **`hd_unidades`**: 40 unidades de hemodiálisis, 1 778 pacientes, hemoglobina mensual durante 12 meses (≈ 19 800 mediciones) y hospitalización a 12 meses. Una **intervención de unidad** (el protocolo) se asignó al azar a 20 unidades. Verdad: el protocolo sube la Hb **+0.40 g/dL** (OR de hospitalización 0.61); la edad tiene un efecto **dentro** de las unidades (−0.030 g/dL por año) y otro **entre** unidades (+0.040).
+-   **`ckd_largo`**: 600 pacientes con ERC G3b-G4 seguidos hasta 36 meses con visitas irregulares, abandono e inicio de KRT (diálisis o trasplante). Verdad: la TFGe cae ≈ 3 mL/min/año; el iSGLT2 mejora esa pendiente crónica en **+1.0 mL/min/año** pero provoca un descenso inicial de ≈ 3 mL/min. El riesgo de KRT depende de la TFGe verdadera (HR 2.72 por cada 10 mL/min menos).
+
+```{r}
+#| label: datos-c14
+library(tidyverse)
+source("R/funciones_epi.R")
+source("R/funciones_extra_a.R")
+
+uni <- read_csv("Bases/hd_unidades.csv", show_col_types = FALSE)
+cr  <- read_csv("Bases/ckd_largo_pacientes.csv", show_col_types = FALSE)
+cr_largo <- read_csv("Bases/ckd_largo.csv", show_col_types = FALSE)
+
+# hd_unidades: niveles de anidamiento y asignación de la intervención
+uni |> summarise(unidades = n_distinct(unidad), pacientes = n(),
+                 pacientes_por_unidad = median(table(unidad)), unidades_con_protocolo = n_distinct(unidad[intervencion == 1]))
+# ckd_largo: mediciones por paciente y cómo termina el seguimiento
+cr |> summarise(pacientes = n(), mediciones = nrow(cr_largo), mediana_mediciones = median(n_visitas),
+                abandono = pct(mean(salida == "Abandono"), 0), krt = pct(mean(salida == "KRT"), 0))
+```
+
+*Al finalizar este capítulo podrás:*
+
+-   Reconocer **datos agrupados y repetidos**, medir su correlación (**ICC**, **efecto de diseño**) y ver por qué ignorarla produce **falsos positivos**.
+-   Ajustar **modelos mixtos** (intercepto y pendiente aleatorios), interpretar los **BLUP** y evaluar un *ranking* de centros con honestidad.
+-   Estimar **pendientes de TFGe** con visitas irregulares y abandono, y detectar una **trayectoria no lineal**.
+-   Distinguir el efecto **condicional** (mixto) del **marginal** (GEE) y elegir según la pregunta.
+-   **Analizar y planear un ensayo por conglomerados**, con pocos conglomerados y correcciones de muestras pequeñas (`clubSandwich`).
+-   Relacionar una trayectoria con un evento (Cox con covariable dependiente del tiempo, dos etapas y **modelos conjuntos**).
+
+## La ruta del capítulo
+
+```{r}
+#| label: ruta-c14
+#| echo: false
+#| fig-width: 9
+#| fig-height: 2
+source("R/funciones_extra_cap1213.R")
+diagrama_flujo(c("1. Por qué no\nhay independencia\n(14.1)", "2. Efectos\naleatorios y BLUP\n(14.2)", "3. Pendiente\nde TFGe\n(14.3)",
+                 "4. Mixto vs. GEE\n(14.4)", "5. Ensayos por\nconglomerados\n(14.5)", "6. Trayectoria\ny evento\n(14.6)"),
+               resaltar = 2, tam_texto = 3)
+```
+
+::: {.callout-important}
+## 🎯 Mapa del capítulo
+
+| Subcapítulo | Nivel | Resuelve |
+|---|---|---|
+| 14.1 ¿Por qué la independencia no se cumple? | 🟡 | Estructura anidada, ICC, efecto de diseño, falsos positivos, falacia ecológica |
+| 14.2 Efectos aleatorios: pacientes dentro de unidades | 🟡 | Intercepto aleatorio, ICC, BLUP y contracción, ranking de centros, dentro vs. entre, MOR |
+| 14.3 Pendiente de TFGe con modelos mixtos | 🟡 | Visitas irregulares, pendiente aleatoria, trayectoria por tramos, abandono (MAR) |
+| 14.4 GEE vs. modelos mixtos | 🔴 | Efecto condicional vs. marginal, no colapsabilidad del OR, estructura de correlación, cuál elegir |
+| 14.5 Ensayos por conglomerados e ICC | 🔴 | Análisis a nivel de unidad, pocos conglomerados (CR2), prueba de aleatorización, efecto de diseño, tamaño de muestra |
+| 14.6 Trayectorias y *joint models* | 🔴 | Cox con último valor, dos etapas con BLUP, sesgos, modelo conjunto (`JM`, `JMbayes2`), trayectorias latentes |
+:::
+
+*Prerrequisitos:* Caps. 5.1 (formato largo), 8.2-8.3 (regresión lineal y logística), 9.3 (Cox) y 13 (datos faltantes, MAR). *Prepara:* Cap. 15 (series de tiempo: otra forma de dependencia), Cap. 19 (diseños cuasi-experimentales) y Cap. 20 (tamaño de muestra: 20.4 ensayos por conglomerados y 20.5 simulación).
+
+## Para leer más
+
+-   **Diez Roux AV.** Multilevel analysis in public health research. *Annu Rev Public Health*. 2000;21:171-192. *Lectura recomendada por el autor (no se pudo consultar durante la redacción).* Por lo general es la referencia clásica para pensar en niveles (individuo y contexto) en salud pública; complementa la falacia ecológica de 14.1 y el análisis dentro/entre de 14.2.
+-   **Gelman A, Hill J.** *Data Analysis Using Regression and Multilevel/Hierarchical Models*. Cambridge University Press; 2007. Introducción amplia y muy didáctica a los modelos multinivel, con la idea de agrupación parcial de 14.2.
+-   **Fitzmaurice GM, Laird NM, Ware JH.** *Applied Longitudinal Analysis* (2.ª ed.). Wiley; 2011. Referencia de los modelos para medidas repetidas (14.3 y 14.4).
+-   **Hubbard AE, Ahern J, Fleischer NL, et al.** To GEE or not to GEE: comparing population average and mixed models for estimating the associations between neighborhood risk factors and health. *Epidemiology*. 2010;21:467-474. Complemento directo de 14.4.
+-   **Hayes RJ, Moulton LH.** *Cluster Randomised Trials* (2.ª ed.). Chapman & Hall/CRC; 2017. El texto de referencia de 14.5.
+-   **Rizopoulos D.** *Joint Models for Longitudinal and Time-to-Event Data: With Applications in R*. Chapman & Hall/CRC; 2012. Libro del autor de `JM` y `JMbayes2`; base de 14.6.
+
+## Referencias
+
+-   Laird NM, Ware JH. Random-effects models for longitudinal data. *Biometrics*. 1982;38:963-974.
+-   Liang KY, Zeger SL. Longitudinal data analysis using generalized linear models. *Biometrika*. 1986;73:13-22.
+-   Robinson WS. Ecological correlations and the behavior of individuals. *Am Sociol Rev*. 1950;15:351-357.
+-   Mundlak Y. On the pooling of time series and cross section data. *Econometrica*. 1978;46:69-85.
+-   Goldstein H, Spiegelhalter DJ. League tables and their limitations: statistical issues in comparisons of institutional performance. *J R Stat Soc A*. 1996;159:385-443.
+-   Larsen K, Merlo J. Appropriate assessment of neighborhood effects on individual health: integrating random and fixed effects in multilevel logistic regression. *Am J Epidemiol*. 2005;161:81-88.
+-   Bates D, Mächler M, Bolker B, Walker S. Fitting linear mixed-effects models using lme4. *J Stat Softw*. 2015;67(1):1-48.
+-   Kuznetsova A, Brockhoff PB, Christensen RHB. lmerTest package: tests in linear mixed effects models. *J Stat Softw*. 2017;82(13):1-26.
+-   Højsgaard S, Halekoh U, Yan J. The R package geepack for generalized estimating equations. *J Stat Softw*. 2006;15(2):1-11.
+-   Kenward MG, Roger JH. Small sample inference for fixed effects from restricted maximum likelihood. *Biometrics*. 1997;53:983-997.
+-   Pustejovsky JE, Tipton E. Small-sample methods for cluster-robust variance estimation and hypothesis testing in fixed effects models. *J Bus Econ Stat*. 2018;36:672-683.
+-   Eldridge SM, Ashby D, Kerry S. Sample size for cluster randomized trials: effect of coefficient of variation of cluster size and analysis method. *Int J Epidemiol*. 2006;35:1292-1300.
+-   Campbell MK, Piaggio G, Elbourne DR, Altman DG. Consort 2010 statement: extension to cluster randomised trials. *BMJ*. 2012;345:e5661.
+-   Donner A, Klar N. *Design and Analysis of Cluster Randomization Trials in Health Research*. Arnold; 2000.
+-   Prentice RL. Covariate measurement errors and parameter estimation in a failure time regression model. *Biometrika*. 1982;69:331-342.
+-   Tsiatis AA, Davidian M. Joint modeling of longitudinal and time-to-event data: an overview. *Stat Sin*. 2004;14:809-834.
+-   Rizopoulos D. JM: an R package for the joint modelling of longitudinal and time-to-event data. *J Stat Softw*. 2010;35(9):1-33.
+-   Papageorgiou G, Mauff K, Tomer A, Rizopoulos D. An overview of joint modeling of time-to-event and longitudinal outcomes. *Annu Rev Stat Appl*. 2019;6:223-240.
+-   Proust-Lima C, Philipps V, Liquet B. Estimation of extended mixed models using latent classes and latent processes: the R package lcmm. *J Stat Softw*. 2017;78(2):1-56.
+-   Therneau TM, Grambsch PM. *Modeling Survival Data: Extending the Cox Model*. Springer; 2000.

@@ -87,3 +87,97 @@ blup_acumulado <- function(modelo, datos, ids, momentos, respuesta = "tfge", id 
     as.numeric(xb_s + b[1] + b[2] * s)
   }, ids, momentos, xb_momento), use.names = FALSE)
 }
+
+# ------------------------------------------------------------------------
+# 14.5  Ensayos por conglomerados: potencia y número de conglomerados
+# ------------------------------------------------------------------------
+
+#' Potencia de un ensayo por conglomerados con desenlace continuo (comparación de dos medias de
+#' conglomerado; aproximación con la distribución t y 2(k - 1) grados de libertad).
+#'
+#' @param k conglomerados por brazo   @param m tamaño medio de conglomerado
+#' @param icc correlación intraclase   @param delta diferencia a detectar
+#' @param sd desviación estándar TOTAL del desenlace (entre y dentro de conglomerados)
+#' @param cv coeficiente de variación del tamaño de los conglomerados (0 = todos iguales)
+potencia_conglomerados <- function(k, m, icc, delta, sd, cv = 0, alfa = 0.05) {
+  deff <- efecto_diseno(m, icc, cv)
+  ee <- sqrt(2 * sd^2 * deff / (k * m))          # error estándar de la diferencia de medias
+  gl <- 2 * (k - 1)
+  tc <- stats::qt(1 - alfa / 2, gl)
+  ncp <- delta / ee
+  stats::pt(tc, gl, ncp, lower.tail = FALSE) + stats::pt(-tc, gl, ncp)
+}
+
+#' Número de conglomerados POR BRAZO para alcanzar una potencia dada (búsqueda directa).
+unidades_necesarias <- function(delta, sd, icc, m, cv = 0, alfa = 0.05, potencia = 0.80) {
+  k <- 2
+  while (potencia_conglomerados(k, m, icc, delta, sd, cv, alfa) < potencia && k < 5000) k <- k + 1
+  k
+}
+
+# ------------------------------------------------------------------------
+# 14.6  Modelo de supervivencia con una covariable longitudinal (TFGe)
+# ------------------------------------------------------------------------
+
+#' Datos en formato "proceso de conteo": una fila por paciente y por cada momento en que ocurre
+#' un evento en la cohorte (conjunto en riesgo), con el ÚLTIMO valor observado de la TFGe.
+#' @param pac una fila por paciente: id, tiempo_seg_meses, krt (0/1)   @param largo id, mes, tfge
+armar_riesgos <- function(pac, largo) {
+  tev <- sort(unique(pac$tiempo_seg_meses[pac$krt == 1]))
+  # (requiere library(survival) cargada: survSplit() busca `Surv` en la fórmula)
+  cp <- survival::survSplit(stats::as.formula("Surv(tiempo_seg_meses, krt) ~ ."), data = as.data.frame(pac),
+                            cut = tev, start = "t0", end = "t1", event = "evento")
+  cp <- cp[cp$t1 %in% tev, ]                                    # solo intervalos que terminan en un evento
+  # TFGe más reciente (y tiempo de esa medición) a cada momento: equivale a ultimo_valor(), pero vectorizado
+  cp$ultimo <- NA_real_; cp$meses_desde_med <- NA_real_
+  filas <- split(seq_len(nrow(cp)), cp$id)
+  for (i in names(filas)) {
+    z <- largo[largo$id == as.integer(i), ]
+    z <- z[order(z$mes), ]
+    pos <- findInterval(cp$t1[filas[[i]]], z$mes)               # índice de la última medición con mes <= t
+    cp$ultimo[filas[[i]]] <- z$tfge[pmax(pos, 1)]
+    cp$meses_desde_med[filas[[i]]] <- cp$t1[filas[[i]]] - z$mes[pmax(pos, 1)]
+  }
+  tibble::as_tibble(cp)
+}
+
+#' TFGe "actual" predicha para cada (paciente, momento) con el BLUP calculado con TODAS las
+#' mediciones del paciente, también las posteriores al momento (mira al futuro; solo para comparar).
+blup_total <- function(modelo, datos, ids, momentos, id = "id") {
+  re <- lme4::ranef(modelo)[[id]]
+  base <- datos[match(ids, datos[[id]]), , drop = FALSE]
+  base$anios <- momentos
+  as.numeric(stats::predict(modelo, newdata = base, re.form = NA) +
+               re[as.character(ids), 1] + re[as.character(ids), 2] * momentos)
+}
+
+#' TFGe verdadera (oráculo) de cada (paciente, momento en meses); misma fórmula del simulador.
+tfge_verdadera <- function(oraculo, ids, meses, tau = 0.2) {
+  o <- oraculo[match(ids, oraculo$id), ]
+  t <- meses / 12
+  o$b0 + o$b1 * t + o$dip * (1 - exp(-t / tau))
+}
+
+#' Una réplica del experimento de 14.6: simula una cohorte nueva y estima la asociación
+#' (coeficiente por cada 10 mL/min de TFGe) con cinco enfoques. Verdad: -1.0.
+#' Requiere simular_ckd_largo() cargada (R/simular_ckd_largo.R).
+replica_cox_td <- function(semilla, n = 600) {
+  x <- simular_ckd_largo(n, semilla)
+  pac <- x$pacientes |> dplyr::mutate(edad_c = edad - 64, luacr_c = log(uacr) - 5.2)
+  d <- x$largo |> dplyr::left_join(pac, by = "id") |>
+    dplyr::mutate(anios = mes / 12, trat = factor(tratamiento, 0:1, c("Sin iSGLT2", "iSGLT2")))
+  cp <- armar_riesgos(pac, x$largo)
+  m <- suppressWarnings(lme4::lmer(tfge ~ trat * (pmin(anios, 0.5) + pmax(anios - 0.5, 0)) + edad_c + dm + luacr_c + (1 + anios | id), data = d))
+  cp$blup_ac <- blup_acumulado(m, d, cp$id, cp$t1 / 12)
+  cp$blup_tot <- blup_total(m, d, cp$id, cp$t1 / 12)
+  cp$verdadera <- tfge_verdadera(x$oraculo, cp$id, cp$t1)
+  basal <- x$largo |> dplyr::filter(visita == 0) |> dplyr::select(id, tfge0 = tfge)
+  pb <- dplyr::left_join(pac, basal, by = "id")
+  ajuste <- function(formula, datos) { s <- summary(survival::coxph(formula, data = datos))$coefficients[1, ]; c(coef = s[["coef"]], ee = s[["se(coef)"]]) }
+  rbind(basal = ajuste(survival::Surv(tiempo_seg_meses, krt) ~ I(tfge0 / 10), pb),
+        ultimo = ajuste(survival::Surv(t0, t1, evento) ~ I(ultimo / 10), cp),
+        blup_acumulado = ajuste(survival::Surv(t0, t1, evento) ~ I(blup_ac / 10), cp),
+        blup_total = ajuste(survival::Surv(t0, t1, evento) ~ I(blup_tot / 10), cp),
+        tfge_verdadera = ajuste(survival::Surv(t0, t1, evento) ~ I(verdadera / 10), cp)) |>
+    tibble::as_tibble(rownames = "enfoque") |> dplyr::mutate(semilla = semilla)
+}

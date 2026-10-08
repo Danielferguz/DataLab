@@ -387,3 +387,119 @@ validar_cohorte <- function(datos, modelos, t = 60) {
   tibble::tibble(n = nrow(datos), eventos = sum(datos$krt), C = unname(c_h["C"]), ee_C = unname(c_h["ee"]),
                  oe = obs$est / mean(riesgo), ee_log_oe = obs$ee / obs$est)
 }
+
+# ---- 17.6 Aprendizaje automático vs. regresión ---------------------------------------------------
+
+#' Riesgo VERDADERO de falla renal (incidencia acumulada, con la muerte como competidor) a `t` meses para cada
+#' paciente, calculado con las ecuaciones del simulador (R/simular_cohorte_pronostico.R) a partir de sus variables.
+#' Solo es posible en simulación: sirve de "techo" para juzgar qué tan cerca queda cualquier modelo.
+#' Pequeña salvedad: la UACR del archivo está redondeada, así que usamos log(UACR) y no el valor original.
+#' @param datos cohorte con edad, sexo, tfg, uacr (o lu), albumina, fosforo, bicarbonato, dm, ecv
+#' @param t horizonte en meses (entero)
+riesgo_verdadero_pronostico <- function(datos, t) {
+  hombre <- as.integer(datos$sexo == "Hombre")
+  lu <- if ("lu" %in% names(datos)) datos$lu else log(datos$uacr)
+  lp_krt <- 0.095 * (27 - datos$tfg) + 0.45 * (lu - 5.6) - 0.020 * (datos$edad - 66) + 0.25 * (datos$fosforo - 3.7) -
+            0.06 * (datos$bicarbonato - 23) - 0.30 * (datos$albumina - 4) + 0.10 * hombre
+  lp_dth <- 0.055 * (datos$edad - 66) + 0.35 * datos$dm + 0.50 * datos$ecv - 0.55 * (datos$albumina - 4) +
+            0.015 * (27 - datos$tfg) + 0.20 * hombre
+  s <- rep(1, nrow(datos)); cif <- numeric(nrow(datos))
+  for (m in seq_len(t)) {                                  # mes a mes, igual que el simulador
+    pk <- 0.0040 * exp(lp_krt + ifelse(m <= 18, 0.95, 0) * datos$dm)   # probabilidad de falla renal en el mes
+    pd <- 0.0027 * exp(lp_dth)                                          # probabilidad de morir en el mes
+    cif <- cif + s * pk
+    s <- s * (1 - pk - pd)
+  }
+  cif
+}
+
+#' Desenlace binario "falla renal antes de `t` meses" (la muerte previa cuenta como NO falla renal).
+#' Los censurados antes de `t` quedan como NA (desenlace desconocido). Necesita las columnas krt y muerte.
+evento_a_t <- function(datos, t = 24) {
+  ifelse(datos$krt == 1 & datos$tiempo_meses <= t, 1, ifelse(datos$tiempo_meses >= t | datos$muerte == 1, 0, NA))
+}
+
+#' Matriz de diseño del LASSO de la cohorte de pronóstico: 9 predictores + todos los productos de a dos
+#' + términos cuadráticos de los continuos (52 columnas). Es la "lista larga" de términos candidatos.
+matriz_lasso <- function(d) {
+  stats::model.matrix(~ (edad + sexo + tfg + lu + albumina + fosforo + bicarbonato + dm + ecv)^2 +
+                        I(edad^2) + I(tfg^2) + I(lu^2) + I(albumina^2) + I(fosforo^2) + I(bicarbonato^2) - 1, data = d)
+}
+
+#' Entrena cuatro modelos para un desenlace binario con el mismo conjunto de predictores y los ajusta
+#' SOLO con los datos de entrenamiento (los hiperparámetros se eligen dentro de ellos):
+#'   - logistica: regresión logística con los predictores tal cual;
+#'   - lasso: LASSO (glmnet) sobre una lista larga de términos; lambda por validación cruzada de 10 pliegues;
+#'   - rf: bosque aleatorio de probabilidad (ranger); mtry y tamaño mínimo de nodo por el error "fuera de bolsa" (Brier);
+#'   - gbm: gradient boosting (gbm); profundidad y número de árboles por validación cruzada de 5 pliegues.
+#' @param entrena data.frame con la columna `y` (0/1) y los predictores `vars`
+#' @param matriz función que convierte un data.frame en la matriz de diseño del LASSO
+#' @param rapido TRUE reduce la rejilla de ajuste (para repetir el experimento muchas veces)
+#' @return lista con `predecir(nuevos)` (data.frame con una columna de riesgos por modelo) e `info` (hiperparámetros elegidos)
+ajustar_modelos_ml <- function(entrena, vars, matriz, semilla = 1, rapido = FALSE) {
+  entrena <- as.data.frame(entrena)
+  d <- entrena[, c("y", vars)]
+  m_log <- stats::glm(stats::reformulate(vars, response = "y"), family = binomial, data = d)
+
+  set.seed(semilla)
+  cv <- suppressWarnings(glmnet::cv.glmnet(matriz(entrena), entrena$y, family = "binomial", alpha = 1, nfolds = 10))
+
+  malla <- if (rapido) expand.grid(mtry = c(2, 4), min.node.size = c(20, 100)) else
+    expand.grid(mtry = unique(pmin(c(2, 3, 5, 7), length(vars))), min.node.size = c(5, 20, 50, 100))
+  malla$brier_oob <- mapply(function(m, n) ranger::ranger(factor(y) ~ ., data = d, probability = TRUE, num.trees = 500,
+                                                           mtry = m, min.node.size = n, seed = semilla)$prediction.error,
+                            malla$mtry, malla$min.node.size)
+  mejor <- malla[which.min(malla$brier_oob), ]
+  m_rf <- ranger::ranger(factor(y) ~ ., data = d, probability = TRUE, num.trees = if (rapido) 500 else 1000,
+                         mtry = mejor$mtry, min.node.size = mejor$min.node.size, seed = semilla, importance = "permutation")
+
+  ajustar_gbm <- function(prof) {
+    set.seed(semilla)
+    gbm::gbm(y ~ ., data = d, distribution = "bernoulli", n.trees = if (rapido) 1500 else 3000, interaction.depth = prof,
+             shrinkage = if (rapido) 0.02 else 0.01, n.minobsinnode = 20, bag.fraction = 0.5, cv.folds = 5, verbose = FALSE)
+  }
+  candidatos <- lapply(if (rapido) 2 else 1:3, ajustar_gbm)
+  errores <- vapply(candidatos, function(g) min(g$cv.error), numeric(1))
+  m_gbm <- candidatos[[which.min(errores)]]
+  n_arboles <- gbm::gbm.perf(m_gbm, method = "cv", plot.it = FALSE)
+
+  list(
+    predecir = function(nuevos) {
+      nuevos <- as.data.frame(nuevos)
+      data.frame(logistica = as.numeric(stats::predict(m_log, nuevos, type = "response")),
+                 lasso = as.numeric(stats::predict(cv, matriz(nuevos), s = "lambda.min", type = "response")),
+                 rf = stats::predict(m_rf, nuevos)$predictions[, "1"],
+                 gbm = as.numeric(stats::predict(m_gbm, nuevos, n.trees = n_arboles, type = "response")))
+    },
+    modelos = list(logistica = m_log, lasso = cv, rf = m_rf, gbm = m_gbm, n_arboles = n_arboles),
+    info = tibble::tibble(terminos_lasso = sum(as.numeric(stats::coef(cv, s = "lambda.min")) != 0) - 1,
+                          rf_mtry = mejor$mtry, rf_nodo_min = mejor$min.node.size,
+                          gbm_profundidad = m_gbm$interaction.depth, gbm_arboles = n_arboles)
+  )
+}
+
+#' Rendimiento de un riesgo predicho `p` frente a un desenlace binario `y` (0/1), y opcionalmente frente al
+#' riesgo VERDADERO de cada paciente (`riesgo_verdadero`, solo en simulación).
+#' pendiente: pendiente de calibración (ideal 1); intercepto: calibración en grande con pendiente 1 (ideal 0);
+#' error_riesgo: raíz del error cuadrático medio entre el riesgo predicho y el verdadero (ideal 0).
+evaluar_prediccion <- function(p, y, riesgo_verdadero = NULL) {
+  p <- pmin(pmax(p, 1e-4), 1 - 1e-4); lp <- stats::qlogis(p)
+  tibble::tibble(
+    auc = as.numeric(pROC::auc(y, p, quiet = TRUE)),
+    brier = mean((y - p)^2),
+    oe = mean(y) / mean(p),
+    pendiente = unname(stats::coef(stats::glm(y ~ lp, family = binomial))[2]),
+    intercepto = unname(stats::coef(stats::glm(y ~ 1 + offset(lp), family = binomial))[1]),
+    error_riesgo = if (is.null(riesgo_verdadero)) NA_real_ else sqrt(mean((p - riesgo_verdadero)^2)))
+}
+
+#' Tabla de calibración para un desenlace BINARIO conocido en todos: riesgo medio predicho vs. proporción observada
+#' por `g` grupos de igual tamaño, con IC 95 % normal (mismas columnas que tabla_calibracion(), para usar grafico_calibracion()).
+tabla_calibracion_bin <- function(pred, y, g = 5) {
+  grupo <- dplyr::ntile(pred, g)
+  purrr::map_dfr(seq_len(g), function(k) {
+    i <- grupo == k; o <- mean(y[i]); ee <- sqrt(o * (1 - o) / sum(i))
+    tibble::tibble(grupo = k, n = sum(i), predicho = mean(pred[i]), observado = o, ee = ee,
+                   inf = pmax(0, o - 1.96 * ee), sup = pmin(1, o + 1.96 * ee))
+  })
+}
