@@ -11,6 +11,7 @@ Un paciente de 72 años con ERC y diabetes inicia un iSGLT2 y, un año después,
 -   Definir el **efecto causal** con *resultados potenciales* (el marco de Rubin) y sus tres estimandos: **ATE, ATT y ATU**.
 -   Ver por qué comparar tratados con no tratados está **sesgado** y qué **supuestos** permiten corregirlo.
 -   Estimar el efecto con **ponderación por probabilidad inversa (IPW)** y con **estandarización (fórmula g)**, y compararlo con la **verdad**, porque los datos son simulados.
+-   Recorrer el **análisis completo**: Tabla 1 y balance, positividad, incertidumbre (*bootstrap*), doble robustez y sensibilidad a confusores no medidos.
 
 ```{r}
 #| label: setup-32
@@ -414,6 +415,211 @@ resumen
 
 Los dos métodos recuperan el **ATE** verdadero (`r num(resumen$verdadero[1])`) con muy buena aproximación (IPW `r num(resumen$ipw[1])`; fórmula g `r num(resumen$gformula[1])`), **porque medimos y ajustamos todos los confusores** (incluida la fragilidad). Para el ATT y el ATU, la estandarización queda algo más cerca de la verdad que el IPW, que es más sensible a los pesos grandes. En el Capítulo 3.4 veremos qué pasa cuando un confusor **no se mide**.
 
+## El juego entero: un análisis causal de principio a fin
+
+Hasta aquí hiciste las dos piezas centrales (IPW y estandarización). Un análisis causal **completo** tiene más pasos, y casi todos ocurren *antes* y *después* de estimar. Esta es la secuencia que seguiremos, inspirada en el "juego entero" de *Causal Inference in R* (Barrett et al., cap. 2). Los Pasos 1 a 8 ya cubrieron los puntos 1, 2, 4 y 6; ahora completamos el resto.
+
+| \# | Pregunta que respondes | Dónde |
+|----|-----------------------------------|-----------------------------------|
+| 1 | ¿Qué efecto, en quién, comparado con qué? (estimando) | Pasos 1-2 y 4 |
+| 2 | ¿Qué supuestos causales hago? (DAG) | Paso 5 |
+| 3 | ¿Cómo se ven los grupos al inicio? (Tabla 1 y balance) | Paso 9 |
+| 4 | ¿Hay pacientes comparables en ambos grupos? (positividad) | Paso 10 |
+| 5 | ¿Quedaron equilibrados tras ponderar? | Paso 11 |
+| 6 | ¿Cuál es el efecto? (IPW, fórmula g) | Pasos 6-7 |
+| 7 | ¿Con cuánta incertidumbre? (*bootstrap*) | Paso 12 |
+| 8 | ¿Y si me equivoqué en un modelo? (doble robustez) | Paso 13 |
+| 9 | ¿Y si falta un confusor? (sensibilidad) | Paso 14 |
+| 10 | ¿Cómo lo cuento? (reporte) | Paso 15 |
+
+### Paso 9. Tabla 1 y balance inicial
+
+Antes de modelar, mira a los pacientes. La **Tabla 1** compara los grupos y la **diferencia de medias estandarizada** (DEM, *SMD*) dice cuánto se parecen, sin depender del tamaño de la muestra. Como regla práctica, una |DEM| \> 0.10 indica desequilibrio relevante.
+
+```{r}
+#| label: c32-tabla1
+source("R/tabla1.R")
+oraculo <- oraculo |> mutate(hombre = as.numeric(sexo == "Hombre"))   # para poder calcular la DEM
+
+tabla1(oraculo,
+       vars = c("edad", "sexo", "hba1c", "pas", "tfg_basal", "uacr", "ecv", "fragilidad"),
+       grupo = "isglt2", no_normales = "uacr", binarias = "ecv")
+```
+
+Con el paquete `tableone` (código no verificado en el entorno de pruebas del libro) sería:
+
+```{r}
+#| label: c32-tableone
+#| eval: !expr requireNamespace("tableone", quietly = TRUE)
+#| error: true
+library(tableone)
+CreateTableOne(
+  vars = c("edad", "sexo", "hba1c", "pas", "tfg_basal", "uacr", "ecv", "fragilidad"),
+  strata = "isglt2", data = oraculo, factorVars = c("sexo", "ecv")
+) |> print(smd = TRUE, nonnormal = "uacr")
+```
+
+**Qué vemos:** quienes reciben iSGLT2 son más jóvenes, con mejor TFGe, más albuminuria y menos frágiles. Son exactamente los confusores que nuestro DAG del Paso 5 señalaba.
+
+### Paso 10. Positividad: ¿hay pacientes comparables?
+
+La **positividad** exige que *todo tipo de paciente* tenga alguna probabilidad de recibir cada opción. En la práctica se mira el PS por grupo: si en un grupo hay zonas donde casi no hay pacientes del otro, el ajuste se apoya en muy pocas personas.
+
+```{r}
+#| label: c32-positividad
+oraculo |>
+  group_by(isglt2) |>
+  summarise(
+    n = n(),
+    ps_p1 = quantile(ps, 0.01), ps_mediana = median(ps), ps_p99 = quantile(ps, 0.99),
+    tamano_efectivo = sum(w_ate)^2 / sum(w_ate^2)     # tamaño de muestra efectivo de Kish
+  )
+```
+
+El **tamaño de muestra efectivo** dice cuántos pacientes "valen" tras ponderar: cuanto más se aleja de *n*, más peso tienen unos pocos pacientes. Aquí los no tratados pasan de `r sum(oraculo$isglt2 == 0)` a ≈ `r round(sum(oraculo$w_ate[oraculo$isglt2 == 0])^2 / sum(oraculo$w_ate[oraculo$isglt2 == 0]^2))` y los tratados de `r sum(oraculo$isglt2 == 1)` a ≈ `r round(sum(oraculo$w_ate[oraculo$isglt2 == 1])^2 / sum(oraculo$w_ate[oraculo$isglt2 == 1]^2))`: perdemos precisión, pero la positividad se sostiene (los PS de ambos grupos cubren casi todo el rango, como viste en el histograma espejo).
+
+**Si los pesos se disparan** (p. ej., \> 10) casi siempre se debe a pacientes con PS cercano a 0 o 1. Opciones, de más a menos recomendable: revisar el modelo del PS; **recortar** (*trimming*) el PS (p. ej., conservar 0.05-0.95), lo que **cambia el estimando a esa población**; o truncar los pesos. Cualquiera se informa y se acompaña de un análisis sin ella.
+
+### Paso 11. ¿Quedó equilibrado tras ponderar?
+
+El PS es solo un medio: lo que importa es que, **después de ponderar**, los grupos sean comparables en los confusores medidos. Reutilizamos la función `love_plot()` del libro.
+
+```{r}
+#| label: fig-c32-love
+#| fig-cap: "Balance de los confusores antes (círculo) y después (triángulo) de ponderar por IPW (ATE). Línea punteada: |DEM| = 0.10. Datos simulados."
+#| fig-width: 6.5
+#| fig-height: 4
+vars_bal <- c("edad", "hombre", "hba1c", "pas", "tfg_basal", "uacr", "ecv", "fragilidad")
+love_plot(oraculo, vars_bal, pesos = list(`IPW (ATE)` = oraculo$w_ate))
+```
+
+Antes de ponderar, la |DEM| máxima es `r round(max(abs(map_dbl(vars_bal, \(v) smd(oraculo[[v]], oraculo$isglt2)))), 2)`; después, `r round(max(abs(map_dbl(vars_bal, \(v) smd(oraculo[[v]], oraculo$isglt2, oraculo$w_ate)))), 3)`. Con el paquete `cobalt` (código no verificado en el entorno de pruebas del libro) el mismo gráfico sale en dos líneas:
+
+```{r}
+#| label: c32-cobalt
+#| eval: !expr requireNamespace("cobalt", quietly = TRUE)
+#| error: true
+library(cobalt)
+bal.tab(isglt2 ~ edad + sexo + hba1c + pas + tfg_basal + uacr + ecv + fragilidad,
+        data = oraculo, weights = oraculo$w_ate, un = TRUE, binary = "std")
+love.plot(isglt2 ~ edad + sexo + hba1c + pas + tfg_basal + uacr + ecv + fragilidad,
+          data = oraculo, weights = oraculo$w_ate, thresholds = c(m = 0.1), abs = TRUE)
+```
+
+Un buen *love plot* demuestra que **las variables medidas** quedaron equilibradas; nada dice de las no medidas (Paso 14). Y el balance se decide **sin mirar el desenlace**: no se "afina" el modelo del PS hasta que el efecto te guste.
+
+### Paso 12. Incertidumbre: el *bootstrap*
+
+Una estimación sin intervalo es una anécdota. El problema del IPW y de la fórmula g es que el error estándar de `lm()` **ignora** que el PS (o el modelo) se estimó. La solución general y fácil de entender es el **bootstrap**: remuestrear pacientes con reemplazo, repetir **todo el análisis** (incluido el modelo del PS) y mirar cuánto varía el resultado.
+
+Primero empaquetamos el análisis en una función que devuelve las tres estimaciones (aquí también la doblemente robusta, que veremos en el Paso 13):
+
+```{r}
+#| label: c32-funcion-analisis
+f_ps  <- isglt2 ~ edad + sexo + hba1c + pas + tfg_basal + log(uacr) + ecv + fragilidad
+f_res <- pendiente_tfg ~ isglt2 * (edad + sexo + hba1c + pas + tfg_basal + log(uacr) + ecv + fragilidad)
+
+analisis_completo <- function(d, f_ps, f_res) {
+  d$ps <- fitted(glm(f_ps, data = d, family = binomial()))               # 1. puntaje de propensión
+  d$w  <- d$isglt2 / d$ps + (1 - d$isglt2) / (1 - d$ps)                  # 2. pesos del ATE
+  mod  <- lm(f_res, data = d)                                           # 3. modelo del desenlace
+  m1 <- predict(mod, mutate(d, isglt2 = 1))                              #    predicción si todos tratados
+  m0 <- predict(mod, mutate(d, isglt2 = 0))                              #    predicción si ninguno
+  c(
+    ipw      = coef(lm(pendiente_tfg ~ isglt2, data = d, weights = w))[["isglt2"]],
+    formula_g = mean(m1 - m0),
+    doble_rob = mean(m1 - m0 + d$isglt2 * (d$pendiente_tfg - m1) / d$ps -
+                       (1 - d$isglt2) * (d$pendiente_tfg - m0) / (1 - d$ps))
+  )
+}
+estimacion <- analisis_completo(oraculo, f_ps, f_res)
+estimacion
+```
+
+Ahora repetimos el análisis en 300 remuestras (suficiente para ilustrar; en un artículo usa ≥ 1000):
+
+```{r}
+#| label: c32-bootstrap
+set.seed(2025)
+remuestras <- map(1:300, \(i) analisis_completo(slice_sample(oraculo, prop = 1, replace = TRUE), f_ps, f_res)) |>
+  bind_rows()
+
+ic_boot <- remuestras |>
+  pivot_longer(everything(), names_to = "metodo", values_to = "est") |>
+  group_by(metodo) |>
+  summarise(ee = sd(est), inf = quantile(est, 0.025), sup = quantile(est, 0.975)) |>
+  mutate(estimacion = estimacion[metodo], verdad = verdad$ATE, .after = metodo)
+ic_boot
+```
+
+```{r}
+#| label: fig-c32-forest
+#| fig-cap: "ATE estimado (punto) con IC 95 % por *bootstrap* según método; la línea punteada es el efecto verdadero y la gris, el efecto ingenuo. Datos simulados."
+#| fig-width: 6.5
+#| fig-height: 2.8
+ic_boot |>
+  mutate(metodo = recode(metodo, ipw = "IPW", formula_g = "Fórmula g", doble_rob = "Doblemente robusto")) |>
+  ggplot(aes(estimacion, metodo)) +
+  geom_vline(xintercept = verdad$ATE, linetype = "dashed") +
+  geom_vline(xintercept = ingenuo_ckd$dif, color = "grey60") +
+  geom_pointrange(aes(xmin = inf, xmax = sup)) +
+  labs(x = "Efecto sobre la pendiente de TFGe (mL/min/1.73 m²/año)", y = NULL)
+```
+
+**Qué vemos:** los tres intervalos contienen el ATE verdadero (`r num(verdad$ATE)`) y ninguno se acerca al ingenuo (`r num(ingenuo_ckd$dif)`). La fórmula g es la más precisa (EE `r num(ic_boot$ee[ic_boot$metodo == "formula_g"], 3)`) y el IPW la menos (`r num(ic_boot$ee[ic_boot$metodo == "ipw"], 3)`), porque depende de pesos que varían mucho.
+
+### Paso 13. Doble robustez: una red de seguridad
+
+Cada método apuesta a **un** modelo: el IPW al del tratamiento (PS) y la fórmula g al del desenlace. Si te equivocas en el que apuesta tu método, sesgo. El estimador **doblemente robusto** (AIPW) usa los dos y es consistente si **al menos uno** está bien especificado. Lo comprobamos rompiendo un modelo a la vez:
+
+```{r}
+#| label: c32-doble-robustez
+f_res_malo <- pendiente_tfg ~ isglt2 + edad          # modelo del desenlace mal especificado
+f_ps_malo  <- isglt2 ~ edad                          # modelo del tratamiento mal especificado
+
+dr <- bind_rows(
+  `Los dos bien`           = analisis_completo(oraculo, f_ps, f_res),
+  `Desenlace mal`          = analisis_completo(oraculo, f_ps, f_res_malo),
+  `Tratamiento mal`        = analisis_completo(oraculo, f_ps_malo, f_res),
+  .id = "escenario"
+) |> mutate(verdad = verdad$ATE, across(where(is.numeric), \(x) round(x, 2)))
+dr
+```
+
+Con el modelo del desenlace mal especificado, la fórmula g se desvía a `r num(dr$formula_g[2])` y el doblemente robusto se queda en `r num(dr$doble_rob[2])`; con el del tratamiento mal, el IPW se desvía a `r num(dr$ipw[3])` y el doblemente robusto en `r num(dr$doble_rob[3])` (verdad: `r num(verdad$ATE)`). Si **ambos** están mal, no hay red. El Capítulo 12.6 retoma el AIPW con más detalle; combinado con aprendizaje automático da lugar al TMLE.
+
+### Paso 14. Sensibilidad: ¿y si falta un confusor?
+
+Todo lo anterior supone **intercambiabilidad condicional**: que medimos todos los confusores. Es el supuesto que no se puede verificar. Lo que sí se puede es preguntar *"¿qué tan fuerte tendría que ser un confusor no medido para anular mi resultado?"*. Dos herramientas:
+
+1.  **Ver qué pasa al omitir uno que sí tenemos.** Quitamos la fragilidad de ambos modelos:
+
+```{r}
+#| label: c32-sin-fragilidad
+f_ps_sf  <- update(f_ps, . ~ . - fragilidad)
+f_res_sf <- pendiente_tfg ~ isglt2 * (edad + sexo + hba1c + pas + tfg_basal + log(uacr) + ecv)
+sin_frag <- analisis_completo(oraculo, f_ps_sf, f_res_sf)
+round(sin_frag, 2)
+```
+
+Sin medir la fragilidad, los tres métodos sobrestiman el efecto en ≈ `r num(mean(sin_frag) - verdad$ATE)` (verdad `r num(verdad$ATE)`; la estimación ingenua daba `r num(ingenuo_ckd$dif)`). Ajustar con muchas variables **no** compensa la que falta. El Capítulo 3.4 desarrolla este caso.
+
+2.  **E-value.** Resume la sensibilidad en un número: la fuerza mínima (en escala de razón de riesgos) que debería tener un confusor no medido, asociado con tratamiento y desenlace, para explicar *todo* el efecto observado. Para un desenlace continuo se aproxima convirtiendo la diferencia a una razón: $RR \approx \exp(0.91 \times d)$, con $d$ la diferencia dividida por la desviación estándar del desenlace.
+
+```{r}
+#| label: c32-evalue
+d_est <- estimacion[["doble_rob"]] / sd(oraculo$pendiente_tfg)
+d_inf <- ic_boot$inf[ic_boot$metodo == "doble_rob"] / sd(oraculo$pendiente_tfg)
+e_value(exp(0.91 * d_est), lim = exp(0.91 * d_inf))
+```
+
+Un E-value puntual de `r num(e_value(exp(0.91 * d_est))$e_value_punto, 1)` significa que un confusor no medido tendría que multiplicar por ≈ `r num(e_value(exp(0.91 * d_est))$e_value_punto, 1)` tanto la probabilidad de recibir el fármaco como el desenlace para anular el efecto. Si en tu campo es plausible un confusor de esa fuerza, el resultado es frágil. Por eso el E-value **no es una prueba**, sino una forma honesta de decir cuánto confías en la conclusión. El Capítulo 12.8 lo trabaja con más herramientas.
+
+### Paso 15. Cómo contarlo
+
+Un buen informe de un análisis causal responde, en este orden: **pregunta y estimando** (¿ATE, ATT?, ¿a quién?), **supuestos** (DAG y conjunto de ajuste), **población y positividad**, **balance** (Tabla 1 y *love plot*), **estimación con IC** y método de incertidumbre, **análisis de sensibilidad** y **limitaciones**. Las guías de reporte (STROBE, TARGET para ensayos emulados) las veremos en el Capítulo 23.
+
+
 ::: {.callout-important}
 ## 🎯 En resumen: qué estimando y cómo interpretarlo
 
@@ -499,6 +705,8 @@ Ningún método estima "el efecto causal" en general. Define primero tu pregunta
 -   Rothman KJ. Causes. *Am J Epidemiol*. 1976;104(6):587-592.
 -   Hill AB. The environment and disease: association or causation? *Proc R Soc Med*. 1965;58:295-300.
 -   Hernán MA, Robins JM. Using big data to emulate a target trial when a randomized trial is not available. *Am J Epidemiol*. 2016;183(8):758-764.
+-   Hoffman KL, Salazar-Schicchi J, Laird S, et al. Comparison of a target trial emulation framework vs Cox regression to estimate the effect of corticosteroids on COVID-19 mortality. *JAMA Netw Open*. 2022. (Código: <https://github.com/kathoffman/steroids-trial-emulation>)
+-   Karim ME. *Advanced Epidemiological Methods*. <https://ehsanx.github.io/EpiMethods/> (propensión, ponderación y fórmula g).
 -   Ross RD, Shi X, Caram MEV, et al. Veridical causal inference using propensity score methods for comparative effectiveness research with medical claims. *Health Serv Outcomes Res Method*. 2020. <https://doi.org/10.1007/s10742-020-00222-8>
 
 ## Nota editorial
