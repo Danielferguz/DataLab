@@ -1,0 +1,320 @@
+# Cómo desarrollar un modelo de pronóstico tipo KFRE
+
+::: {.callout-note}
+## 🩺 Escenario
+
+Una paciente de 66 años con TFGe de 25 y albuminuria de 300 mg/g pregunta: "doctor, ¿cuánto falta para la diálisis?". Con la **ecuación de riesgo de falla renal** (KFRE, por *Kidney Failure Risk Equation*; Tangri y cols., *JAMA* 2011) muchos servicios responden con una cifra: "su riesgo a 2 y 5 años es de tantos por ciento". Esa ecuación usa pocas variables de rutina (edad, sexo, TFGe y albuminuria). Aquí construiremos **nuestra propia versión**, paso a paso, sobre la cohorte simulada de 3 000 pacientes, y comprobaremos sus riesgos contra la verdad.
+:::
+
+Un modelo de **pronóstico** (*prognostic model*) combina varias características basales para estimar la **probabilidad de un desenlace futuro** en un paciente concreto. No pretende explicar por qué ocurre el evento (eso es causalidad, Cap. 3); pretende **acertar** en pacientes nuevos. Eso cambia las reglas del juego: importa más la calibración y la validación que la interpretación de cada coeficiente.
+
+**Lo que vamos a hacer**
+
+-   **Preespecificar** los predictores y revisar si hace falta algo más que una recta.
+-   Ajustar un **modelo de Cox para la falla renal** y verificar los riesgos proporcionales.
+-   Convertir los HR en **riesgos absolutos a 2 y 5 años**, y ver por qué la **muerte** (riesgo competitivo) cambia esas cifras.
+
+```{r}
+#| label: setup-c172
+library(tidyverse)
+library(survival)
+library(rms)
+source("R/funciones_extra_c17.R")
+theme_set(theme_minimal(base_size = 12))
+
+dev <- read_csv("Bases/cohorte_pronostico.csv", show_col_types = FALSE) |> preparar_pronostico()
+```
+
+Recuerda los datos (**simulados**): `estado` es 0 si el paciente fue censurado, 1 si llegó a **falla renal** (diálisis o trasplante) y 2 si **murió** antes. `tiempo_meses` llega hasta 60. `preparar_pronostico()` crea además `lu` (el logaritmo natural de la UACR), `krt` (1 si falla renal) y `muerte` (1 si murió sin falla renal).
+
+## Paso 1: preespecificar los predictores
+
+La regla de oro del desarrollo es **decidir los predictores antes de mirar cómo se relacionan con el desenlace**. Se eligen por tres criterios, no por su valor *p*: que la literatura o la fisiopatología los respalden, que estén **disponibles de forma rutinaria al momento de usar la calculadora**, y que se midan de forma fiable. Seleccionar con pruebas univariables o con métodos por pasos (*stepwise*) produce coeficientes sesgados y peor rendimiento en pacientes nuevos (Efthimiou y cols., *BMJ* 2024; lectura del autor).
+
+Nuestra lista, escrita **antes** de ajustar nada:
+
+```{r}
+#| label: predictores-c172
+tibble(
+  predictor = c("Edad", "Sexo", "TFGe", "ln(UACR)", "Albúmina", "Fósforo", "Bicarbonato", "Diabetes"),
+  parametros = 1,
+  por_que = c("Eje de la historia clínica", "Eje de la historia clínica", "Estadio KDIGO (G)",
+              "Estadio KDIGO (A); asimétrica, por eso el logaritmo", "Nutrición e inflamación",
+              "Trastorno mineral-óseo", "Acidosis metabólica", "Principal causa de ERC; modifica el curso")
+)
+```
+
+Son 8 parámetros: los 4 de la KFRE original más tres laboratorios de rutina y la diabetes. Con `r sum(dev$krt)` eventos hay `r round(epv(sum(dev$krt), 8))` eventos por parámetro (17.1): sobra muestra. La ECV previa **no** entra en el modelo de falla renal, pero sí en el de muerte, como verás en el paso 6.
+
+## Paso 2: ¿una recta basta?
+
+Antes de aceptar una relación lineal conviene comprobarla. Ajustamos una versión **flexible** (con *splines* cúbicos restringidos, `rcs()` de `rms`) y comparamos con la lineal. Si la flexible no mejora, nos quedamos con la recta, que además **cuesta menos parámetros**.
+
+```{r}
+#| label: no-linealidad-c172
+dd <- datadist(dev); options(datadist = "dd")
+
+f_lineal <- cph(Surv(tiempo_meses, krt) ~ edad + sexo + tfg + lu + albumina + fosforo + bicarbonato + dm,
+                data = dev, x = TRUE, y = TRUE)
+f_flex <- cph(Surv(tiempo_meses, krt) ~ rcs(edad, 3) + sexo + rcs(tfg, 4) + rcs(lu, 4) +
+                rcs(albumina, 3) + rcs(fosforo, 3) + rcs(bicarbonato, 3) + dm,
+              data = dev, x = TRUE, y = TRUE)
+lr <- lrtest(f_lineal, f_flex)
+lr
+```
+
+La prueba de razón de verosimilitud compara ambos modelos: la versión flexible usa `r lr$stats["d.f."]` parámetros más y su mejora no es significativa (χ² = `r format(round(lr$stats["L.R. Chisq"], 1), nsmall = 1)`, *p* = `r format(round(lr$stats["P"], 2), nsmall = 2)`). Lo vemos mejor en un gráfico del HR frente a un valor de referencia:
+
+```{r}
+#| label: grafico-forma-c172
+#| fig-width: 8
+#| fig-height: 3.4
+curva <- function(ajuste, variable, etiqueta) {
+  as.data.frame(Predict(ajuste, name = variable, ref.zero = TRUE, fun = exp)) |>
+    transmute(x = .data[[variable]], hr = yhat, inf = lower, sup = upper, modelo = etiqueta, variable = variable)
+}
+bind_rows(curva(f_flex, "tfg", "Flexible"), curva(f_lineal, "tfg", "Lineal"),
+          curva(f_flex, "lu", "Flexible"), curva(f_lineal, "lu", "Lineal")) |>
+  mutate(variable = recode(variable, tfg = "TFGe (mL/min/1.73 m²)", lu = "ln(UACR)")) |>
+  ggplot(aes(x, hr, color = modelo, fill = modelo)) +
+  geom_ribbon(aes(ymin = inf, ymax = sup), alpha = 0.12, color = NA) +
+  geom_line(linewidth = 1) +
+  facet_wrap(~ variable, scales = "free_x") +
+  scale_y_log10() +
+  scale_color_manual(values = c(Flexible = "#D55E00", Lineal = "#0072B2")) +
+  scale_fill_manual(values = c(Flexible = "#D55E00", Lineal = "#0072B2")) +
+  labs(x = NULL, y = "HR respecto al valor de referencia (escala log)", color = NULL, fill = NULL,
+       caption = "Datos simulados. Las dos curvas casi se superponen: la recta basta.") +
+  theme(legend.position = "bottom")
+```
+
+**Qué vemos.** Las dos curvas se superponen: el riesgo (en escala logarítmica) sube de forma lineal a medida que baja la TFGe y sube la albuminuria. Nos quedamos con **términos lineales** (más sencillos de reportar y con menos riesgo de sobreajuste). Si la curva se doblara, justo ahí valdría la pena gastar parámetros extra en un *spline*.
+
+## Paso 3: ajustar el modelo de Cox para la falla renal
+
+Ajustamos un modelo de Cox **específico de causa** (*cause-specific*): modela el riesgo instantáneo de falla renal, y los pacientes que **mueren antes** salen del conjunto en riesgo como censurados (esto tiene consecuencias importantes en el paso 6). `ajustar_modelos_pronostico()` ajusta los dos modelos que usaremos en todo el capítulo; aquí mostramos el de falla renal.
+
+```{r}
+#| label: ajuste-cox-c172
+mm <- ajustar_modelos_pronostico(dev)      # mm$krt (falla renal) y mm$muerte (muerte sin falla renal)
+m_krt <- mm$krt
+m_krt
+```
+
+Los coeficientes están en escala logarítmica. Para leerlos, los pasamos a **HR por un cambio razonable** de cada variable y los comparamos con la **verdad** de la simulación:
+
+```{r}
+#| label: hr-verdad-c172
+# Cambio de referencia de cada predictor y su HR verdadero (verdad de la simulación)
+escala <- tribble(
+  ~term,          ~cambio,                    ~paso,    ~hr_verdad,
+  "edad",         "10 años más",              10,       exp(-0.20),
+  "sexoHombre",   "hombre vs. mujer",         1,        exp(0.10),
+  "tfg",          "10 mL/min menos",          -10,      exp(0.95),
+  "lu",           "UACR se duplica",          log(2),   exp(0.45 * log(2)),
+  "albumina",     "1 g/dL más",               1,        exp(-0.30),
+  "fosforo",      "1 mg/dL más",              1,        exp(0.25),
+  "bicarbonato",  "1 mEq/L más",              1,        exp(-0.06),
+  "dm",           "con vs. sin diabetes",     1,        NA
+)
+co <- summary(m_krt)$coef; ic <- confint(m_krt)
+tabla_hr <- tibble(term = rownames(co), b = co[, "coef"], inf = ic[, 1], sup = ic[, 2]) |>
+  left_join(escala, by = "term") |>
+  transmute(predictor = cambio, HR = exp(b * paso),
+            IC95_inf = exp(pmin(inf * paso, sup * paso)), IC95_sup = exp(pmax(inf * paso, sup * paso)),
+            HR_verdad = hr_verdad)
+tabla_hr |> mutate(across(where(is.numeric), \(x) round(x, 2)))
+```
+
+**Qué vemos.**
+
+-   **TFGe**: por cada 10 mL/min menos, el riesgo instantáneo se multiplica por `r round(tabla_hr$HR[3], 2)` (verdad: `r round(tabla_hr$HR_verdad[3], 2)`); y cada duplicación de la UACR lo multiplica por `r round(tabla_hr$HR[4], 2)` (verdad: `r round(tabla_hr$HR_verdad[4], 2)`).
+-   **Todos los IC contienen la verdad.** El **sexo** es el caso límite: su efecto verdadero (`r round(tabla_hr$HR_verdad[2], 2)`) es pequeño y el IC (`r round(tabla_hr$IC95_inf[2], 2)` a `r round(tabla_hr$IC95_sup[2], 2)`) incluye el 1; para predecir, aun así lo conservamos porque lo preespecificamos.
+-   La **diabetes** no tiene una "verdad" única: su efecto cambia con el tiempo (HR 2.6 los primeros 18 meses y 1.0 después), así que el HR único de `r round(tabla_hr$HR[8], 2)` es un promedio de ambas fases. Es el problema del paso 4.
+-   Estos HR sirven para **predecir**, no para afirmar que la albúmina o el fósforo *causan* la falla renal. Ese es el aviso del final.
+
+## Paso 4: ¿se cumple la proporcionalidad?
+
+El modelo de Cox supone que cada HR es **constante en el tiempo** (Cap. 9.4). Para un modelo de pronóstico esto importa por una razón concreta: si un HR cambia con el tiempo, el modelo se calibrará bien en un horizonte y mal en otro.
+
+```{r}
+#| label: ph-c172
+#| fig-width: 6.5
+#| fig-height: 3.6
+zph <- cox.zph(m_krt)
+round(zph$table, 3)
+
+# El coeficiente de la diabetes a lo largo del tiempo (residuos de Schoenfeld escalados)
+plot(zph, var = "dm", resid = FALSE, xlab = "Meses", ylab = "log(HR) de diabetes", main = "")
+abline(h = coef(m_krt)["dm"], lty = 2, col = "grey40")
+abline(v = 18, lty = 3, col = "#D55E00")
+```
+
+**Qué vemos.** Solo la diabetes viola la proporcionalidad de forma clara (*p* < 0.001 en la tabla de arriba): su log(HR) es alto al principio y **cae** alrededor de los 18 meses (línea naranja), justo como se simuló. La línea discontinua gris es el promedio que usa el modelo. ¿Importa en la práctica? Para medirlo hacen falta riesgos absolutos reales; lo hacemos al final del paso 6, con el oráculo (una cohorte grande, sin censura, de la misma población, donde conocemos el riesgo verdadero). Si la violación es moderada, el modelo se sigue usando; si es grande, habría que modelar la diabetes con **dos coeficientes según el tiempo** (`survSplit()`, Cap. 9.4) o estratificar.
+
+## Paso 5: de los HR al riesgo a 2 y 5 años
+
+Un HR no es un riesgo. Para dar "su riesgo a 5 años es X %" necesitas además el **riesgo basal**: la probabilidad de supervivencia sin falla renal de un paciente "promedio" a cada tiempo. La ecuación de un modelo de Cox es:
+
+$$
+\text{riesgo}(t) = 1 - S_0(t)^{\exp(\text{LP})}, \qquad \text{LP} = \sum_j \beta_j (x_j - \bar{x}_j)
+$$
+
+donde $S_0(t)$ es la supervivencia basal y LP es el **predictor lineal** (*linear predictor*), la suma ponderada de los predictores. Un modelo publicado debe dar **tanto los coeficientes como $S_0(t)$**: sin la basal nadie puede reproducir tus riesgos (Cap. 17.7).
+
+```{r}
+#| label: ecuacion-c172
+bh <- basehaz(m_krt, centered = TRUE)
+s0 <- tibble(meses = c(24, 60)) |>
+  mutate(H0 = map_dbl(meses, \(t) max(bh$hazard[bh$time <= t])), S0 = exp(-H0))
+s0
+```
+
+Ahora el cálculo para tres hombres de 66 años, sin diabetes, con UACR de 300 mg/g y laboratorios normales, que solo difieren en la TFGe:
+
+```{r}
+#| label: pacientes-c172
+pacientes <- tibble(
+  edad = 66, sexo = factor("Hombre", levels = c("Mujer", "Hombre")), tfg = c(35, 25, 15),
+  lu = log(300), albumina = 4, fosforo = 3.7, bicarbonato = 23, dm = 0, ecv = 0
+)
+pacientes |>
+  mutate(riesgo_2a = riesgo_cox_ingenuo(m_krt, pacientes, 24),
+         riesgo_5a = riesgo_cox_ingenuo(m_krt, pacientes, 60)) |>
+  select(tfg, riesgo_2a, riesgo_5a) |>
+  mutate(across(starts_with("riesgo"), \(x) round(100 * x, 1)))
+```
+
+**Qué vemos.** La paciente de TFGe 25 de nuestro escenario tendría un riesgo estimado de `r round(100 * riesgo_cox_ingenuo(m_krt, pacientes[2, ], 24), 1)` % a 2 años y `r round(100 * riesgo_cox_ingenuo(m_krt, pacientes[2, ], 60), 1)` % a 5 años. Pero atención: esta es la versión "**ingenua**" (1 − supervivencia), la que calculan casi todas las calculadoras clásicas, y tiene un defecto que explicamos a continuación.
+
+## Paso 6: la muerte también compite
+
+En esta cohorte, `r sum(dev$muerte)` pacientes murieron **antes** de llegar a diálisis. Un paciente muerto ya no tendrá falla renal. El modelo ingenuo los trata como si siguieran en riesgo (censurados), y por eso calcula "el riesgo de falla renal **si nadie muriera**". Pero tu paciente de 75 años sí puede morir antes: su riesgo **real** es menor.
+
+La solución es modelar **también la muerte** y combinar ambas tasas en una **incidencia acumulada** (*cumulative incidence function*, CIF; Cap. 9.5). Ajustamos el segundo modelo (con los predictores clínicos de mortalidad: edad, sexo, TFGe, diabetes, ECV y albúmina; ya está en `mm$muerte`) y comparamos las dos versiones del riesgo a 5 años por grupo de edad contra la **verdad** del oráculo:
+
+```{r}
+#| label: ingenuo-vs-cif-c172
+# Oráculo: 100 000 pacientes de la misma población, sin censura; la proporción con falla renal a 60 meses es la verdad
+oraculo <- oraculo_pronostico(100000, "desarrollo", semilla = 99)
+oraculo <- oraculo |>
+  mutate(ingenuo = riesgo_cox_ingenuo(mm$krt, oraculo, 60),
+         con_muerte = cif_cox(mm$krt, mm$muerte, oraculo, 60),
+         real = as.numeric(estado == 1),
+         grupo_edad = cut(edad, c(0, 55, 65, 75, 120), right = FALSE, labels = c("< 55", "55-64", "65-74", "≥ 75")))
+
+por_edad <- oraculo |>
+  group_by(grupo_edad) |>
+  summarise(verdad = mean(real), ingenuo = mean(ingenuo), con_muerte = mean(con_muerte), .groups = "drop")
+por_edad |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+```{r}
+#| label: grafico-ingenuo-c172
+#| fig-width: 7.5
+#| fig-height: 3.6
+por_edad |>
+  pivot_longer(c(ingenuo, con_muerte), names_to = "calculo", values_to = "predicho") |>
+  mutate(calculo = recode(calculo, ingenuo = "Ingenuo (1 - S)", con_muerte = "Con la muerte (CIF)")) |>
+  ggplot(aes(grupo_edad)) +
+  geom_col(aes(y = predicho, fill = calculo), position = "dodge", width = 0.7) +
+  geom_point(aes(y = verdad), size = 3.5, shape = 18, color = "black") +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(values = c("Ingenuo (1 - S)" = "#D55E00", "Con la muerte (CIF)" = "#0072B2")) +
+  labs(x = "Edad", y = "Riesgo de falla renal a 5 años", fill = NULL,
+       caption = "El rombo negro es el riesgo verdadero. Datos simulados.") +
+  theme(legend.position = "bottom")
+```
+
+**Qué vemos.**
+
+-   En el grupo de **75 años o más**, el cálculo ingenuo da `r round(100 * por_edad$ingenuo[4], 1)` % cuando el riesgo verdadero es `r round(100 * por_edad$verdad[4], 1)` %: **sobrestima en `r round(100 * (por_edad$ingenuo[4] - por_edad$verdad[4]))` puntos**. El cálculo con la muerte (`r round(100 * por_edad$con_muerte[4], 1)` %) acierta casi de lleno.
+-   En el grupo más joven la diferencia es mucho menor, porque casi nadie muere antes de la diálisis.
+-   Las dos versiones **ordenan igual** a los pacientes (el LP es el mismo), pero solo la segunda **acierta en el nivel** de riesgo. Discriminar y calibrar son cosas distintas (17.3).
+
+Volvamos a la **diabetes** del paso 4: ¿cuánto daña de verdad el HR promedio? Comparamos el riesgo predicho con el verdadero en los dos grupos y a 2 y 5 años:
+
+```{r}
+#| label: oraculo-dm-c172
+por_dm <- map_dfr(c(24, 60), \(t) {
+  oraculo |>
+    mutate(pred = cif_cox(mm$krt, mm$muerte, oraculo, t), real = as.numeric(estado == 1 & tiempo_meses <= t)) |>
+    group_by(horizonte = paste(t / 12, "años"), diabetes = if_else(dm == 1, "Con diabetes", "Sin diabetes")) |>
+    summarise(riesgo_predicho = mean(pred), riesgo_verdadero = mean(real), .groups = "drop")
+})
+por_dm |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+El error es modesto: a 2 años el modelo subestima algo en quienes tienen diabetes (`r round(100 * por_dm$riesgo_predicho[1], 1)` frente a `r round(100 * por_dm$riesgo_verdadero[1], 1)` %, en el grupo sin diabetes la sobrestima ligeramente) y a 5 años ocurre lo contrario. Es el costo de promediar un efecto que cambia en el tiempo; para una calculadora clínica es aceptable.
+
+Nuestra función `cif_cox()` implementa esa combinación con riesgos mensuales. Se puede contrastar con una implementación estándar:
+
+::: {.callout-tip}
+## 💡 Con el paquete {riskRegression}: `CSC()`
+
+El paquete `riskRegression` ajusta modelos de Cox por causa con `CSC()` y predice riesgos absolutos con `predictRisk()`. Debe coincidir con nuestra función hasta un error pequeño.
+
+```{r}
+#| label: csc-c172
+#| eval: !expr requireNamespace("riskRegression", quietly = TRUE)
+#| error: true
+library(riskRegression)
+csc <- CSC(list(Hist(tiempo_meses, estado) ~ edad + sexo + tfg + lu + albumina + fosforo + bicarbonato + dm,
+                Hist(tiempo_meses, estado) ~ edad + sexo + tfg + dm + ecv + albumina), data = dev)
+riesgo_csc <- as.numeric(predictRisk(csc, newdata = pacientes, times = 60, cause = 1))
+riesgo_propio <- cif_cox(mm$krt, mm$muerte, pacientes, 60)
+round(rbind(CSC = riesgo_csc, propio = riesgo_propio), 3)
+```
+:::
+
+## Paso 7: ¿y una regresión logística?
+
+Con un desenlace como "falla renal a 2 años" se puede usar una **regresión logística**, que es más simple de explicar y es la base de muchas calculadoras. Pero tiene un requisito: debes **conocer el desenlace de todos** al horizonte elegido. Veamos cuántos pacientes lo tienen:
+
+```{r}
+#| label: logistica-c172
+# Desenlace conocido a 24 y a 60 meses: evento antes del horizonte, muerte antes (cuenta como "no falla"),
+# o seguimiento completo hasta el horizonte. Los censurados antes del horizonte son desconocidos (NA).
+estado_en <- function(d, t) ifelse(d$krt == 1 & d$tiempo_meses <= t, 1,
+                            ifelse(d$tiempo_meses >= t | d$muerte == 1, 0, NA))
+conocidos <- c("2 años" = sum(!is.na(estado_en(dev, 24))), "5 años" = sum(!is.na(estado_en(dev, 60))))
+conocidos
+```
+
+A **2 años** conocemos el desenlace de `r conocidos[1]` de `r nrow(dev)` pacientes (casi todos), así que la logística es viable. A **5 años** solo de `r conocidos[2]`: más de la mitad fueron censurados antes de cumplir 5 años. Descartarlos desperdicia información y ya no sabes si sesga; por eso la regresión de **supervivencia** (Cox) es la herramienta natural para horizontes largos. Comparemos ambas a 2 años:
+
+```{r}
+#| label: logistica-vs-cox-c172
+d24 <- dev |> mutate(y24 = estado_en(dev, 24)) |> filter(!is.na(y24))
+log24 <- glm(y24 ~ edad + sexo + tfg + lu + albumina + fosforo + bicarbonato + dm, family = binomial, data = d24)
+
+comparacion <- tibble(logistica = predict(log24, d24, type = "response"),
+                      cox_con_muerte = cif_cox(mm$krt, mm$muerte, d24, 24))
+c(media_logistica = mean(comparacion$logistica), media_cox = mean(comparacion$cox_con_muerte),
+  correlacion = cor(comparacion$logistica, comparacion$cox_con_muerte)) |> round(3)
+```
+
+Las dos aproximaciones coinciden casi exactamente (correlación `r round(cor(comparacion$logistica, comparacion$cox_con_muerte), 3)`, y el promedio de riesgos es prácticamente igual): no es casualidad, porque una logística de "evento antes de 2 años" estima justamente la incidencia acumulada a 2 años. Elige según el horizonte, los datos y la audiencia: **logística** para un único horizonte con seguimiento completo; **Cox** para varios horizontes o con muchos censurados.
+
+::: {.callout-warning}
+## ⚠️ Un predictor no es una causa
+
+Que la albúmina o el fósforo mejoren la predicción **no** significa que corregirlos retrase la diálisis. Un coeficiente de un modelo predictivo no está ajustado por confusión, así que **no se interpreta como efecto causal** (la "falacia de la Tabla 2", Cap. 8.6). Dos consecuencias: (1) un modelo predictivo no te dice qué tratar; (2) si algún predictor se **modifica con tratamiento** (por ejemplo, si el paciente recibe un iSGLT2 después), el riesgo calculado ya no vale tal cual (van Geloven y cols., *Eur J Epidemiol* 2020; lectura del autor, 17.7).
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   Un modelo de pronóstico se **desarrolla** con predictores **preespecificados** (criterio clínico, disponibilidad y fiabilidad), no por valores *p* ni por pasos.
+-   Revisa la **forma funcional** (¿una recta basta?) y la **proporcionalidad**; si un HR cambia con el tiempo, el modelo se calibrará distinto en cada horizonte.
+-   Un HR no es un riesgo: para dar "riesgo a 2 y 5 años" hay que reportar la **supervivencia basal** además de los coeficientes.
+-   Con la **muerte como riesgo competitivo**, "1 − S" **sobrestima** el riesgo, sobre todo en los mayores (aquí, `r round(100 * (por_edad$ingenuo[4] - por_edad$verdad[4]))` puntos en los de 75 años o más); usa la **incidencia acumulada**.
+-   Regresión logística: solo si el desenlace es conocido para (casi) todos al horizonte elegido; si no, Cox.
+-   Un predictor **no es una causa**: no interpretes los coeficientes como efectos.
+:::
+
+## Ejercicio
+
+1.  Ajusta con `coxph()` el modelo de **4 variables** (edad, sexo, TFGe y ln UACR) y compara su concordancia con la del modelo de 8 (`summary(modelo)$concordance`). ¿Qué ganas con los 4 predictores adicionales?
+2.  Calcula, para el oráculo, el riesgo **ingenuo** y el **CIF** a 2 años por grupo de edad. ¿Es tan grande la diferencia como a 5 años? ¿Por qué?
+3.  Cambia la TFGe de los tres pacientes del paso 5 por 45, 40 y 35. ¿Qué pasa con el riesgo a 5 años? ¿Por qué el riesgo absoluto a 2 años es tan bajo aunque el HR sea el mismo?

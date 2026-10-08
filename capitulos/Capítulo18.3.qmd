@@ -1,0 +1,188 @@
+# Los supuestos: las cuatro ausencias de confusión
+
+::: {.callout-note}
+## 🩺 Escenario
+
+Presentas el resultado de 18.2: "el 45 % del efecto del iSGLT2 pasa por la albuminuria". La revisora del comité pregunta tres cosas seguidas: "¿y la inflamación, que sube la albuminuria y daña el riñón?, ¿y los pacientes que además optimizan el bloqueo del SRAA, que bajan la albuminuria *y* reciben el fármaco con más probabilidad?, ¿y la presión arterial después de empezar el fármaco?". Cada pregunta es un **supuesto** que, si falla, cambia tu número. Aquí los ponemos a prueba **con la verdad delante**.
+:::
+
+La mediación pide **más supuestos** que el efecto total. Eso no es un tecnicismo: significa que el mismo método (dos regresiones, un bootstrap) puede dar un resultado **bonito, preciso y falso**. Por eso en este subcapítulo no aprendemos un método nuevo: aprendemos **cuándo no fiarnos** del que ya tenemos.
+
+**Lo que vamos a hacer**
+
+-   Enumerar las **cuatro ausencias de confusión** y dibujarlas en un DAG.
+-   **Romper cada supuesto** en una simulación y medir cuánto se desvía el resultado de la verdad.
+-   Ver por qué **aleatorizar el fármaco no basta** y por qué la cuarta ausencia es la más traicionera.
+
+```{r}
+#| label: setup-c183
+library(tidyverse)
+source("R/funciones_epi.R")
+source("R/funciones_extra_cap18.R")
+source("R/simular_mediacion.R")
+```
+
+## Paso 1. Las cuatro ausencias de confusión
+
+En el análisis de mediación hay **tres relaciones** que hay que identificar sin confusión: A → Y, M → Y y A → M (VanderWeele y Vansteelandt). Más una cuarta condición, sobre el tiempo. Cada una se enuncia "**dado** el conjunto de confusores medidos $C$" (edad, TFGe, UACR basal, HbA1c, PAS, ECV...):
+
+| # | Supuesto: no hay... | Ejemplo en nuestro caso | Si falla, se sesga... |
+|---|---|---|---|
+| 1 | confusor **no medido** de **exposición → desenlace** | Fragilidad (se trata menos a los frágiles y su pendiente es peor) | El efecto total, y con él el directo |
+| 2 | confusor **no medido** de **mediador → desenlace** | Actividad inflamatoria: sube la albuminuria y empeora la pendiente | El efecto indirecto y el directo (**no** el total) |
+| 3 | confusor **no medido** de **exposición → mediador** | Intensidad del bloqueo del SRAA: el médico lo optimiza *y* lo inicia con el iSGLT2, y baja la albuminuria | El efecto indirecto (y el total, si además afecta al desenlace) |
+| 4 | confusor **mediador → desenlace** **afectado por la exposición** | PAS a los 6 meses: el fármaco la baja, y ella cambia la albuminuria y la pendiente | Los efectos **naturales** (directo e indirecto), aunque midas la PAS |
+
+Para el **efecto total** basta el supuesto 1: es el de siempre. Para el **efecto directo controlado** hacen falta el 1 y el 2. Para los **efectos naturales** (los que definimos en 18.1) hacen falta los cuatro. Lo dibujamos todo en un solo DAG:
+
+```{r}
+#| label: dag-supuestos-c183
+#| fig-width: 9
+#| fig-height: 5.4
+nodos <- tribble(~nombre, ~x, ~y, ~etiqueta, ~rol,
+  "C",  3, 3.2, "Confusores medidos (C)", "confusor",
+  "A",  1, 1.6, "iSGLT2\n(A)", "exposicion",
+  "M",  3, 0.9, "Cambio de UACR\na los 6 meses (M)", "mediador",
+  "Y",  5, 1.6, "Pendiente\nde TFGe (Y)", "desenlace",
+  "U1", 2.3, 2.2, "1. Fragilidad\n(no medida)", "no medido",
+  "U2", 4.6, 0.1, "2. Inflamación\n(no medida)", "no medido",
+  "U3", 1.4, 0.1, "3. Bloqueo SRAA\n(no medido)", "no medido",
+  "L",  3, -0.6, "4. PAS a los 6 meses\n(L, afectada por A)", "otro")
+aristas <- tribble(~de, ~a,
+  "C", "A", "C", "M", "C", "Y",
+  "A", "M", "M", "Y", "A", "Y",
+  "U1", "A", "U1", "Y",
+  "U2", "M", "U2", "Y",
+  "U3", "A", "U3", "M",
+  "A", "L", "L", "M", "L", "Y")
+dibujar_dag(nodos, aristas, tam_texto = 3.2, encoger = 0.15, expandir = c(0.12, 0.12))
+```
+
+Los nodos grises son lo que **no** tenemos medido. El nodo L (PAS a los 6 meses) sí se **puede medir**, pero es especial: está *después* del tratamiento y es *causa* tanto de M como de Y. Esto es lo que lo hace traicionero (Paso 4).
+
+## Paso 2. Cómo romper un supuesto a voluntad
+
+El simulador (`R/simular_mediacion.R`) tiene un interruptor por cada supuesto. Con todos los interruptores en 0, **los cuatro se cumplen**. Aquí tienes los cinco mundos que vamos a comparar, con la misma semilla (**los mismos 5 000 pacientes**, solo cambia la causa oculta):
+
+```{r}
+#| label: escenarios-c183
+escenarios <- list(
+  `Los 4 supuestos se cumplen` = list(),
+  `1. Falla A-Y (fragilidad)`  = list(u1_a = 0.7, u1_y = -0.6),
+  `2. Falla M-Y (inflamación)` = list(u2_m = 0.25, u2_y = -0.8),
+  `3. Falla A-M (bloqueo SRAA)` = list(u3_a = 0.6, u3_m = -0.25),
+  `4. L afectada por A (PAS 6 m)` = list(l_m = 0.02, l_y = -0.08)
+)
+
+resultados <- imap_dfr(escenarios, \(args, nombre) {
+  d <- do.call(simular_mediacion, c(list(semilla = 2026), args))     # misma semilla
+  est <- ajustar_mediacion(preparar_mediacion(d))                    # lo que haría el analista (18.2)
+  ver <- verdad_mediacion(d)                                         # lo que realmente pasa
+  tibble(escenario = nombre, efecto = c("Total", "Directo", "Indirecto"),
+         estimado = unname(est[c("TE", "NDE", "NIE_producto")]),
+         verdad = unname(ver[c("TE", "NDE", "NIE")]))
+}) |>
+  mutate(escenario = fct_inorder(escenario), efecto = factor(efecto, levels = c("Total", "Directo", "Indirecto")),
+         sesgo = estimado - verdad)
+
+resultados |>
+  pivot_wider(names_from = efecto, values_from = c(estimado, verdad, sesgo)) |>
+  select(escenario, estimado_Total, verdad_Total, estimado_Directo, verdad_Directo, estimado_Indirecto, verdad_Indirecto) |>
+  knitr::kable(digits = 2, col.names = c("Escenario", "Total est.", "Total verd.", "Directo est.", "Directo verd.", "Indirecto est.", "Indirecto verd."))
+```
+
+Lo vemos mejor en un gráfico: cada panel es un efecto; el punto azul es lo que estima el analista y el rombo naranja, la verdad.
+
+```{r}
+#| label: grafico-supuestos-c183
+#| fig-width: 9
+#| fig-height: 4.2
+ggplot(resultados, aes(y = fct_rev(escenario))) +
+  geom_segment(aes(x = verdad, xend = estimado, yend = fct_rev(escenario)), color = "grey70") +
+  geom_point(aes(x = verdad), shape = 18, size = 4, color = "#D55E00") +
+  geom_point(aes(x = estimado), size = 3, color = "#0072B2") +
+  facet_wrap(~ efecto, nrow = 1) +
+  labs(x = "Efecto sobre la pendiente de TFGe (mL/min/1.73 m²/año)", y = NULL,
+       caption = "Azul: estimación con el método de productos (18.2). Naranja: verdad. Datos simulados.") +
+  theme_minimal(base_size = 11)
+```
+
+**Qué vemos.** Con los cuatro supuestos, la estimación cae sobre la verdad (el efecto total `r sprintf("%.2f", resultados$estimado[1])` frente a `r sprintf("%.2f", resultados$verdad[1])`; el indirecto `r sprintf("%.2f", resultados$estimado[3])` frente a `r sprintf("%.2f", resultados$verdad[3])`). En los otros cuatro, el método **no avisa de nada**: sale otro número con el mismo aspecto prolijo. Cada fallo deja su huella:
+
+-   **Falla el 1 (fragilidad).** El **total** se infla (`r sprintf("%.2f", resultados$estimado[4])` frente a `r sprintf("%.2f", resultados$verdad[4])`) porque los tratados son los menos frágiles. El **directo** carga con todo el sesgo (`r sprintf("%.2f", resultados$estimado[5])` frente a `r sprintf("%.2f", resultados$verdad[5])`); el indirecto casi no se mueve (`r sprintf("%.2f", resultados$estimado[6])`).
+-   **Falla el 2 (inflamación).** El **total** está bien (la inflamación no confunde A-Y), pero el reparto se **invierte**: el indirecto sube a `r sprintf("%.2f", resultados$estimado[9])` (verdad: `r sprintf("%.2f", resultados$verdad[9])`) y el directo cae a `r sprintf("%.2f", resultados$estimado[8])` (verdad: `r sprintf("%.2f", resultados$verdad[8])`). Un lector ingenuo concluiría "la albuminuria explica casi todo".
+-   **Falla el 3 (SRAA).** Se sesga el total (`r sprintf("%.2f", resultados$estimado[10])` frente a `r sprintf("%.2f", resultados$verdad[10])`) y el indirecto (`r sprintf("%.2f", resultados$estimado[12])` frente a `r sprintf("%.2f", resultados$verdad[12])`): parte del descenso de albuminuria que se atribuye al fármaco era del bloqueo del SRAA.
+-   **Falla el 4 (PAS posterior).** El total está bien (`r sprintf("%.2f", resultados$estimado[13])` frente a `r sprintf("%.2f", resultados$verdad[13])`), pero el **reparto** no: indirecto `r sprintf("%.2f", resultados$estimado[15])` frente a `r sprintf("%.2f", resultados$verdad[15])`, directo `r sprintf("%.2f", resultados$estimado[14])` frente a `r sprintf("%.2f", resultados$verdad[14])` (siguiente paso).
+
+::: {.callout-warning}
+## ⚠️ Los supuestos no se pueden comprobar con los datos
+
+Ninguno de los cuatro tiene una prueba estadística. Un modelo con pésimo ajuste puede ser correcto y uno con un ajuste perfecto puede estar sesgado. Se defienden con **conocimiento clínico y un DAG** (Cap. 3.3): ¿qué variables causan a la vez el mediador y el desenlace? ¿Se midieron? Y se **cuantifican** con un análisis de sensibilidad (18.5). Una conclusión de mediación **sin DAG y sin sensibilidad** es solo una descripción de cómo se reparte el efecto *si* todo lo anterior fuera cierto.
+:::
+
+## Paso 3. La cuarta ausencia: el confusor que el tratamiento mueve
+
+Los tres primeros supuestos se resuelven (o se discuten) con la misma receta de siempre: medir los confusores y ajustar. El cuarto es de otra naturaleza. La PAS a los 6 meses ($L$) causa a la vez la albuminuria y la pendiente, así que **parece** un confusor de M → Y y la tentación es ajustar por ella. Pero el fármaco **también** la baja, así que está *entre* A y M. Probemos las dos opciones con los datos del cuarto escenario:
+
+```{r}
+#| label: supuesto-4-c183
+d4 <- simular_mediacion(semilla = 2026, l_m = 0.02, l_y = -0.08)
+d4a <- preparar_mediacion(d4)
+ver4 <- verdad_mediacion(d4)
+
+sin_l <- ajustar_mediacion(d4a)                                          # no ajustar por L
+con_l <- ajustar_mediacion(d4a, cov = c(covariables_med, "pas_6m"))      # ajustar por L (la PAS a los 6 meses)
+
+tibble(analisis = c("Sin ajustar por L", "Ajustando por L", "Verdad"),
+       Directo = c(sin_l[["NDE"]], con_l[["NDE"]], ver4[["NDE"]]),
+       Indirecto = c(sin_l[["NIE_producto"]], con_l[["NIE_producto"]], ver4[["NIE"]]),
+       Total = c(sin_l[["TE"]], con_l[["TE"]], ver4[["TE"]])) |>
+  knitr::kable(digits = 2)
+```
+
+**Qué vemos.** Ninguna de las dos opciones coincide con la verdad (directo `r sprintf("%.2f", ver4[["NDE"]])`, indirecto `r sprintf("%.2f", ver4[["NIE"]])`):
+
+-   **Sin ajustar por L**, el efecto indirecto sale inflado (`r sprintf("%.2f", sin_l[["NIE_producto"]])`): parte del vínculo entre albuminuria y pendiente es, en realidad, la PAS actuando sobre las dos.
+-   **Ajustando por L**, el indirecto baja a `r sprintf("%.2f", con_l[["NIE_producto"]])` y el directo a `r sprintf("%.2f", con_l[["NDE"]])`. Ajustar por L **quita los caminos** A → L → M → Y y A → L → Y: el análisis ya no estima lo que queríamos. Incluso el "total" cae a `r sprintf("%.2f", con_l[["TE"]])` (verdad: `r sprintf("%.2f", ver4[["TE"]])`): al ajustar por L dejó de ser el efecto total.
+
+No hay un modelo de regresión que lo arregle: con un confusor posterior al tratamiento, los efectos **naturales** (NDE y NIE) simplemente **no están identificados** (en términos técnicos, la independencia entre mundos cruzados no se cumple). Las salidas son: (a) argumentar con el DAG que L no existe o es débil; (b) cambiar de estimando y usar **efectos interventores** (VanderWeele, Vansteelandt y Robins, 2014), que sí se identifican con esta estructura y que implementa `CMAverse` (18.5); (c) ser claro en el texto con que el resultado es una descomposición **aproximada**.
+
+## Paso 4. Aleatorizar el fármaco no basta
+
+Una intuición frecuente: "si el fármaco se asigna al azar (un ECA), el análisis de mediación es causal". **Falso**. La aleatorización garantiza los supuestos 1 y 3 (nada confunde A-Y ni A-M porque A no depende de nada), pero **no** el 2 ni el 4: el mediador no está aleatorizado. Lo simulamos: ensayo con asignación 50-50 y una inflamación no medida que actúa sobre la albuminuria y la pendiente.
+
+```{r}
+#| label: eca-mediacion-c183
+d_eca <- simular_mediacion(semilla = 2026, aleatorio = TRUE, u2_m = 0.25, u2_y = -0.8)
+est_eca <- ajustar_mediacion(preparar_mediacion(d_eca))
+ver_eca <- verdad_mediacion(d_eca)
+
+tibble(efecto = c("Total", "Directo", "Indirecto"),
+       `Ensayo, estimado` = unname(est_eca[c("TE", "NDE", "NIE_producto")]),
+       Verdad = unname(ver_eca[c("TE", "NDE", "NIE")])) |>
+  knitr::kable(digits = 2)
+```
+
+**Qué vemos.** El **total** del ensayo es correcto (`r sprintf("%.2f", est_eca[["TE"]])` frente a `r sprintf("%.2f", ver_eca[["TE"]])`): por eso aleatorizamos. El **reparto** directo/indirecto, no (indirecto `r sprintf("%.2f", est_eca[["NIE_producto"]])` frente a `r sprintf("%.2f", ver_eca[["NIE"]])`). Un ensayo bien hecho resuelve el efecto total; la mediación es siempre un análisis **de segunda categoría** (no aleatorizado) **dentro** de un ensayo. La salida de diseño sería aleatorizar también el mediador (un ensayo factorial con una intervención que baje la albuminuria por otra vía), pero rara vez es posible.
+
+::: {.callout-warning}
+## ⚠️ Un IC estrecho no es una estimación exacta
+
+En los escenarios sesgados el *bootstrap* seguiría dando un IC angosto (5 000 pacientes): **alrededor de un valor equivocado**. La incertidumbre estadística (azar) y el sesgo por confusión no medida (supuestos) son problemas distintos. El segundo no desaparece con más pacientes.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   Para los efectos naturales hacen falta **cuatro ausencias de confusión** (dado $C$): A-Y, M-Y, A-M, y **ningún confusor M-Y afectado por A**. Para el efecto total basta la primera.
+-   Si fallan, el método (dos regresiones, bootstrap) **no avisa**: da un número prolijo y sesgado. Lo comprobamos con la verdad.
+-   La **inflamación no medida** (M-Y) puede invertir el reparto directo/indirecto sin tocar el total.
+-   Un confusor M-Y **afectado por el fármaco** (PAS posterior) no se arregla ni ajustando ni sin ajustar: hay que cambiar de estimando (efectos interventores).
+-   **Aleatorizar el fármaco** asegura los supuestos 1 y 3, pero **no** el 2 ni el 4.
+:::
+
+## Ejercicio
+
+1.  Repite el Paso 2 con `u2_m = 0.25, u2_y = -0.8` y `n = 20000`. ¿Se corrige el sesgo del indirecto con más pacientes? ¿Qué te dice eso de los IC?
+2.  Cambia el signo de `u2_y` (de -0.8 a +0.8: una "inflamación" que *mejora* la pendiente). ¿Hacia dónde se sesga ahora el indirecto?
+3.  En el Paso 3, mide qué pasa si se ajusta por la **PAS basal** (`pas`, que ya está en `C`) pero no por `pas_6m`. ¿Cuál es la diferencia conceptual entre las dos variables?

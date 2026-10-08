@@ -1,0 +1,166 @@
+# Capítulo 16: Análisis predictivos: diagnóstico
+
+> *"Una prueba no es buena o mala: es útil o inútil para una decisión, en un tipo de pacientes y a un costo."* Este capítulo enseña a evaluar una **prueba o un modelo diagnóstico** de forma honesta: cómo medir su exactitud, cómo elegir un punto de corte, cómo combinar varios datos en un modelo, si sus **probabilidades** son creíbles, si **ayuda a decidir** y cuándo **no creerle** a un estudio.
+
+::: {.callout-note}
+## 🩺 El problema de todos los días
+
+Un paciente hospitalizado con sepsis, diabetes y una creatinina de 1.4 mg/dL: ¿va a desarrollar una **lesión renal aguda (LRA) KDIGO ≥ estadio 2** en los próximos tres días? El laboratorio ofrece un biomarcador urinario de daño tubular (tipo NGAL), caro y no disponible en todas partes. ¿**Discrimina** bien a quienes tendrán LRA? ¿Qué **corte** usar? ¿**Añade algo** a lo que ya sabes de la clínica? ¿Sus riesgos son **fiables**? ¿**Cambia** lo que harías? Y, si lees un artículo que lo elogia, ¿le **crees**?
+:::
+
+Todo el capítulo usa `dx_lra`, una base **simulada** de 2 000 adultos hospitalizados (30 % en UCI, 70 % en sala) con un biomarcador urinario continuo y asimétrico, variables clínicas (edad, diabetes, sepsis, nefrotóxicos, creatinina de ingreso) y el **estándar de referencia** (LRA KDIGO ≥ 2 por creatinina seriada, prevalencia de alrededor de 17 %). Como la simulamos, conocemos la **verdad** y podemos comprobar cada sesgo y cada corrección. Un subconjunto de pacientes tiene **verificación parcial** del estándar, para ilustrar el sesgo de verificación (16.7).
+
+*Al finalizar este capítulo podrás:*
+
+-   Armar una **tabla 2×2** y calcular **sensibilidad, especificidad, VPP, VPN y razones de verosimilitud**, entendiendo por qué el VPP depende de la **prevalencia**.
+-   Dibujar e interpretar una **curva ROC**, calcular el **AUC con su IC** y **comparar** dos pruebas.
+-   Elegir un **punto de corte** según costos, fijar sensibilidad o especificidad y reconocer la **zona gris**, sabiendo que un corte elegido en la misma muestra es **optimista**.
+-   Construir un **modelo diagnóstico multivariable** y medir el **valor añadido** de un biomarcador (ΔAUC, NRI con cautela).
+-   Evaluar la **calibración** (pendiente, intercepto, Brier) y la **utilidad clínica** con **curvas de decisión** (beneficio neto).
+-   Reconocer los sesgos de **espectro** y de **verificación**, un estándar de referencia imperfecto y el ***spin***, y usar **STARD** y **QUADAS-2**.
+
+::: {.callout-important}
+## Diagnóstico y pronóstico: dos preguntas distintas
+
+-   **Diagnóstico** (este capítulo): ¿tiene el paciente **ahora** una condición que un **estándar de referencia** puede confirmar? Se mide en un **corte transversal** (la prueba y el estándar se hacen en una ventana corta), y las medidas típicas son sensibilidad, especificidad, ROC y calibración de una **probabilidad**.
+-   **Pronóstico** (Cap. 17): ¿qué le **ocurrirá** al paciente en el **futuro** (diálisis a 2 años, muerte)? Hay **tiempo hasta el evento**, **censura** y **riesgos competitivos**, y la discriminación y la calibración se evalúan **a un horizonte de tiempo**.
+
+Las herramientas se parecen (ROC, calibración, curvas de decisión), pero **los datos y los sesgos** no. Lo que se aprende aquí se reutiliza en el 17.
+:::
+
+## El recorrido completo en una página
+
+Antes de entrar al detalle, juguemos la partida **entera** una vez, rápido. Cada paso se explica con calma en un subcapítulo.
+
+```{r}
+#| label: recorrido-flujo-c16
+#| echo: false
+#| fig-width: 9
+#| fig-height: 2
+library(tidyverse)
+source("R/funciones_epi.R")
+source("R/funciones_extra_cap1213.R")
+source("R/funciones_extra_cap16.R")
+diagrama_flujo(c("1. Tabla 2x2\ny prevalencia\n(16.1)", "2. ROC y AUC\n(16.2)", "3. Punto de corte\ny zona gris\n(16.3)",
+                 "4. Modelo\nmultivariable\n(16.4)", "5. Calibración\n(16.5)", "6. Curva de\ndecisión\n(16.6)", "7. Sesgos y\nspin\n(16.7)"),
+               resaltar = 3, tam_texto = 2.8)
+```
+
+```{r}
+#| label: recorrido-datos-c16
+library(pROC)
+dx <- read_csv("Bases/dx_lra.csv", show_col_types = FALSE) |>   # datos SIMULADOS
+  mutate(log2_ngal = log2(ngal), log_creat = log(creat_ingreso))
+dx |> group_by(entorno) |> summarise(pacientes = n(), con_LRA = sum(lra), prevalencia = round(mean(lra), 3))
+```
+
+### Pasos 1 y 2. ¿Cuánto discrimina el biomarcador?
+
+Con un corte de 100 ng/mL se obtiene una tabla 2×2; con **todos** los cortes, una curva ROC.
+
+```{r}
+#| label: recorrido-roc-c16
+t2 <- tabla_2x2(dx$ngal >= 100, dx$lra)
+medidas <- medidas_dx(t2$a, t2$b, t2$c, t2$d)
+r_ngal <- roc(dx$lra, dx$ngal, levels = c(0, 1), direction = "<", quiet = TRUE)
+c(sensibilidad = medidas$estimado[1], especificidad = medidas$estimado[2], VPP = medidas$estimado[3], VPN = medidas$estimado[4],
+  AUC = as.numeric(auc(r_ngal))) |> round(3)
+```
+
+**Qué vemos:** el AUC es de **`r round(as.numeric(auc(r_ngal)), 2)`** (IC `r round(ci.auc(r_ngal)[1], 2)` a `r round(ci.auc(r_ngal)[3], 2)`). Con el corte de 100, la sensibilidad es de `r pct(medidas$estimado[1], 0)`, pero el **VPP es de solo `r pct(medidas$estimado[3], 0)`**: de cada tres positivos, solo uno tiene LRA ≥ 2. Un AUC bueno **no** significa un VPP bueno.
+
+### Pasos 3 y 4. ¿Qué corte, y qué añade a la clínica?
+
+```{r}
+#| label: recorrido-modelo-c16
+f_clin <- lra ~ I(edad / 10) + diabetes + sepsis + nefrotoxicos + log_creat + entorno
+f_full <- update(f_clin, . ~ . + log2_ngal)
+p_clin <- prob_cv(f_clin, dx, K = 10, semilla = 16)     # predicciones fuera de muestra (validación cruzada)
+p_full <- prob_cv(f_full, dx, K = 10, semilla = 16)
+k_youden <- corte_youden(dx$ngal, dx$lra)
+c(corte_Youden = k_youden, AUC_clinico = auc_rapida(p_clin, dx$lra), AUC_clinico_mas_biomarcador = auc_rapida(p_full, dx$lra)) |> round(3)
+```
+
+**Qué vemos:** el corte de Youden es de **`r round(k_youden)` ng/mL** (pero con IC *bootstrap* muy ancho, 16.3). El modelo clínico solo alcanza un AUC de **`r round(auc_rapida(p_clin, dx$lra), 2)`**; al añadir el biomarcador sube a **`r round(auc_rapida(p_full, dx$lra), 2)`**: el valor añadido es grande.
+
+### Pasos 5 y 6. ¿Son creíbles los riesgos y sirven para decidir?
+
+```{r}
+#| label: recorrido-calibracion-dca-c16
+resumen_calibracion(p_full, dx$lra) |> select(intercepto_CITL, pendiente, brier) |> round(3)
+
+pt <- 0.20      # umbral: aceptar hasta 4 pacientes tratados sin LRA por cada caso detectado
+c(BN_modelo = beneficio_neto(p_full, dx$lra, pt)$beneficio_neto,
+  BN_clinico = beneficio_neto(p_clin, dx$lra, pt)$beneficio_neto,
+  BN_tratar_a_todos = beneficio_neto_todos(dx$lra, pt)$beneficio_neto) |> round(3)
+```
+
+**Qué vemos:** la calibración es buena (intercepto cercano a 0, pendiente de **`r round(resumen_calibracion(p_full, dx$lra)$pendiente, 2)`**). Con un umbral de 20 %, el modelo con biomarcador tiene un beneficio neto de **`r round(beneficio_neto(p_full, dx$lra, pt)$beneficio_neto, 3)`**, frente a `r round(beneficio_neto(p_clin, dx$lra, pt)$beneficio_neto, 3)` del modelo clínico y `r round(beneficio_neto_todos(dx$lra, pt)$beneficio_neto, 3)` de "tratar a todos".
+
+### Paso 7. ¿Le creo a este resultado?
+
+Todo lo anterior supone que el estudio es **sólido**: pacientes consecutivos, a todos se les hizo el estándar, sin *spin*. En 16.7 verás qué pasa cuando no es así. Un adelanto con los mismos datos: en la base se **verificó más** a quienes tenían el biomarcador alto, y si se analizan solo los verificados, el análisis ingenuo diría que la sensibilidad es de **`r pct(sens_esp(dx$ngal[dx$verificado == 1], dx$lra_obs[dx$verificado == 1], 100)["sens"], 0)`** (verdad: `r pct(sens_esp(dx$ngal, dx$lra, 100)["sens"], 0)`) y que la especificidad es de **`r pct(sens_esp(dx$ngal[dx$verificado == 1], dx$lra_obs[dx$verificado == 1], 100)["esp"], 0)`** (verdad: `r pct(sens_esp(dx$ngal, dx$lra, 100)["esp"], 0)`).
+
+### La moraleja de la partida
+
+-   **Un solo número no basta**: el AUC (discriminación), el VPP (depende de la prevalencia), la calibración y la utilidad clínica contestan preguntas **distintas**.
+-   **El corte es una decisión**, no un descubrimiento: depende de los costos y de la prevalencia.
+-   Un modelo **debe validarse fuera de la muestra** (validación cruzada, *bootstrap*, datos nuevos) o parecerá mejor de lo que es.
+-   El **diseño del estudio** puede inflar (o hundir) todas las cifras: mira siempre **quién entró** y **a quién se le confirmó** el diagnóstico.
+
+::: {.callout-tip}
+## 💡 Paquetes y alternativas
+
+En este capítulo implementamos nosotros las medidas más importantes (tabla 2×2, nomograma de Fagan, calibración, beneficio neto) para que se vea qué hacen, y usamos **`pROC`** (ROC, AUC, IC, comparación de curvas), **`rms`** (modelo, validación y calibración con *bootstrap*) y **`caret`** (validación cruzada). Para las curvas de decisión, el paquete **`dcurves`** y para el metaanálisis del estadístico *c*, **`metamisc`**, no están instalados en el entorno de pruebas del libro: se muestran como bloques condicionales que se ejecutan en tu máquina si los tienes.
+:::
+
+::: {.callout-important}
+## 🎯 Mapa del capítulo
+
+| Subcapítulo | Nivel | Resuelve |
+|---|---|---|
+| 16.1 Sensibilidad, especificidad, VPP y VPN | 🟢 | Tabla 2×2, prevalencia, razones de verosimilitud, nomograma de Fagan |
+| 16.2 Curva ROC y AUC | 🟢 | `pROC`, interpretación, IC, comparar AUC, metaanálisis del AUC |
+| 16.3 Punto de corte y *trade-offs* | 🟡 | Youden, costos, sensibilidad fija, zona gris, optimismo del corte |
+| 16.4 Modelo diagnóstico multivariable | 🟡 | Regresión logística, valor añadido, ΔAUC, NRI (con cautela) |
+| 16.5 Calibración | 🟡 | Gráfico de calibración, pendiente e intercepto, Brier, por qué no Hosmer-Lemeshow |
+| 16.6 Curvas de decisión | 🔴 | Beneficio neto, umbral, `dcurves` |
+| 16.7 Sesgo de espectro, verificación y *spin* | 🔴 | Sesgos, estándar imperfecto, STARD, QUADAS-2 |
+:::
+
+*Prerrequisitos:* Caps. 2 (medidas), 7.4 (IC y *bootstrap*) y 8.3 (regresión logística). *Prepara:* Cap. 17 (pronóstico), Cap. 20.6 (tamaño de muestra para modelos) y Cap. 23 (reporte: STARD, TRIPOD+AI).
+
+## Para leer más
+
+-   **Collins GS, Dhiman P, Ma J, et al.** Evaluation of clinical prediction models (part 1): from development to external validation. *BMJ*. 2024;384:e074819; **Riley RD, Archer L, Snell KIE, et al.** Part 2: how to undertake an external validation study. *BMJ*. 2024;384:e074820; y **Riley RD, Snell KIE, Archer L, et al.** Part 3: calculating the sample size required for an external validation study. *BMJ*. 2024;384:e074821. *Material del autor.* Serie sobre discriminación, calibración y utilidad; complementan 16.4-16.6 y el Cap. 17.
+-   **Binuya MAE, Engelhardt EG, Schats W, Schmidt MK, Steyerberg EW.** Methodological guidance for the evaluation and updating of clinical prediction models: a systematic review. *BMC Med Res Methodol*. 2022;22:316. *Material del autor.* Revisión de las guías de validación, calibración y actualización de modelos; recomienda medidas de utilidad (beneficio neto) sobre la simple clasificación.
+-   **Van Calster B, McLernon DJ, van Smeden M, Wynants L, Steyerberg EW.** Calibration: the Achilles heel of predictive analytics. *BMC Med*. 2019;17:230. Para 16.5.
+-   **Vickers AJ, Van Calster B, Steyerberg EW.** A simple, step-by-step guide to interpreting decision curve analysis. *Diagn Progn Res*. 2019;3:18. Para 16.6.
+-   **Bossuyt PM, Reitsma JB, Bruns DE, et al.** STARD 2015: an updated list of essential items for reporting diagnostic accuracy studies. *BMJ*. 2015;351:h5527; y **Whiting PF, Rutjes AWS, Westwood ME, et al.** QUADAS-2. *Ann Intern Med*. 2011;155:529-536. Para 16.7.
+-   **Karim ME.** *Epidemiological Methods* (https://ehsanx.github.io/EpiMethods/) y las guías por grupo temático de la **iniciativa STRATOS** (https://www.stratos-initiative.org/publications/). *Lectura recomendada por el autor, no se pudo consultar durante la redacción*; úsalas para ampliar la evaluación de pruebas diagnósticas y modelos de predicción.
+
+## Referencias
+
+-   Steyerberg EW. *Clinical Prediction Models: A Practical Approach to Development, Validation, and Updating*. 2.ª ed. Springer; 2019.
+-   Pepe MS. *The Statistical Evaluation of Medical Tests for Classification and Prediction*. Oxford University Press; 2003.
+-   Hanley JA, McNeil BJ. The meaning and use of the area under a receiver operating characteristic (ROC) curve. *Radiology*. 1982;143:29-36.
+-   DeLong ER, DeLong DM, Clarke-Pearson DL. Comparing the areas under two or more correlated receiver operating characteristic curves: a nonparametric approach. *Biometrics*. 1988;44:837-845.
+-   Robin X, Turck N, Hainard A, et al. pROC: an open-source package for R and S+ to analyze and compare ROC curves. *BMC Bioinformatics*. 2011;12:77.
+-   Youden WJ. Index for rating diagnostic tests. *Cancer*. 1950;3:32-35.
+-   Leeflang MMG, Moons KGM, Reitsma JB, Zwinderman AH. Bias in sensitivity and specificity caused by data-driven selection of optimal cutoff values: mechanisms, magnitude, and solutions. *Clin Chem*. 2008;54:729-737.
+-   Leeflang MMG, Rutjes AWS, Reitsma JB, Hooft L, Bossuyt PMM. Variation of a test's sensitivity and specificity with disease prevalence. *CMAJ*. 2013;185:E537-E544.
+-   Fagan TJ. Nomogram for Bayes's theorem. *N Engl J Med*. 1975;293:257.
+-   Pencina MJ, D'Agostino RB Sr, D'Agostino RB Jr, Vasan RS. Evaluating the added predictive ability of a new marker: from area under the ROC curve to reclassification and beyond. *Stat Med*. 2008;27:157-172.
+-   Kerr KF, Wang Z, Janes H, McClelland RL, Psaty BM, Pepe MS. Net reclassification indices for evaluating risk prediction instruments: a critical review. *Epidemiology*. 2014;25:114-121.
+-   Steyerberg EW, Vickers AJ, Cook NR, et al. Assessing the performance of prediction models: a framework for traditional and novel measures. *Epidemiology*. 2010;21:128-138.
+-   Austin PC, Steyerberg EW. The Integrated Calibration Index (ICI) and related metrics for quantifying the calibration of logistic regression models. *Stat Med*. 2019;38:4051-4065.
+-   Hosmer DW, Hosmer T, Le Cessie S, Lemeshow S. A comparison of goodness-of-fit tests for the logistic regression model. *Stat Med*. 1997;16:965-980.
+-   Vickers AJ, Elkin EB. Decision curve analysis: a novel method for evaluating prediction models. *Med Decis Making*. 2006;26:565-574.
+-   Vickers AJ, Van Calster B, Steyerberg EW. Net benefit approaches to the evaluation of prediction models, molecular markers, and diagnostic tests. *BMJ*. 2016;352:i6.
+-   Ransohoff DF, Feinstein AR. Problems of spectrum and bias in evaluating the efficacy of diagnostic tests. *N Engl J Med*. 1978;299:926-930.
+-   Begg CB, Greenes RA. Assessment of diagnostic tests when disease verification is subject to selection bias. *Biometrics*. 1983;39:207-215.
+-   Whiting P, Rutjes AWS, Reitsma JB, Glas AS, Bossuyt PMM, Kleijnen J. Sources of variation and bias in studies of diagnostic accuracy: a systematic review. *Ann Intern Med*. 2004;140:189-202.
+-   Ochodo EA, de Haan MC, Reitsma JB, Hooft L, Bossuyt PM, Leeflang MMG. Overinterpretation and misreporting of diagnostic accuracy studies: evidence of "spin". *Radiology*. 2013;267:581-588.
+-   Moons KGM, Wolff RF, Riley RD, et al. PROBAST: a tool to assess risk of bias and applicability of prediction model studies: explanation and elaboration. *Ann Intern Med*. 2019;170:W1-W33.
+-   Collins GS, Moons KGM, Dhiman P, et al. TRIPOD+AI statement: updated guidance for reporting clinical prediction models that use regression or machine learning methods. *BMJ*. 2024;385:e078378.
+-   KDIGO Acute Kidney Injury Work Group. KDIGO clinical practice guideline for acute kidney injury. *Kidney Int Suppl*. 2012;2:1-138.

@@ -1,0 +1,229 @@
+# Sesgo de espectro, de verificación y *spin*: cuándo no creerle a un estudio diagnóstico
+
+::: {.callout-note}
+## 🩺 Escenario
+
+Te llega un artículo: "El biomarcador urinario detecta la lesión renal aguda con AUC de 0.95 y sensibilidad de 92 %; recomendamos su uso rutinario". Antes de cambiar la práctica de tu UCI, quieres saber **de qué pacientes** salió esa cifra, **a cuántos** se les confirmó el diagnóstico con el estándar de referencia y si las **conclusiones** son más optimistas que los datos. Lo que sigue son las tres grandes fuentes de optimismo en los estudios de exactitud diagnóstica.
+:::
+
+Un estudio diagnóstico puede estar perfectamente analizado y aun así ser **engañoso** si el **diseño** lo inclina a favor de la prueba. Aquí aprenderás a reconocer los sesgos más importantes, cómo **cuantificarlos** con nuestros datos simulados (donde conocemos la verdad) y qué listas de verificación usar para **leer y reportar** estos estudios.
+
+**Lo que vamos a hacer**
+
+-   Mostrar el **sesgo de espectro** (la mezcla de pacientes cambia el rendimiento).
+-   Mostrar y **corregir** el **sesgo de verificación parcial**.
+-   Ver qué le hace un **estándar de referencia imperfecto** (o contaminado por la prueba).
+-   Reconocer el ***spin*** y usar **STARD** y **QUADAS-2** como listas de verificación.
+
+```{r}
+#| label: setup-c167
+library(tidyverse)
+library(pROC)
+source("R/funciones_extra_cap16.R")
+
+dx <- read_csv("Bases/dx_lra.csv", show_col_types = FALSE)    # datos SIMULADOS (Cap. 16)
+corte <- 100                                                    # corte provisional de 16.1 (ng/mL)
+
+## La "verdad" (que en la realidad no tendrías): rendimiento en TODOS los pacientes hospitalizados consecutivos
+verdad <- c(auc = auc_rapida(dx$ngal, dx$lra), sens_esp(dx$ngal, dx$lra, corte))
+round(verdad, 3)
+```
+
+Como referencia, en los 2 000 pacientes hospitalizados consecutivos, el AUC es de **`r round(verdad["auc"], 3)`**, la sensibilidad de **`r pct(verdad["sens"])`** y la especificidad de **`r pct(verdad["esp"])`** (corte de 100 ng/mL). Esa es la verdad contra la que mediremos cada sesgo.
+
+## Paso 1. Sesgo de espectro: ¿qué pacientes entraron?
+
+La sensibilidad y la especificidad no son constantes de la prueba: dependen del **espectro** de los pacientes, es decir, de qué tan enfermos están los casos y qué tan "difíciles" son los no casos. Una prueba luce mejor cuando los enfermos están muy enfermos y los sanos están muy sanos.
+
+### Un estudio de "extremos" (casos y controles)
+
+Imagina un estudio que incluye como **casos** solo a los pacientes con LRA grave (KDIGO 3) y como **controles** a pacientes de sala **sin** sepsis, ni diabetes, ni nefrotóxicos, con creatinina normal y sin LRA. Es decir, un diseño caso-control "de extremos", muy común en estudios iniciales de un biomarcador:
+
+```{r}
+#| label: espectro-extremos-c167
+extremos <- dx |>
+  filter(estadio_kdigo == 3 |
+         (entorno == "Sala" & sepsis == 0 & diabetes == 0 & nefrotoxicos == 0 & creat_ingreso < 1.1 & lra == 0))
+
+r_ext <- roc(extremos$lra, extremos$ngal, levels = c(0, 1), direction = "<", quiet = TRUE)
+tibble(diseno = c("Consecutivos (todos)", "Extremos (casos graves vs. controles sanos)"),
+       n = c(nrow(dx), nrow(extremos)), casos = c(sum(dx$lra), sum(extremos$lra)),
+       AUC = c(verdad["auc"], as.numeric(auc(r_ext))),
+       sensibilidad = c(verdad["sens"], sens_esp(extremos$ngal, extremos$lra, corte)["sens"]),
+       especificidad = c(verdad["esp"], sens_esp(extremos$ngal, extremos$lra, corte)["esp"])) |>
+  mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+**Qué vemos:** con el mismo biomarcador y el mismo corte, el diseño de extremos da un AUC de **`r round(as.numeric(auc(r_ext)), 2)`** (IC `r round(ci.auc(r_ext)[1], 2)` a `r round(ci.auc(r_ext)[3], 2)`), frente a **`r round(verdad["auc"], 2)`** en la población real. La sensibilidad sube a `r pct(sens_esp(extremos$ngal, extremos$lra, corte)["sens"], 0)` y la especificidad a `r pct(sens_esp(extremos$ngal, extremos$lra, corte)["esp"], 0)`. Nada falló en el cálculo: falló **a quién se estudió**. Un diseño así sirve para decir "el biomarcador **se mueve** con la LRA", no para decir "**funciona** en mis pacientes".
+
+### Dentro de la propia enfermedad: gravedad y casos leves
+
+El espectro actúa también **dentro** de cada grupo. Veamos qué proporción da positivo con el corte de 100, según el estadio KDIGO final:
+
+```{r}
+#| label: espectro-estadio-c167
+dx |>
+  group_by(estadio_kdigo) |>
+  summarise(pacientes = n(), pct_positivo_corte_100 = round(100 * mean(ngal >= corte), 1)) |>
+  mutate(grupo = c("Sin LRA (estadio 0)", "LRA leve (estadio 1, 'no caso')", "LRA estadio 2 (caso)", "LRA estadio 3 (caso)"))
+```
+
+**Qué vemos:** el biomarcador es positivo en el `r round(100 * mean(dx$ngal[dx$estadio_kdigo == 3] >= corte))` % de los estadios 3, pero solo en el `r round(100 * mean(dx$ngal[dx$estadio_kdigo == 2] >= corte))` % de los estadios 2: **la sensibilidad depende de la gravedad de los casos**. Del lado de los no casos, el `r round(100 * mean(dx$ngal[dx$estadio_kdigo == 1] >= corte))` % de los pacientes con LRA leve (estadio 1, que cuenta como "no caso" en nuestra definición) son positivos, frente al `r round(100 * mean(dx$ngal[dx$estadio_kdigo == 0] >= corte))` % de quienes no tienen ninguna lesión: **la especificidad depende de qué tan "casi enfermos" estén los controles**. Y entre la UCI y la sala (16.1) vimos lo mismo con otras mezclas de pacientes.
+
+**Cómo protegerte:** preguntar siempre si la muestra fue **consecutiva o aleatoria**, de pacientes **en los que realmente se usaría la prueba** (los "sospechosos", no sanos contra enfermos extremos), y reportar el rendimiento **por subgrupos** clínicamente relevantes.
+
+## Paso 2. Sesgo de verificación parcial
+
+El estándar de referencia suele ser **caro, invasivo o tardío**. En la práctica, no todos los pacientes lo reciben, y **quién lo recibe** suele depender del resultado de la prueba que se estudia. En nuestra base, `verificado = 1` indica que al paciente se le completó la creatinina seriada que confirma o descarta la LRA; para el resto, `lra_obs` es `NA`. Sin sorpresa, a los pacientes con biomarcador alto se les "persigue" más:
+
+```{r}
+#| label: verificacion-patron-c167
+dx |>
+  mutate(nivel_biomarcador = cut(ngal, c(0, 50, 100, 200, Inf), labels = c("<= 50", "50-100", "100-200", "> 200"))) |>
+  group_by(nivel_biomarcador) |>
+  summarise(pacientes = n(), pct_verificado = round(100 * mean(verificado), 0))
+```
+
+Un análisis **ingenuo** usa solo a los verificados, como si fueran toda la población:
+
+```{r}
+#| label: verificacion-ingenuo-c167
+verif <- filter(dx, verificado == 1)
+ingenuo <- c(auc = auc_rapida(verif$ngal, verif$lra_obs), sens_esp(verif$ngal, verif$lra_obs, corte))
+
+rbind(Verdad = verdad, `Solo los verificados` = ingenuo) |> round(3)
+```
+
+**Qué vemos:** solo se verificó al **`r round(100 * mean(dx$verificado))` %** de los pacientes. Entre ellos la sensibilidad parece de **`r pct(ingenuo["sens"], 0)`** (verdad: `r pct(verdad["sens"], 0)`) y la especificidad se hunde a **`r pct(ingenuo["esp"], 0)`** (verdad: `r pct(verdad["esp"], 0)`). Es el patrón clásico del sesgo de verificación parcial: **la sensibilidad se infla y la especificidad se deprime**, porque los positivos de la prueba están sobrerrepresentados entre los verificados (y los negativos, subrepresentados). La prevalencia entre los verificados (`r pct(mean(verif$lra_obs), 0)`) tampoco es la real (`r pct(mean(dx$lra), 0)`).
+
+### Cómo corregirlo (si el diseño lo permite)
+
+Si la decisión de verificar depende solo de datos **que se midieron en todos** (el biomarcador, la sepsis, los nefrotóxicos), la corrección es **ponderar** a cada verificado por el inverso de su probabilidad de haber sido verificado (idea de Begg y Greenes, 1983), igual que en la ponderación por probabilidad inversa del Cap. 12. Cada verificado "representa" a los no verificados que se le parecen:
+
+```{r}
+#| label: verificacion-ipw-c167
+## 1. Modelo de la probabilidad de ser verificado, con datos medidos en TODOS
+modelo_verif <- glm(verificado ~ log(ngal) + sepsis + nefrotoxicos, data = dx, family = binomial)
+
+## 2. Cada verificado pesa 1 / P(verificado)
+verif <- filter(dx, verificado == 1) |> mutate(peso = 1 / fitted(modelo_verif)[dx$verificado == 1])
+
+## 3. Sensibilidad y especificidad ponderadas
+sens_esp_pond <- function(d, corte) {
+  pos <- d$ngal >= corte; y <- d$lra_obs
+  c(sens = sum(d$peso[pos & y == 1]) / sum(d$peso[y == 1]),
+    esp  = sum(d$peso[!pos & y == 0]) / sum(d$peso[y == 0]))
+}
+corregido <- sens_esp_pond(verif, corte)
+
+## 4. IC por bootstrap (rehaciendo también el modelo de verificación)
+set.seed(167)
+boot_corr <- replicate(300, {
+  d <- dx[sample(nrow(dx), replace = TRUE), ]
+  m <- glm(verificado ~ log(ngal) + sepsis + nefrotoxicos, data = d, family = binomial)
+  v <- filter(d, verificado == 1) |> mutate(peso = 1 / fitted(m)[d$verificado == 1])
+  sens_esp_pond(v, corte)
+})
+
+rbind(Verdad = verdad[c("sens", "esp")], `Ingenuo (solo verificados)` = ingenuo[c("sens", "esp")], `Corregido (ponderado)` = corregido) |> round(3)
+apply(boot_corr, 1, quantile, c(0.025, 0.975)) |> round(3)
+```
+
+**Qué vemos:** el análisis ponderado recupera una sensibilidad de **`r pct(corregido["sens"], 0)`** (IC `r pct(quantile(boot_corr["sens", ], 0.025), 0)` a `r pct(quantile(boot_corr["sens", ], 0.975), 0)`) y una especificidad de **`r pct(corregido["esp"], 0)`** (IC `r pct(quantile(boot_corr["esp", ], 0.025), 0)` a `r pct(quantile(boot_corr["esp", ], 0.975), 0)`), muy cerca de la verdad (`r pct(verdad["sens"], 0)` y `r pct(verdad["esp"], 0)`), con intervalos que **incluyen** la verdad. Pero la corrección **solo funciona** si la verificación depende de lo que **sí** medimos. Si dependiera de algo no medido que además se asocia con la LRA, ni la ponderación ni la imputación te salvan. Lo más seguro es **diseñar** para evitar el problema: verificar a todos, o verificar una muestra **aleatoria** de los negativos de la prueba.
+
+::: {.callout-warning}
+## ⚠️ Verificación diferencial y estándares distintos
+
+Cuando los positivos de la prueba reciben un estándar de referencia **distinto** (p. ej., biopsia o seguimiento largo) del que reciben los negativos (solo seguimiento breve), hay **verificación diferencial**: el rendimiento se infla porque cada grupo se clasifica con una "vara" distinta. Es otra forma de sesgo de verificación, incluso si a todos se les hace *algo*.
+:::
+
+## Paso 3. Un estándar de referencia imperfecto o contaminado
+
+Hasta aquí supusimos que el estándar de referencia siempre acierta. En nefrología, el diagnóstico de LRA se basa en la **creatinina**, que cambia **tarde** y se afecta por la volemia, la masa muscular y la dilución. Veamos dos problemas posibles.
+
+**a) Error al azar en el estándar** (**no diferencial**: el error no depende del biomarcador). Supongamos que el estándar solo detecta al **90 %** de las LRA verdaderas (sensibilidad 0.90) y clasifica mal como LRA al **3 %** de los que no la tienen (especificidad 0.97):
+
+```{r}
+#| label: ref-imperfecto-c167
+set.seed(1670)
+ref_imperfecta <- ifelse(dx$lra == 1, rbinom(nrow(dx), 1, 0.90), rbinom(nrow(dx), 1, 0.03))   # el estándar "se equivoca" al azar
+
+c(auc = auc_rapida(dx$ngal, ref_imperfecta), sens_esp(dx$ngal, ref_imperfecta, corte)) |> round(3)
+```
+
+**Qué vemos:** frente a un estándar imperfecto, la sensibilidad "aparente" baja a **`r pct(sens_esp(dx$ngal, ref_imperfecta, corte)["sens"], 0)`** (verdad: `r pct(verdad["sens"], 0)`) y el AUC a `r round(auc_rapida(dx$ngal, ref_imperfecta), 2)` (verdad: `r round(verdad["auc"], 2)`). El error al azar en el estándar **subestima** el rendimiento de la prueba (la prueba parece peor de lo que es). Corregirlo requiere conocer (o estimar) la exactitud del propio estándar, o usar métodos de **clase latente**.
+
+**b) Sesgo de incorporación**: el resultado de la prueba **forma parte** de la definición del estándar. Por ejemplo, si el comité que adjudica "LRA" ve el biomarcador y diagnostica LRA a quien tiene más de 150 ng/mL aunque la creatinina no lo confirme:
+
+```{r}
+#| label: ref-incorporacion-c167
+ref_contaminada <- as.integer(dx$lra == 1 | dx$ngal >= 150)     # el biomarcador "ayuda" a definir la LRA
+
+rbind(Verdad = verdad, `Estándar contaminado` = c(auc = auc_rapida(dx$ngal, ref_contaminada), sens_esp(dx$ngal, ref_contaminada, corte))) |> round(3)
+```
+
+**Qué vemos:** ahora el AUC "sube" a **`r round(auc_rapida(dx$ngal, ref_contaminada), 2)`** (verdad: `r round(verdad["auc"], 2)`), con sensibilidad de `r pct(sens_esp(dx$ngal, ref_contaminada, corte)["sens"], 0)` y especificidad de `r pct(sens_esp(dx$ngal, ref_contaminada, corte)["esp"], 0)`: el estudio **se premia a sí mismo**. La defensa es la **interpretación a ciegas** del estándar (que quien adjudica el diagnóstico no vea el resultado de la prueba, y viceversa).
+
+## Paso 4. *Spin*: cuando la conclusión es más optimista que los datos
+
+El ***spin*** (Boutron et al., 2010; Ochodo et al., 2013 en estudios diagnósticos) es la presentación de los resultados de forma más favorable de lo que justifican los datos: no es fraude, es **énfasis selectivo**. Algunas formas típicas en los estudios de exactitud diagnóstica:
+
+-   Llamar "excelente" a un AUC cuyo **límite inferior del IC** es 0.70, o hablar del AUC "aparente" sin validación.
+-   Destacar el **subgrupo** o el **corte** que sale mejor (elegido después de ver los datos), sin decir que es exploratorio.
+-   Reportar la **sensibilidad** y callar la **especificidad** o el VPP en la prevalencia real.
+-   **Recomendar su uso rutinario** sin validación externa ni estudio de impacto (¿cambia las decisiones y mejora los desenlaces?).
+-   Comparar con un **comparador débil** (p. ej., contra "nada") en lugar de contra la práctica actual (la creatinina y la clínica).
+-   Concluir sobre el "diagnóstico" cuando el estudio incluyó solo pacientes **muy seleccionados** (Paso 1).
+
+Un ejemplo numérico de por qué el **tamaño de la muestra** importa. Simulamos 1 000 "estudios" pequeños de 80 pacientes tomados al azar de nuestros 2 000, y calculamos el AUC en cada uno:
+
+```{r}
+#| label: spin-estudios-pequenos-c167
+set.seed(167)
+aucs <- replicate(1000, { i <- sample(nrow(dx), 80); y <- dx$lra[i]; if (sum(y) < 3) NA else auc_rapida(dx$ngal[i], y) })
+aucs <- na.omit(aucs)
+
+quantile(aucs, c(0.025, 0.5, 0.975)) |> round(3)
+c(proporcion_con_AUC_mayor_a_0.93 = mean(aucs > 0.93), AUC_medio_de_esos_estudios = mean(aucs[aucs > 0.93])) |> round(3)
+```
+
+**Qué vemos:** la verdad es un AUC de `r round(verdad["auc"], 2)`, pero estos estudios chicos (con unos `r round(80 * mean(dx$lra))` casos) dan AUC que van de **`r round(quantile(aucs, 0.025), 2)` a `r round(quantile(aucs, 0.975), 2)`** solo por azar. Alrededor de **`r round(100 * mean(aucs > 0.93))` de cada 100** superan 0.93: justo los estudios con ese resultado "espectacular" son los que con más facilidad se **publican** y se citan (sesgo de publicación), y los que otros usan para decir "la prueba es excelente". Por eso hay que mirar el **IC**, el **tamaño de muestra** y si hay **validación externa**.
+
+## Paso 5. Listas de verificación para leer y reportar
+
+No hace falta memorizarlas: úsalas como **guía** al leer o escribir un estudio.
+
+**STARD 2015** (*Standards for Reporting Diagnostic accuracy studies*; Bossuyt et al.). Es la guía para **reportar** un estudio de exactitud diagnóstica (30 ítems). Lo esencial:
+
+-   **Participantes**: criterios de elegibilidad, cómo se identificaron y si el muestreo fue **consecutivo**; **diagrama de flujo** con los que no recibieron la prueba índice o el estándar.
+-   **Pruebas**: cómo se hicieron la prueba índice y el estándar de referencia, **el punto de corte y si se especificó de antemano**, y si los evaluadores estaban **ciegos** al otro resultado.
+-   **Análisis**: cómo se estimó la exactitud (con **IC**), cómo se trataron los resultados indeterminados y los datos faltantes.
+-   **Resultados**: **tabla 2×2** o los números para reconstruirla, y cuántos pacientes **no se verificaron**.
+-   **Discusión**: limitaciones y **aplicabilidad** (a qué pacientes y escenarios).
+
+**QUADAS-2** (Whiting et al., 2011). Es la herramienta para **evaluar el riesgo de sesgo** de un estudio diagnóstico (p. ej., en una revisión sistemática). Cuatro dominios, cada uno con preguntas guía:
+
+1.  **Selección de pacientes**: ¿muestra consecutiva o aleatoria? ¿se evitó el diseño caso-control? ¿se evitaron exclusiones inapropiadas?
+2.  **Prueba índice**: ¿se interpretó sin conocer el estándar? ¿el punto de corte se fijó **de antemano**?
+3.  **Estándar de referencia**: ¿clasifica bien la condición? ¿se interpretó sin conocer la prueba índice?
+4.  **Flujo y tiempos**: ¿intervalo adecuado entre las pruebas? ¿mismo estándar para todos? ¿todos los pacientes entraron al análisis?
+
+Cada dominio se califica como riesgo de sesgo **bajo / alto / poco claro**, y los tres primeros se califican además en **aplicabilidad** (¿el estudio se parece a *mi* pregunta?). Las cuatro fuentes de optimismo de este subcapítulo caen directamente en ellos: espectro (dominio 1), verificación parcial y diferencial (dominio 4), estándar imperfecto o contaminado (dominio 3) y corte *post hoc* (dominio 2).
+
+**Si el estudio desarrolla un modelo** (16.4-16.5), se usan guías parecidas: **TRIPOD+AI** (Collins et al., 2024) para **reportar** y **PROBAST** (Moons et al., 2019) para **evaluar el riesgo de sesgo**, con cuatro dominios (participantes, predictores, desenlace y análisis). Entre los materiales del autor hay una plantilla de extracción y evaluación (CHARMS + PROBAST); la veremos en detalle en el Cap. 17.7, donde se separan **modelos diagnósticos** de **modelos pronósticos**.
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   El rendimiento de una prueba **depende de los pacientes estudiados** (**espectro**): casos graves y controles sanos inflan el AUC. Exige muestras **consecutivas** de los pacientes donde se usará la prueba.
+-   El **sesgo de verificación parcial** (no todos reciben el estándar, y depende del resultado de la prueba) **infla la sensibilidad y hunde la especificidad**. Se corrige con ponderación **si** la verificación depende de lo medido; lo mejor es **diseñarlo bien**.
+-   Un **estándar de referencia imperfecto** subestima el rendimiento; uno **contaminado** por la prueba (incorporación) lo sobrestima. Pide **ciego** y un estándar sólido.
+-   El ***spin*** es énfasis selectivo: mira el **IC**, el **tamaño de muestra**, si el corte es *post hoc* y si hay **validación externa** y estudios de impacto.
+-   Usa **STARD** para reportar y **QUADAS-2** (diagnóstico) o **PROBAST** + **TRIPOD+AI** (modelos) para evaluar y escribir.
+:::
+
+## Ejercicio
+
+1.  En el Paso 1, define los controles de "extremos" de otra forma (por ejemplo, solo **sin sepsis**, sin otras restricciones). ¿Cuánto del sesgo de espectro queda?
+2.  Repite la corrección por ponderación del Paso 2 **omitiendo** la sepsis y los nefrotóxicos del modelo de verificación (solo `log(ngal)`). ¿Se acerca igual a la verdad? ¿Por qué?
+3.  Toma un artículo diagnóstico que hayas leído recientemente y contéstale las 4 preguntas de **QUADAS-2**. ¿Dónde esperas el mayor riesgo de sesgo?

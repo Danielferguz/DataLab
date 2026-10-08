@@ -1,0 +1,244 @@
+# ¿Por qué la independencia no se cumple?
+
+::: {.callout-note}
+## 🩺 Escenario
+
+Tu red tiene **40 unidades de hemodiálisis** y quiere saber si un nuevo protocolo de ajuste de EPO y hierro (guiado por un algoritmo) sube la hemoglobina. El protocolo se aplicó a **unidades enteras**, no a pacientes sueltos. Con la base de **1 778 pacientes** corres una regresión y sale *p* < 0.001: ¡éxito! Tu colega estadístico frunce el ceño: "¿cuántas observaciones independientes tienes en realidad?". Este subcapítulo responde esa pregunta, y es la razón de ser de todo el Cap. 14.
+:::
+
+**Lo que vamos a hacer**
+
+-   Ver la **estructura anidada** de los datos (mediciones dentro de pacientes, pacientes dentro de unidades).
+-   Comprobar que ignorarla da **errores estándar demasiado pequeños** y falsos positivos, y medirlo con la **correlación intraclase (ICC)** y el **efecto de diseño**.
+-   Descubrir que un predictor puede tener un efecto **dentro** de las unidades y otro **entre** unidades: la **falacia ecológica**.
+
+*Datos simulados (`hd_unidades`).* Conocemos la verdad: el protocolo sube la hemoglobina **+0.40 g/dL** y la edad tiene un efecto de **−0.030 g/dL por año dentro de cada unidad** pero de **+0.040 g/dL por año entre unidades**.
+
+## Paso 1. La estructura de los datos
+
+Casi todos los métodos que has visto hasta aquí suponen que cada fila de la base es una **observación independiente** de las demás. En la clínica real eso casi nunca ocurre: los pacientes de una misma unidad comparten enfermeras, protocolos, agua de diálisis, laboratorio y hasta el mismo nefrólogo que ajusta la EPO. Y las mediciones mensuales de un mismo paciente se parecen entre sí.
+
+Los datos tienen **tres niveles**, uno dentro de otro (**anidados**):
+
+```{r}
+#| label: nidos-c14
+#| echo: false
+#| fig-width: 9
+#| fig-height: 2
+library(tidyverse)
+source("R/funciones_epi.R")
+source("R/funciones_extra_a.R")
+source("R/funciones_extra_cap1213.R")
+source("R/funciones_extra_cap14.R")
+diagrama_flujo(c("Nivel 3\nUnidad de diálisis\n(40 unidades)", "Nivel 2\nPaciente\n(1 778 pacientes)", "Nivel 1\nMedición mensual\n(≈ 19 800 medidas)"),
+               resaltar = 1, tam_texto = 3.4)
+```
+
+Cargamos los datos. Hay un archivo por paciente (covariables y desenlace de hospitalización) y otro con la hemoglobina mensual en formato largo (una fila por medición, Cap. 5.1):
+
+```{r}
+#| label: carga-141
+library(sandwich)
+library(lmtest)
+library(lme4)
+theme_set(theme_minimal(base_size = 12))
+
+pac <- read_csv("Bases/hd_unidades.csv", show_col_types = FALSE)
+hb  <- read_csv("Bases/hd_unidades_hb.csv", show_col_types = FALSE)
+
+c(unidades = n_distinct(pac$unidad), pacientes = nrow(pac), mediciones = nrow(hb))
+pac |> count(unidad) |> summarise(minimo = min(n), mediana = median(n), maximo = max(n))
+```
+
+Para este subcapítulo, quédate con **una cifra por paciente**: la hemoglobina media de sus 12 meses (así trabajamos con dos niveles, pacientes dentro de unidades). La intervención es una característica **de la unidad**: todos los pacientes de una unidad la reciben o ninguno.
+
+```{r}
+#| label: hb-media-141
+pm <- hb |>
+  group_by(id) |>
+  summarise(hb_media = mean(hb), .groups = "drop") |>
+  left_join(pac, by = "id")
+
+pm |> group_by(intervencion) |>
+  summarise(unidades = n_distinct(unidad), pacientes = n(), hb_media = mean(hb_media)) |>
+  mutate(intervencion = if_else(intervencion == 1, "Con protocolo", "Atención habitual"))
+```
+
+## Paso 2. Los pacientes de una misma unidad se parecen
+
+Dibuja la hemoglobina media de cada paciente, **una columna por unidad** y ordenadas por su promedio:
+
+```{r}
+#| label: puntos-unidades-141
+#| fig-width: 9
+#| fig-height: 4
+orden <- pm |> group_by(unidad) |> summarise(m = mean(hb_media)) |> arrange(m) |> pull(unidad)
+
+pm |>
+  mutate(unidad = factor(unidad, levels = orden),
+         brazo = if_else(intervencion == 1, "Con protocolo", "Atención habitual")) |>
+  ggplot(aes(unidad, hb_media, color = brazo)) +
+  geom_jitter(width = 0.2, alpha = 0.35, size = 0.8) +
+  stat_summary(fun = mean, geom = "point", shape = 95, size = 6, color = "black") +
+  scale_color_manual(values = c("Atención habitual" = "#999999", "Con protocolo" = "#0072B2"), name = NULL) +
+  labs(x = "Unidad (ordenadas por su media)", y = "Hb media del paciente (g/dL)",
+       caption = "Cada punto es un paciente; la barra negra es la media de la unidad. Datos simulados.") +
+  theme(axis.text.x = element_text(angle = 90, size = 7), legend.position = "bottom")
+```
+
+**Qué vemos.** Hay unidades "altas" y unidades "bajas", y los puntos de una misma unidad se agrupan alrededor de su barra. Si cada paciente fuera independiente de su unidad, esas barras serían casi iguales y solo variarían un poco por azar. Aquí varían mucho más: la unidad **importa**.
+
+## Paso 3. Qué pasa si lo ignoras: la regresión "ingenua"
+
+Ajustamos la regresión lineal de siempre y, al lado, la misma regresión con **errores estándar robustos por conglomerado** (agrupados por unidad; `vcovCL()` del paquete `sandwich`). El coeficiente es el mismo; lo que cambia es **cuánta confianza** dice tener:
+
+```{r}
+#| label: ingenua-141
+lm_ing <- lm(hb_media ~ intervencion, data = pm)
+
+ing <- coeftest(lm_ing)["intervencion", ]                                    # error estándar "normal"
+rob <- coeftest(lm_ing, vcov = vcovCL(lm_ing, cluster = pm$unidad))["intervencion", ]   # robusto por unidad
+
+tibble(
+  metodo = c("Ingenuo (todos independientes)", "Robusto por unidad"),
+  efecto = c(ing[1], rob[1]), error_estandar = c(ing[2], rob[2]),
+  ic_inf = efecto - 1.96 * error_estandar, ic_sup = efecto + 1.96 * error_estandar,
+  p = c(ing[4], rob[4])
+) |> mutate(across(c(efecto:ic_sup), \(x) round(x, 2)), p = signif(p, 2))
+```
+
+**Qué vemos.** El efecto estimado es el mismo (`r num(ing[1], 2)` g/dL), pero el error estándar ingenuo (`r num(ing[2], 3)`) es **`r num(rob[2] / ing[2], 1)` veces menor** que el robusto (`r num(rob[2], 3)`). El análisis ingenuo cree tener 1 778 piezas de evidencia independientes; en realidad el protocolo se probó **en 40 unidades**, y esa es la cifra que manda.
+
+Como tercer punto de referencia, el análisis más simple y honesto: **un dato por unidad**. Calculamos la media de cada unidad y comparamos las 20 unidades con protocolo frente a las 20 sin él:
+
+```{r}
+#| label: nivel-unidad-141
+um <- pm |> group_by(unidad, intervencion) |> summarise(media = mean(hb_media), .groups = "drop")
+tt <- t.test(media ~ intervencion, data = um)                       # prueba t de Welch entre unidades
+dif_u <- unname(tt$estimate[2] - tt$estimate[1]); ic_u <- -rev(tt$conf.int)   # con protocolo - habitual
+c(diferencia = dif_u, ic_inf = ic_u[1], ic_sup = ic_u[2], p = tt$p.value) |> round(3)
+```
+
+Con 40 unidades, la diferencia es `r num(dif_u, 2)` g/dL (IC 95 % `r num(ic_u[1], 2)` a `r num(ic_u[2], 2)`): el protocolo sigue pareciendo útil, pero el intervalo es **mucho más ancho** que el del análisis ingenuo (`r num(ing[1] - 1.96 * ing[2], 2)` a `r num(ing[1] + 1.96 * ing[2], 2)`). Recuerda que conocemos la verdad: **+0.40 g/dL**. Estas cifras crudas la rebasan un poco porque, con solo 40 unidades, el azar de la aleatorización deja algo de desbalance entre brazos en el nivel basal de las unidades y en su perfil de edad (14.5 vuelve sobre esto). Lo importante es que el intervalo honesto sí contiene la verdad y el ingenuo, que dice ser mucho más preciso, no la contiene.
+
+## Paso 4. ¿Cuánta información real hay? ICC y efecto de diseño
+
+La **correlación intraclase** (**ICC**, *intraclass correlation coefficient*) mide **qué parte de la variabilidad total está entre unidades** y no dentro de ellas. Va de 0 (las unidades son irrelevantes: pacientes independientes) a 1 (todos los pacientes de una unidad son idénticos). Se interpreta también como la **correlación esperada entre dos pacientes elegidos al azar de la misma unidad**.
+
+```{r}
+#| label: icc-141
+res_icc <- icc_anova(pm$hb_media, pm$unidad)
+res_icc |> mutate(across(where(is.numeric), \(x) round(x, 2)))
+```
+
+Con un ICC de **`r num(res_icc$icc, 2)`** y unidades de **`r num(res_icc$tamano_medio, 0)`** pacientes en promedio, el **efecto de diseño** (**DEFF**, *design effect*) es:
+
+$$
+\text{DEFF} = 1 + (m - 1) \times \text{ICC} \qquad \Rightarrow \qquad 1 + (`r num(res_icc$tamano_medio, 0)` - 1) \times `r num(res_icc$icc, 2)` = `r num(res_icc$deff, 1)`
+$$
+
+donde $m$ es el tamaño medio de la unidad. El DEFF dice **por cuánto se infla la varianza** respecto de una muestra de pacientes independientes. Dividiendo el tamaño de muestra entre el DEFF se obtiene el **tamaño de muestra efectivo**:
+
+```{r}
+#| label: neff-141
+tibble(pacientes = nrow(pm), deff = res_icc$deff, pacientes_efectivos = nrow(pm) / res_icc$deff) |>
+  mutate(across(where(is.numeric), \(x) round(x, 1)))
+```
+
+Tus 1 778 pacientes valen, para efectos de precisión, unos **`r num(nrow(pm) / res_icc$deff, 0)`** pacientes independientes. Es la misma idea del **muestreo por conglomerados** del Cap. 6 (allí también había un efecto de diseño) y la razón por la que los ensayos por conglomerados necesitan más pacientes (14.5).
+
+## Paso 5. Falsos positivos: un experimento con "placebo"
+
+Si la regresión ingenua subestima el error, debe equivocarse a menudo. Lo comprobamos con un truco: **repartimos la intervención al azar entre las unidades** (mitad y mitad dentro de cada tipo de unidad) como si fuera un placebo. Como la asignación es falsa, el efecto verdadero es **cero**; con un buen método, solo ~5 % de las veces saldrá *p* < 0.05. Repetimos 500 veces:
+
+```{r}
+#| label: placebo-141
+set.seed(141)
+unidades <- pm |> distinct(unidad, tipo_unidad)
+
+p_placebo <- replicate(500, {
+  # reparto falso: la mitad de las unidades de cada tipo "recibe" la intervención
+  falso <- unidades |>
+    group_by(tipo_unidad) |>
+    mutate(falso = as.integer(rank(runif(n())) <= n() / 2)) |>
+    ungroup() |> select(unidad, falso)
+  d <- left_join(pm, falso, by = "unidad")
+  m <- lm(hb_media ~ falso, data = d)
+  c(ingenuo = coeftest(m)["falso", 4],
+    robusto = coeftest(m, vcov = vcovCL(m, cluster = d$unidad))["falso", 4])
+})
+
+rowMeans(p_placebo < 0.05)        # proporción de "hallazgos" falsos
+```
+
+**Qué vemos.** El análisis ingenuo declara un efecto "significativo" en **`r pct(mean(p_placebo["ingenuo", ] < 0.05), 0)`** de los ensayos donde no hay ningún efecto (¡en vez del 5 %!). El robusto por unidad se queda en **`r pct(mean(p_placebo["robusto", ] < 0.05), 0)`**, cerca del 5 % nominal. Este es el costo real de ignorar el agrupamiento: **hallazgos falsos que parecen contundentes**.
+
+## Paso 6. Dentro vs. entre: la falacia ecológica
+
+El agrupamiento no solo afecta los errores estándar; puede cambiar **el signo** de una asociación. Pregunta: ¿los pacientes mayores tienen más o menos hemoglobina? Calculamos tres respuestas distintas:
+
+1.  **Mezclando todo** (regresión simple).
+2.  **Dentro de cada unidad**: comparando a cada paciente con la edad media de su propia unidad.
+3.  **Entre unidades**: relacionando la edad media de cada unidad con su hemoglobina media.
+
+```{r}
+#| label: dentro-entre-141
+pm <- pm |>
+  group_by(unidad) |>
+  mutate(edad_media_unidad = mean(edad),             # característica de la unidad
+         edad_dentro = edad - edad_media_unidad) |>  # cuánto más viejo es el paciente que sus compañeros
+  ungroup()
+
+b_mezcla <- coef(lm(hb_media ~ edad, data = pm))["edad"]
+b_dentro <- coef(lm(hb_media ~ edad_dentro + edad_media_unidad, data = pm))["edad_dentro"]
+
+por_unidad <- pm |> group_by(unidad) |> summarise(hb = mean(hb_media), edad = mean(edad))
+b_entre <- coef(lm(hb ~ edad, data = por_unidad))["edad"]
+
+tibble(enfoque = c("Mezclado (todos los pacientes)", "Dentro de las unidades", "Entre unidades"),
+       estimado_g_dL_por_anio = c(b_mezcla, b_dentro, b_entre),
+       verdad = c(NA, -0.030, 0.040)) |>
+  mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+Los tres números cuentan historias distintas: `r num(b_dentro, 3)` dentro de las unidades (verdad −0.030), `r num(b_entre, 3)` entre unidades (verdad +0.040; con solo 40 unidades esta pendiente es imprecisa) y una cifra intermedia, `r num(b_mezcla, 3)`, cuando se mezclan los dos niveles. Se ve mejor en un gráfico:
+
+```{r}
+#| label: dentro-entre-graf-141
+#| fig-width: 8
+#| fig-height: 4.2
+ggplot(pm, aes(edad, hb_media)) +
+  geom_point(color = "grey70", alpha = 0.35, size = 0.7) +
+  geom_smooth(aes(group = unidad), method = "lm", se = FALSE, color = "#0072B2", linewidth = 0.3, alpha = 0.6) +
+  geom_smooth(data = por_unidad, aes(edad, hb), method = "lm", se = FALSE, color = "#D55E00", linewidth = 1.2) +
+  geom_point(data = por_unidad, aes(edad, hb), color = "#D55E00", size = 2) +
+  labs(x = "Edad (años)", y = "Hemoglobina media (g/dL)",
+       caption = "Azul: pendiente dentro de cada unidad. Naranja: puntos y recta de las medias por unidad. Datos simulados.")
+```
+
+**Qué vemos.** Las rectas azules (dentro de cada unidad) **bajan**: en una misma unidad, el paciente de más edad tiene menos hemoglobina. La recta naranja (entre unidades) **sube**: las unidades con población más añosa tienen, en promedio, más hemoglobina (en esta simulación, porque atienden con protocolos más intensivos de hierro y EPO). Un análisis que mezcle los niveles obtiene una pendiente intermedia que **no es verdad en ningún nivel**.
+
+Eso es la **falacia ecológica** (suponer que lo que pasa entre grupos pasa también dentro de los individuos) y su inversa, la **falacia atomista** (suponer que lo que pasa en individuos explica las diferencias entre grupos). Es el eje de la lectura clásica de Diez Roux sobre análisis multinivel en salud pública (*Lectura recomendada por el autor; no pudimos consultarla desde este entorno*). Los modelos mixtos (14.2) permiten **separar** ambos efectos en un solo modelo.
+
+::: {.callout-warning}
+## ⚠️ Trampas frecuentes
+
+-   **"Ajustar por unidad" no arregla una intervención de unidad.** Meter la unidad como variable (factor) absorbe justo lo que quieres estimar: si toda la unidad recibe el protocolo, el efecto del protocolo y el de la unidad **no se pueden separar** (colinealidad perfecta). La solución es modelar la unidad como **efecto aleatorio** o usar errores robustos por conglomerado.
+-   **Promediar las mediciones no basta.** Pasar de 12 mediciones por paciente a su promedio resuelve la correlación *dentro del paciente*, pero no la correlación *entre pacientes de la misma unidad*. Siempre pregúntate: ¿cuál es la **unidad de aleatorización** (o de exposición)? Esa define cuántas observaciones independientes tienes.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   Los datos clínicos suelen ser **anidados** (mediciones en pacientes, pacientes en unidades): las observaciones de un mismo grupo **no son independientes**.
+-   Ignorarlo produce **errores estándar demasiado pequeños** y falsos positivos: en el experimento placebo, el análisis ingenuo "encontró" un efecto en `r pct(mean(p_placebo["ingenuo", ] < 0.05), 0)` de los casos.
+-   El **ICC** mide cuánta variabilidad hay entre grupos; el **DEFF** (1 + (m − 1)·ICC) dice cuánto se infla la varianza y cuántos pacientes "efectivos" quedan (aquí ≈ `r num(nrow(pm) / res_icc$deff, 0)` de 1 778).
+-   Una asociación puede tener **signo distinto dentro y entre grupos**; mezclar niveles da respuestas que no son ciertas en ninguno.
+-   Opciones: errores robustos por conglomerado, **modelos mixtos** (14.2-14.3) y **GEE** (14.4).
+:::
+
+## Ejercicio
+
+1.  Repite el cálculo del ICC y del DEFF con la **hospitalización** (0/1) como desenlace en lugar de la hemoglobina. ¿Es el ICC mayor o menor? (Pista: usa `icc_anova(pac$hospitalizado, pac$unidad)`.)
+2.  En el experimento placebo, cambia el número de pacientes por unidad (por ejemplo, usa solo 10 pacientes por unidad al azar). ¿Cómo cambia la proporción de falsos positivos del análisis ingenuo? ¿Y el DEFF?
+3.  Calcula la pendiente de **albúmina** sobre la hemoglobina media "mezclada" y "dentro" de las unidades. ¿Se parecen? ¿Por qué crees que en este caso no hay una falacia ecológica?

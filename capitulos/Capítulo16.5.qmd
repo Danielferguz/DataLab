@@ -1,0 +1,238 @@
+# Calibración: cuando el modelo dice "30 %", ¿de verdad es 30 %?
+
+::: {.callout-note}
+## 🩺 Escenario
+
+Tu modelo marca a un paciente con "40 % de riesgo de LRA ≥ 2" y activas el paquete KDIGO. Si el modelo estuviera mal calibrado y ese "40 %" en realidad fuera del 70 %, habrías subestimado el riesgo; si fuera del 15 %, habrías sobretratado. La **discriminación** (AUC) solo te dijo que el modelo **ordena** bien a los pacientes. La **calibración** te dice si los **números** que da son **creíbles**.
+:::
+
+La calibración es el **talón de Aquiles** de los modelos predictivos (Van Calster et al., 2019): se revisa mucho menos que el AUC y es la que más falla al llevar un modelo a otro hospital. Sin buenas probabilidades, ni los umbrales de decisión (16.6) ni las conversaciones con el paciente tienen sentido.
+
+**Lo que vamos a hacer**
+
+-   Dibujar un **gráfico de calibración** y leerlo.
+-   Resumir la calibración con el **intercepto** (calibración en lo grande), la **pendiente** y el **puntaje de Brier**.
+-   Ver dos formas típicas de mala calibración (**sobreajuste** y **cambio de entorno**) y cómo **recalibrar**.
+-   Entender por qué la prueba de **Hosmer-Lemeshow** se desaconseja.
+
+```{r}
+#| label: setup-c165
+library(tidyverse)
+library(patchwork)
+source("R/funciones_extra_cap16.R")
+
+dx <- read_csv("Bases/dx_lra.csv", show_col_types = FALSE) |>      # datos SIMULADOS (Cap. 16)
+  mutate(log2_ngal = log2(ngal), log_creat = log(creat_ingreso))
+
+f_clin <- lra ~ I(edad / 10) + diabetes + sepsis + nefrotoxicos + log_creat + entorno
+f_full <- update(f_clin, . ~ . + log2_ngal)
+
+## Probabilidades "fuera de muestra" (validación cruzada de 10 particiones): cada paciente se predice
+## con un modelo que no lo vio, como en 16.4. Así la calibración no se evalúa con trampa.
+p_full <- prob_cv(f_full, dx, K = 10, semilla = 165)
+p_clin <- prob_cv(f_clin, dx, K = 10, semilla = 165)
+```
+
+## Paso 1. Discriminar bien no es calibrar bien
+
+Para ver que son cosas distintas, hagamos una "travesura": tomamos las probabilidades del modelo y las **distorsionamos** (las hacemos más extremas y las desplazamos hacia abajo). El orden de los pacientes **no cambia**, así que el AUC es exactamente el mismo.
+
+```{r}
+#| label: auc-igual-c165
+lp <- qlogis(p_full)
+p_distorsionada <- plogis(2 * lp - 1)          # el doble de extrema y desplazada hacia arriba
+
+tibble(version = c("Probabilidades originales", "Probabilidades distorsionadas"),
+       auc = c(auc_rapida(p_full, dx$lra), auc_rapida(p_distorsionada, dx$lra)),
+       riesgo_medio_predicho = c(mean(p_full), mean(p_distorsionada)),
+       proporcion_observada = mean(dx$lra)) |>
+  mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+**Qué vemos:** el AUC es **idéntico** (`r round(auc_rapida(p_full, dx$lra), 3)`), pero las probabilidades distorsionadas predicen un riesgo medio de **`r pct(mean(p_distorsionada), 0)`** cuando la proporción real de LRA es del **`r pct(mean(dx$lra), 0)`**. El AUC no puede detectar esto. Para eso hay que mirar la calibración.
+
+## Paso 2. El gráfico de calibración
+
+Se agrupan los pacientes por su **riesgo predicho** (por ejemplo, en diez grupos del mismo tamaño) y se compara, en cada grupo, el riesgo **predicho promedio** (eje x) con la **proporción observada** de LRA (eje y). Si el modelo está calibrado, los puntos caen sobre la **diagonal**.
+
+```{r}
+#| label: tabla-calibracion-c165
+tabla_calibracion(p_full, dx$lra, grupos = 10) |>
+  mutate(across(c(predicho, observado, ic_inf, ic_sup), \(x) round(x, 3)))
+```
+
+```{r}
+#| label: grafico-calibracion-c165
+#| fig-width: 6
+#| fig-height: 5.5
+grafico_calibracion(p_full, dx$lra, grupos = 10, titulo = "Modelo clínico + biomarcador (validación cruzada)")
+```
+
+**Qué vemos:** los diez puntos (con su IC 95 %) siguen la diagonal de cerca. Por ejemplo, en el grupo de mayor riesgo el modelo predice `r pct(tabla_calibracion(p_full, dx$lra, 10)$predicho[10], 0)` y se observa `r pct(tabla_calibracion(p_full, dx$lra, 10)$observado[10], 0)`. La línea naranja es una curva suavizada (*loess*) que no depende de cómo agrupes. **Lee siempre los dos:** puntos y curva. En la práctica, con pocos eventos, el gráfico es ruidoso y los grupos con pocos pacientes tienen IC muy anchos.
+
+## Paso 3. Resumirla en números: intercepto, pendiente y O:E
+
+Dos números describen casi todo lo que puede ir mal. Se obtienen ajustando una pequeña regresión logística del **desenlace real** sobre el **logit del riesgo predicho**:
+
+-   **Calibración en lo grande** (*calibration-in-the-large*, CITL): ¿el modelo, **en promedio**, sobre o subestima el riesgo? Se estima con un intercepto, dejando la pendiente en 1. **Ideal = 0**. Un valor > 0 significa que el modelo **subestima** el riesgo; < 0, que lo **sobreestima**. Su primo es el cociente **O:E** (observados/esperados), con ideal 1.
+-   **Pendiente de calibración**: ¿las predicciones son **demasiado extremas** o **demasiado tímidas**? **Ideal = 1**. Una pendiente < 1 indica predicciones **demasiado extremas** (típico del **sobreajuste**: los riesgos altos son menos altos, y los bajos menos bajos, de lo que dice el modelo); > 1, demasiado conservadoras.
+
+```{r}
+#| label: resumen-calibracion-c165
+resumen_calibracion(p_full, dx$lra) |> mutate(across(everything(), \(x) round(x, 3)))
+```
+
+**Qué vemos:** la calibración en lo grande es de **`r round(resumen_calibracion(p_full, dx$lra)$intercepto_CITL, 2)`** (O:E = `r round(resumen_calibracion(p_full, dx$lra)$O_E, 2)`) y la pendiente de **`r round(resumen_calibracion(p_full, dx$lra)$pendiente, 2)`**: casi ideales (0 y 1). El **ICI** (*integrated calibration index*) es el promedio de la distancia absoluta entre la curva suavizada y la diagonal: **`r round(resumen_calibracion(p_full, dx$lra)$ICI, 3)`**, es decir, en promedio el modelo se equivoca unos `r round(100 * resumen_calibracion(p_full, dx$lra)$ICI, 1)` puntos porcentuales. Esto coincide con lo que reporta `rms::val.prob()` (nuestro "intercepto de la recta" corresponde a su `Intercept`):
+
+```{r}
+#| label: valprob-c165
+rms::val.prob(p_full, dx$lra, pl = FALSE)[c("Intercept", "Slope", "Brier", "C (ROC)")] |> round(3)
+```
+
+## Paso 4. El puntaje de Brier
+
+El **puntaje de Brier** es el **error cuadrático medio** de las probabilidades: para cada paciente, $(p - y)^2$ con $y$ = 1 si tuvo LRA y 0 si no, promediado. Va de 0 (perfecto) a 0.25 (un modelo que siempre dice 50 %), y **mezcla discriminación y calibración**. Para saber si es "bueno" conviene compararlo con un modelo **sin información** (que siempre predice la prevalencia): el **Brier escalado** es $1 - \text{Brier}/\text{Brier}_{\text{nulo}}$, algo parecido a un $R^2$.
+
+```{r}
+#| label: brier-c165
+bind_rows(`Clínico` = resumen_calibracion(p_clin, dx$lra), `Clínico + biomarcador` = resumen_calibracion(p_full, dx$lra), .id = "modelo") |>
+  select(modelo, brier, brier_escalado, pendiente, intercepto_CITL) |>
+  mutate(across(where(is.numeric), \(x) round(x, 3)))
+mean(dx$lra) * (1 - mean(dx$lra))     # Brier del modelo "nulo" (siempre predice la prevalencia)
+```
+
+**Qué vemos:** el Brier baja de **`r round(resumen_calibracion(p_clin, dx$lra)$brier, 3)`** (clínico) a **`r round(resumen_calibracion(p_full, dx$lra)$brier, 3)`** (con biomarcador), y el Brier escalado sube de `r round(resumen_calibracion(p_clin, dx$lra)$brier_escalado, 2)` a `r round(resumen_calibracion(p_full, dx$lra)$brier_escalado, 2)`. Ambos modelos están bien calibrados (pendientes cercanas a 1); la mejora del Brier viene sobre todo de la **discriminación** del biomarcador. Para el "modelo nulo" el Brier sería `r round(mean(dx$lra) * (1 - mean(dx$lra)), 3)`.
+
+## Paso 5. Dos formas típicas de mala calibración
+
+### 5a. Sobreajuste: demasiadas variables, pocos eventos
+
+Desarrollamos el modelo en **600 pacientes** y lo validamos en los otros 1 400. Comparamos el modelo "razonable" (7 variables) con uno **sobreajustado**, al que añadimos 30 variables de **puro ruido** (simuladas, sin relación con la LRA):
+
+```{r}
+#| label: sobreajuste-c165
+set.seed(165)
+idx <- sample(nrow(dx), 600)
+ruido <- matrix(rnorm(nrow(dx) * 30), ncol = 30, dimnames = list(NULL, paste0("z", 1:30)))     # 30 variables de ruido
+dxr <- bind_cols(dx, as_tibble(ruido))
+des <- dxr[idx, ]; val <- dxr[-idx, ]
+
+f_ruido <- as.formula(paste("lra ~ I(edad / 10) + diabetes + sepsis + nefrotoxicos + log_creat + entorno + log2_ngal +",
+                            paste0("z", 1:30, collapse = " + ")))
+m_razonable <- glm(f_full,  data = des, family = binomial)
+m_sobre     <- glm(f_ruido, data = des, family = binomial)
+
+p_val_razonable <- predict(m_razonable, val, type = "response")
+p_val_sobre     <- predict(m_sobre,     val, type = "response")
+
+tibble(modelo = c("Razonable (7 variables)", "Sobreajustado (37 variables)"),
+       AUC_aparente = c(auc_rapida(fitted(m_razonable), des$lra), auc_rapida(fitted(m_sobre), des$lra)),
+       AUC_validacion = c(auc_rapida(p_val_razonable, val$lra), auc_rapida(p_val_sobre, val$lra)),
+       pendiente_validacion = c(resumen_calibracion(p_val_razonable, val$lra)$pendiente, resumen_calibracion(p_val_sobre, val$lra)$pendiente)) |>
+  mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+```{r}
+#| label: sobreajuste-grafico-c165
+#| fig-width: 9
+#| fig-height: 4.5
+g1 <- grafico_calibracion(p_val_razonable, val$lra, 8, "Razonable (7 variables)", limite = 0.9)
+g2 <- grafico_calibracion(p_val_sobre, val$lra, 8, "Sobreajustado (37 variables)", limite = 0.9)
+g1 | g2
+```
+
+**Qué vemos:** el modelo sobreajustado **luce** mejor en los datos de desarrollo (AUC aparente `r round(auc_rapida(fitted(m_sobre), des$lra), 3)` frente a `r round(auc_rapida(fitted(m_razonable), des$lra), 3)`), pero **en pacientes nuevos** su AUC cae a `r round(auc_rapida(p_val_sobre, val$lra), 3)` (frente a `r round(auc_rapida(p_val_razonable, val$lra), 3)` del modelo razonable) y su pendiente de calibración es de **`r round(resumen_calibracion(p_val_sobre, val$lra)$pendiente, 2)`**: sus riesgos altos son **demasiado altos** y los bajos **demasiado bajos**. Es la firma del sobreajuste: con solo `r sum(des$lra)` casos de LRA en el desarrollo, 37 parámetros son demasiados (menos de `r ceiling(sum(des$lra) / 37)` eventos por parámetro) y el modelo aprendió ruido. Con la validación interna de 16.4 (y del Cap. 17) se detecta **antes** de usarlo.
+
+### 5b. El mismo modelo en otro entorno
+
+Un hospital con solo salas desarrolla el modelo (con el biomarcador, sin la variable `entorno`) y otro lo usa en su **UCI**. El modelo ordena bien, pero ¿acierta con los números?
+
+```{r}
+#| label: otro-entorno-c165
+sala <- filter(dx, entorno == "Sala"); uci <- filter(dx, entorno == "UCI")
+
+f_sala <- lra ~ I(edad / 10) + diabetes + sepsis + nefrotoxicos + log_creat + log2_ngal
+m_sala <- glm(f_sala, data = sala, family = binomial)
+
+p_uci <- predict(m_sala, uci, type = "response")                         # modelo de sala, aplicado en UCI
+resumen_calibracion(p_uci, uci$lra) |> mutate(across(everything(), \(x) round(x, 3)))
+c(AUC_en_UCI = auc_rapida(p_uci, uci$lra), riesgo_predicho_medio = mean(p_uci), proporcion_observada = mean(uci$lra)) |> round(3)
+```
+
+**Qué vemos:** el AUC en UCI sigue siendo alto (**`r round(auc_rapida(p_uci, uci$lra), 2)`**), pero el modelo **subestima** el riesgo: predice en promedio `r pct(mean(p_uci), 0)` cuando se observa `r pct(mean(uci$lra), 0)` (calibración en lo grande = **`r round(resumen_calibracion(p_uci, uci$lra)$intercepto_CITL, 2)`**, O:E = `r round(resumen_calibracion(p_uci, uci$lra)$O_E, 1)`). Los pacientes de UCI tienen un riesgo basal más alto del que el modelo de sala "conoce".
+
+La buena noticia: este tipo de error se **repara fácil** con una **recalibración**. La más sencilla corrige solo el **intercepto** (se estima con una regresión logística del desenlace sobre el logit predicho, usando el logit como *offset*, es decir, con pendiente fija en 1). Se hace en una muestra local pequeña y no hace falta reajustar todo el modelo:
+
+```{r}
+#| label: recalibrar-c165
+lp_uci <- qlogis(p_uci)
+ajuste_interc <- glm(lra ~ offset(lp_uci), data = uci, family = binomial)          # solo intercepto
+p_uci_recal   <- plogis(lp_uci + coef(ajuste_interc))
+c(correccion_del_intercepto = unname(coef(ajuste_interc))) |> round(2)
+resumen_calibracion(p_uci_recal, uci$lra) |> mutate(across(everything(), \(x) round(x, 3)))
+```
+
+```{r}
+#| label: recalibrar-grafico-c165
+#| fig-width: 9
+#| fig-height: 4.5
+g3 <- grafico_calibracion(p_uci, uci$lra, 8, "Modelo de sala en UCI (sin recalibrar)", limite = 0.9)
+g4 <- grafico_calibracion(p_uci_recal, uci$lra, 8, "Con el intercepto recalibrado", limite = 0.9)
+g3 | g4
+```
+
+**Qué vemos:** tras sumar `r round(coef(ajuste_interc), 2)` al logit, el cociente O:E pasa de `r round(resumen_calibracion(p_uci, uci$lra)$O_E, 1)` a **`r round(resumen_calibracion(p_uci_recal, uci$lra)$O_E, 1)`** y el ICI de `r round(resumen_calibracion(p_uci, uci$lra)$ICI, 2)` a `r round(resumen_calibracion(p_uci_recal, uci$lra)$ICI, 2)`. Esta es la lógica de la **validación externa y la actualización de modelos** que veremos en el Cap. 17: antes de usar un modelo en otro lugar, **verifica la calibración localmente** y recalibra si hace falta. Nota que se evaluó en los mismos pacientes con los que se estimó la corrección: es una ilustración, no una validación independiente.
+
+## Paso 6. Por qué se desaconseja Hosmer-Lemeshow
+
+La prueba de **Hosmer-Lemeshow** divide a los pacientes en *g* grupos de riesgo (casi siempre 10), compara observados contra esperados con una χ² y da un valor *p*. Se usa mucho, pero tiene problemas serios (Hosmer et al., 1997):
+
+```{r}
+#| label: hosmer-c165
+## Mismo modelo, mismas predicciones: cambia solo el número de grupos
+map_dfr(c(5, 8, 10, 12, 15, 20), \(g) hosmer_lemeshow(p_full, dx$lra, g)) |> mutate(chi2 = round(chi2, 1), valor_p = round(valor_p, 3))
+
+## ¿Y en el modelo claramente mal calibrado (sala en UCI)?
+hosmer_lemeshow(p_uci, uci$lra, 10) |> mutate(chi2 = round(chi2, 1), valor_p = signif(valor_p, 2))
+```
+
+**Qué vemos:** con el modelo bien calibrado, el valor *p* cambia de `r round(min(map_dbl(c(5, 8, 10, 12, 15, 20), \(g) hosmer_lemeshow(p_full, dx$lra, g)$valor_p)), 2)` a `r round(max(map_dbl(c(5, 8, 10, 12, 15, 20), \(g) hosmer_lemeshow(p_full, dx$lra, g)$valor_p)), 2)` **solo por cambiar el número de grupos**. Con el modelo mal calibrado el valor *p* es diminuto, pero tampoco te dice **cómo** ni **dónde** falla (¿subestima? ¿en el riesgo alto?). Con pocos pacientes casi nunca detecta nada, y con muchos "detecta" desviaciones sin importancia clínica.
+
+**Mejor alternativa:** el **gráfico de calibración** (con curva suavizada), la **calibración en lo grande**, la **pendiente** y el **ICI**, con sus IC. Con el paquete `rms`, la curva de calibración **corregida del optimismo por *bootstrap*** se obtiene así:
+
+```{r}
+#| label: rms-calibrate-c165
+#| fig-width: 6
+#| fig-height: 5
+library(rms)
+ajuste_rms <- lrm(f_full, data = dx, x = TRUE, y = TRUE)
+set.seed(165)
+cal <- calibrate(ajuste_rms, method = "boot", B = 200)    # corrección del optimismo con 200 remuestras bootstrap
+plot(cal, xlab = "Riesgo predicho", ylab = "Proporción observada")
+```
+
+**Qué vemos:** la curva "bias-corrected" (corregida del optimismo) casi coincide con la diagonal ideal. Debajo del gráfico `rms` informa el **error absoluto medio** de la calibración (parecido en espíritu al ICI).
+
+::: {.callout-warning}
+## ⚠️ Trampas de la calibración
+
+-   **Evaluarla en los mismos datos con que se ajustó** el modelo da, casi siempre, una calibración perfecta (intercepto 0, pendiente 1) por construcción. Usa validación cruzada, *bootstrap* o datos nuevos.
+-   **La calibración no se "traslada" sola**: cambia con la prevalencia, el espectro y el laboratorio. Verifícala en **tu** población antes de usar un modelo publicado.
+-   **Un modelo bien calibrado "en promedio" puede estar mal calibrado en los extremos**, justo donde se toman las decisiones. Mira la curva completa, no solo el intercepto.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   La **calibración** pregunta si los **riesgos predichos coinciden con los observados**; el AUC no la ve (un modelo distorsionado puede tener el mismo AUC).
+-   Se evalúa con el **gráfico de calibración** (puntos + curva suavizada), la **calibración en lo grande** (ideal 0), la **pendiente** (ideal 1; < 1 = sobreajuste) y el **Brier** (con su versión escalada).
+-   El **sobreajuste** y el **cambio de entorno** son las dos causas más comunes de mala calibración; la segunda se arregla muchas veces con una **recalibración** sencilla.
+-   **No uses Hosmer-Lemeshow**: depende del número de grupos y del tamaño de muestra, y no dice dónde falla.
+-   Evalúa la calibración **fuera de la muestra de desarrollo**.
+:::
+
+## Ejercicio
+
+1.  Repite el gráfico de calibración con **5 grupos** y con **20** grupos. ¿Qué cambia en la lectura? ¿Y en la curva suavizada?
+2.  En el Paso 5b, en lugar de corregir solo el intercepto, ajusta `glm(lra ~ lp_uci, data = uci, family = binomial)` (recalibración con intercepto **y** pendiente). ¿Qué pendiente sale? ¿Mejora el ICI?
+3.  Calcula la calibración del **modelo clínico** (sin biomarcador) desarrollado en sala y aplicado en UCI. ¿Es peor o mejor que la del modelo con biomarcador? ¿Por qué?
