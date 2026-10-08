@@ -62,9 +62,10 @@ ggplot(its, aes(fecha, tasa)) +
            fill = "grey80", alpha = 0.6) +                                    # ola COVID-19
   geom_vline(xintercept = as.Date("2021-01-01"), linetype = "dashed", colour = "#D55E00") +
   geom_line(colour = "grey40") + geom_point(colour = "grey40", size = 1.1) +
-  annotate("text", x = as.Date("2021-02-01"), y = max(its$tasa), label = "Inicio del programa\n(enero 2021)",
-           hjust = 0, vjust = 1, size = 3.3, colour = "#D55E00") +
-  annotate("text", x = as.Date("2020-06-15"), y = min(its$tasa), label = "Ola COVID-19", size = 3.1, colour = "grey30") +
+  annotate("text", x = as.Date("2021-02-01"), y = max(its$tasa) * 1.1, label = "Inicio del programa (enero 2021)",
+           hjust = 0, size = 3.3, colour = "#D55E00") +
+  annotate("text", x = as.Date("2020-07-01"), y = max(its$tasa) * 1.1, label = "Ola COVID-19", size = 3.1, colour = "grey30") +
+  expand_limits(y = max(its$tasa) * 1.12) +
   labs(x = NULL, y = "Inicios de diálisis por 100 000 hab. por mes") +
   theme_minimal(base_size = 11)
 ```
@@ -142,6 +143,8 @@ El contrafactual se calcula prediciendo con el **mismo** modelo pero apagando el
 
 ```{r}
 #| label: contrafactual-c15-3
+#| fig-width: 8
+#| fig-height: 3.8
 sin_programa <- its |> mutate(post = 0, t_post = 0)                    # mundo "sin programa"
 
 its <- its |>
@@ -184,7 +187,7 @@ c(observados = observados_post, esperados_sin_programa = esperados_sin,
   verdad = verdad_evitados) |> round()
 ```
 
-**Qué vemos.** En los 48 meses del programa se observaron **`r observados_post`** inicios de diálisis; sin programa se habrían esperado unos **`r round(esperados_sin)`**. Eso son aproximadamente **`r round(esperados_sin - observados_post)` casos evitados** (`r round(100 * (1 - observados_post / esperados_sin))` % menos), con un IC 95 % amplio, de `r round(quantile(evitados_sim, 0.025))` a `r round(quantile(evitados_sim, 0.975))`. La verdad simulada, **`r round(verdad_evitados)`**, cae dentro. Fíjate en la lección: el RR de nivel es "casi significativo", el de pendiente sí, y aun así la cifra acumulada de casos es muy incierta. Reporta siempre el intervalo, no solo el número.
+**Qué vemos.** En los 48 meses del programa se observaron **`r observados_post`** inicios de diálisis; sin programa se habrían esperado unos **`r round(esperados_sin)`**. Eso son aproximadamente **`r round(esperados_sin - observados_post)` casos evitados** (`r round(100 * (1 - observados_post / esperados_sin))` % menos), con un IC 95 % amplio, de `r round(quantile(evitados_sim, 0.025))` a `r round(quantile(evitados_sim, 0.975))`. La verdad simulada, **`r round(verdad_evitados)`**, cae dentro. Fíjate en la lección: los dos RR son significativos y, aun así, la cifra acumulada de casos es muy incierta, porque suma 48 predicciones que se alejan cada vez más de los datos usados para estimar la tendencia. Reporta siempre el intervalo, no solo el número.
 
 ## Paso 7. ¿Y si no supiéramos la fecha? Una mirada con `segmented`
 
@@ -223,7 +226,7 @@ map_dfr(variantes, \(mm) {
 }, .id = "variante") |> mutate(across(where(is.numeric), \(x) round(x, 3)))
 ```
 
-**Qué vemos.** La conclusión cualitativa (menos inicios de diálisis con programa) se mantiene casi siempre, pero **el tamaño cambia**. Lo que más pesa es la ola COVID: si no se incluye, el efecto a los 24 meses pasa de `r sprintf("%.2f", exp(coef(variantes[[1]])["post"] + 24 * coef(variantes[[1]])["t_post"]))` a `r sprintf("%.2f", exp(coef(variantes[[2]])["post"] + 24 * coef(variantes[[2]])["t_post"]))`: el modelo atribuiría al programa parte de la recuperación posterior a la pandemia. Esto es la **amenaza de historia** que describimos abajo, en pequeño.
+**Qué vemos.** La conclusión cualitativa (menos inicios de diálisis con programa) se mantiene casi siempre, pero **el tamaño cambia**. Lo que más pesa es la ola COVID: si no se incluye, el efecto a los 24 meses pasa de `r sprintf("%.2f", exp(coef(variantes[[1]])["post"] + 24 * coef(variantes[[1]])["t_post"]))` a `r sprintf("%.2f", exp(coef(variantes[[2]])["post"] + 24 * coef(variantes[[2]])["t_post"]))`: sin ella, la caída de 2020 contamina la tendencia previa, el contrafactual queda más bajo y el programa parece menos efectivo. Esto es la **amenaza de historia** que describimos abajo, en pequeño: un evento externo mal tratado cambia la respuesta.
 
 ::: {.callout-warning}
 ## ⚠️ Lo que un ITS no demuestra

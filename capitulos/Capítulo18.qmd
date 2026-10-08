@@ -1,0 +1,167 @@
+# Capítulo 18: Análisis de mediación
+
+> *"Saber que un tratamiento funciona es una pregunta; saber **por dónde** funciona es otra, mucho más delicada."* Este capítulo enseña a descomponer un efecto en una parte **directa** y una **indirecta** (a través de un mediador), a estimarlas con herramientas simples, y sobre todo a **no creerse el resultado** más de lo que los supuestos permiten.
+
+::: {.callout-note}
+## 🩺 El problema de todos los días
+
+Sabes que el iSGLT2 baja la albuminuria y enlentece la pérdida de TFGe. El comité pregunta: "¿el fármaco protege el riñón *porque* baja la albuminuria?". Si la respuesta fuera sí, la UACR a los 6 meses serviría para decidir quién sigue con el fármaco; si no, el fármaco actúa por otras vías (hemodinámicas, metabólicas) y la UACR solo acompaña. Es una pregunta de **mediación**: ¿cuánto del efecto viaja *a través* de una variable intermedia?
+:::
+
+Seguimos con datos **simulados** de una cohorte de adultos con ERC y diabetes (`ckd_mediacion`, construida con la misma lógica que `ckd_isglt2`). El **mediador** es el cambio de la UACR a los 6 meses y el **desenlace**, la pendiente de TFGe de los meses 6 a 24. Como en todo el libro, **conocemos la verdad**: el efecto total, el directo y el indirecto. Así verás qué recupera cada método y qué se rompe cuando fallan los supuestos.
+
+*Al finalizar este capítulo podrás:*
+
+-   **Definir** efecto total, directo e indirecto con resultados potenciales, y saber por qué la "proporción mediada" es una cifra frágil.
+-   **Estimar** el efecto indirecto con el método de productos (y de diferencias), con IC por *bootstrap*, y con la fórmula g.
+-   **Enumerar** las cuatro ausencias de confusión que exige la mediación y ver con simulaciones qué ocurre cuando fallan.
+-   **Modelar** la interacción exposición × mediador, la mediación moderada y desenlaces binarios o de supervivencia.
+-   **Interpretar** y **reportar** un análisis de mediación con análisis de sensibilidad, sin sobreafirmar.
+
+## El recorrido completo en una página
+
+Antes del detalle, juguemos la partida entera una vez. Cada paso se explica con calma en un subcapítulo; aquí solo ves cómo encajan.
+
+```{r}
+#| label: recorrido-flujo-c18
+#| echo: false
+#| fig-width: 9
+#| fig-height: 2
+library(tidyverse)
+library(boot)
+source("R/funciones_epi.R")
+source("R/funciones_extra_cap1213.R")
+source("R/funciones_extra_cap18.R")
+source("R/simular_mediacion.R")
+diagrama_flujo(c("1. Pregunta,\nestimando y\nlínea de tiempo\n(18.1, 18.5)", "2. Dos modelos:\nmediador y\ndesenlace\n(18.2)", "3. Efecto directo,\nindirecto y IC\n(bootstrap)\n(18.2, 18.4)",
+                 "4. ¿Se cumplen\nlos 4 supuestos?\n(18.3)", "5. Sensibilidad:\n¿y si me falta\nalgo?\n(18.5)"), resaltar = 4, tam_texto = 3)
+```
+
+### Paso 1. La pregunta y el DAG
+
+**¿El iSGLT2 enlentece la pérdida de TFGe (meses 6 a 24) en parte *a través* de la baja de albuminuria a los 6 meses?** Dibujamos lo que creemos: el fármaco (A) cambia la albuminuria (M), que a su vez afecta la TFGe (Y); y además el fármaco puede actuar por otros caminos.
+
+```{r}
+#| label: recorrido-dag-c18
+#| fig-width: 8
+#| fig-height: 3.4
+nodos <- tribble(~nombre, ~x, ~y, ~etiqueta, ~rol,
+  "C", 2, 2, "Confusores basales (C)\nedad, TFGe, UACR, HbA1c,\nPAS, ECV", "confusor",
+  "A", 1, 1, "iSGLT2\n(A)", "exposicion",
+  "M", 2, 0.25, "Cambio de UACR\na los 6 meses (M)", "mediador",
+  "Y", 3, 1, "Pendiente\nde TFGe (Y)", "desenlace")
+aristas <- tribble(~de, ~a, "C", "A", "C", "M", "C", "Y", "A", "M", "M", "Y", "A", "Y")
+dibujar_dag(nodos, aristas, tam_texto = 3.3, expandir = c(0.2, 0.25))
+```
+
+### Paso 2. Dos modelos
+
+El método más usado son **dos regresiones**: una para el mediador (¿cuánto cambia la UACR con el fármaco?) y otra para el desenlace (¿cuánto cambia la TFGe con la UACR, a igual fármaco?). Ambas con los mismos confusores basales.
+
+```{r}
+#| label: recorrido-modelos-c18
+oraculo <- cargar_mediacion()          # datos SIMULADOS, con la verdad conocida
+ckd <- observar_mediacion(oraculo)     # lo que ve un investigador real
+verdad <- verdad_mediacion(oraculo)
+
+m_med <- lm(delta_lnuacr ~ isglt2 + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv, data = ckd)
+m_out <- lm(pendiente_tfg ~ isglt2 + delta_lnuacr + I(edad / 10) + sexo + hba1c + pas + tfg_basal + luacr + ecv, data = ckd)
+c(a = coef(m_med)[["isglt2"]], b = coef(m_out)[["delta_lnuacr"]], directo = coef(m_out)[["isglt2"]]) |> round(2)
+```
+
+### Paso 3. Efecto directo, indirecto y su incertidumbre
+
+El efecto indirecto es el producto $a \times b$ y el total es la suma de directo e indirecto. El intervalo de confianza sale de un *bootstrap* de todo el procedimiento:
+
+```{r}
+#| label: recorrido-efectos-c18
+set.seed(18)
+b <- boot(ckd, ajustar_mediacion, R = 300)
+ic <- function(k) boot.ci(b, type = "perc", index = k)$percent[4:5]
+tab <- tibble(efecto = c("Total", "Directo", "Indirecto"), indice = match(c("TE", "NDE", "NIE_producto"), names(b$t0))) |>
+  mutate(estimado = b$t0[indice], ic_inf = map_dbl(indice, \(k) ic(k)[1]), ic_sup = map_dbl(indice, \(k) ic(k)[2]),
+         verdad = unname(verdad[c("TE", "NDE", "NIE")])) |> select(-indice)
+tab |> mutate(across(where(is.numeric), \(x) round(x, 2)))
+```
+
+**Qué vemos:** de un efecto total de **`r sprintf("%.2f", tab$estimado[1])`** mL/min/1.73 m²/año, `r sprintf("%.2f", tab$estimado[2])` va por el camino directo y **`r sprintf("%.2f", tab$estimado[3])`** (IC `r sprintf("%.2f", tab$ic_inf[3])` a `r sprintf("%.2f", tab$ic_sup[3])`) a través de la albuminuria. Los tres IC contienen la verdad (`r sprintf("%.2f", tab$verdad[1])`, `r sprintf("%.2f", tab$verdad[2])` y `r sprintf("%.2f", tab$verdad[3])`). Aquí todo salió bien... porque en esta base **se cumplen los cuatro supuestos**.
+
+### Paso 4. ¿Y si no se cumplen? Lo mismo, con un confusor oculto
+
+Repetimos el análisis con otra cohorte simulada en la que una **inflamación no medida** sube la albuminuria y empeora la pendiente (un confusor mediador-desenlace). El método es idéntico, y no avisa de nada:
+
+```{r}
+#| label: recorrido-supuestos-c18
+oraculo_u <- cargar_mediacion("_u")
+ckd_u <- observar_mediacion(oraculo_u)
+est_u <- ajustar_mediacion(ckd_u)
+verdad_u <- verdad_mediacion(oraculo_u)
+rbind(`Estimado (con inflamación sin medir)` = est_u[c("TE", "NDE", "NIE_producto", "PM")],
+      Verdad = verdad_u[c("TE", "NDE", "NIE", "PM")]) |> round(2)
+```
+
+**Qué vemos:** el efecto **total** sigue bien, pero el **reparto** falla: el indirecto sale `r sprintf("%.2f", est_u[["NIE_producto"]])` (verdad: `r sprintf("%.2f", verdad_u[["NIE"]])`) y la "proporción mediada" **`r sprintf("%.0f", 100 * est_u[["PM"]])` %** (verdad: `r sprintf("%.0f", 100 * verdad_u[["PM"]])` %). Quien lea "casi `r sprintf("%.0f", 100 * est_u[["PM"]])` % mediado" sacaría una conclusión equivocada, con un IC angosto y una *p* diminuta.
+
+### Paso 5. La sensibilidad: ¿qué tan fuerte tendría que ser la confusión?
+
+No podemos medir la inflamación, pero sí preguntar cuánto cambiaría el resultado si existiera. El parámetro $\rho$ resume la confusión mediador-desenlace (la correlación de los errores de los dos modelos); la función `sensibilidad_rho()` recalcula el efecto indirecto para cada valor:
+
+```{r}
+#| label: recorrido-sensibilidad-c18
+sens <- sensibilidad_rho(ckd_u, rho = c(-0.4, -0.3, -0.2, 0))
+sens |> mutate(across(everything(), \(x) round(x, 2)))
+```
+
+**Qué vemos:** con $\rho = 0$ (sin confusor) el indirecto es `r sprintf("%.2f", sens$NIE[sens$rho == 0])`; con un confusor moderado ($\rho = -0.3$) baja a **`r sprintf("%.2f", sens$NIE[sens$rho == -0.3])`**, muy cerca de la verdad (en este simulador el $\rho$ verdadero es de unos -0.3; en la vida real no lo conocerías). La **dirección** ("hay algo de mediación") resiste, pero la **magnitud** depende de un supuesto que **no se puede verificar**. Por eso un análisis de mediación honesto siempre lleva un análisis de sensibilidad.
+
+### La moraleja de la partida
+
+-   Descomponer un efecto es **fácil de calcular** y **difícil de justificar**: el método no revela si fallan los supuestos.
+-   El efecto **total** exige menos supuestos que el **directo** y el **indirecto**. Aleatorizar el fármaco ayuda con el total, no con el reparto.
+-   La **proporción mediada** es frágil; reporta efectos directo e indirecto con IC y **sensibilidad**.
+
+::: {.callout-tip}
+## 💡 ¿Y si el tratamiento y el mediador cambian en el tiempo?
+
+Este capítulo supone un tratamiento **fijo** al inicio y un mediador **medido una vez**. Con tratamientos que cambian en el tiempo y confusión que depende del tiempo (por ejemplo, EPO y hemoglobina en hemodiálisis), hacen falta los métodos "G" del Cap. 19.
+:::
+
+::: {.callout-important}
+## 🎯 Mapa del capítulo
+
+| Subcapítulo | Nivel | Resuelve |
+|---|---|---|
+| 18.1 Efecto total, directo e indirecto | 🟡 | Qué es un mediador; resultados potenciales; NDE y NIE; por qué la proporción mediada es frágil |
+| 18.2 Método de productos y de diferencias | 🟡 | Dos modelos, $a \times b$, IC *bootstrap*, fórmula g, `mediation` |
+| 18.3 Supuestos | 🔴 | Las cuatro ausencias de confusión y qué se rompe si fallan |
+| 18.4 Interacción, binarios y supervivencia | 🔴 | Efectos controlados y naturales, 4 vías, RR y OR, Cox y AFT |
+| 18.5 Interpretación clínica | 🔴 | ¿La albuminuria media el efecto del iSGLT2? Sensibilidad, `CMAverse`, reporte |
+| 18.6 Mediación moderada | 🔴 | ¿El camino indirecto cambia según el paciente? `lavaan`, `mediation` |
+:::
+
+*Prerrequisitos:* Caps. 3 (DAG y resultados potenciales), 8 (regresión e interacción), 9 (supervivencia) y 12 (fórmula g). *Prepara:* Cap. 19.
+
+## Para leer más
+
+-   **Barrett M, D'Agostino McGowan L, Gerke T.** *Causal Inference in R*. https://www.r-causal.org/. *Lectura recomendada por el autor; no se pudo consultar durante la redacción, por lo que no se describe su contenido.*
+-   **Karim ME.** *Epidemiological Methods*. https://ehsanx.github.io/EpiMethods/. *Lectura recomendada por el autor; no se pudo consultar durante la redacción.*
+-   **VanderWeele TJ.** *Explanation in Causal Inference: Methods for Mediation and Interaction*. Oxford University Press; 2015. El libro de referencia sobre mediación e interacción causales; base de las definiciones y de la descomposición en cuatro vías de este capítulo.
+-   **Imai K, Keele L, Tingley D.** A general approach to causal mediation analysis. *Psychol Methods*. 2010;15:309-334. El marco detrás del paquete `mediation` (ACME, ADE, sensibilidad por $\rho$).
+-   **VanderWeele TJ.** A unification of mediation and interaction: a four-way decomposition. *Epidemiology*. 2014;25:749-761. La descomposición de 18.4.
+-   **Lee H, Cashin AG, Lamb SE, et al.** A guideline for reporting mediation analyses of randomized trials and observational studies: the AGReMA statement. *JAMA*. 2021;326:1045-1056. Qué reportar en un artículo con mediación.
+
+## Referencias
+
+-   Baron RM, Kenny DA. The moderator-mediator variable distinction in social psychological research. *J Pers Soc Psychol*. 1986;51:1173-1182.
+-   MacKinnon DP, Lockwood CM, Hoffman JM, West SG, Sheets V. A comparison of methods to test mediation and other intervening variable effects. *Psychol Methods*. 2002;7:83-104.
+-   Robins JM, Greenland S. Identifiability and exchangeability for direct and indirect effects. *Epidemiology*. 1992;3:143-155.
+-   Pearl J. Direct and indirect effects. En: *Proceedings of the 17th Conference on Uncertainty in Artificial Intelligence*. 2001:411-420.
+-   VanderWeele TJ, Vansteelandt S. Conceptual issues concerning mediation, interventions and composition. *Stat Interface*. 2009;2:457-468.
+-   Imai K, Keele L, Yamamoto T. Identification, inference and sensitivity analysis for causal mediation effects. *Stat Sci*. 2010;25:51-71.
+-   VanderWeele TJ. Causal mediation analysis with survival data. *Epidemiology*. 2011;22:582-585.
+-   Valeri L, VanderWeele TJ. Mediation analysis allowing for exposure-mediator interactions and causal interpretation: theoretical assumptions and implementation with SAS and SPSS macros. *Psychol Methods*. 2013;18:137-150.
+-   VanderWeele TJ, Vansteelandt S, Robins JM. Effect decomposition in the presence of an exposure-induced mediator-outcome confounder. *Epidemiology*. 2014;25:300-306.
+-   Tingley D, Yamamoto T, Hirose K, Keele L, Imai K. mediation: R package for causal mediation analysis. *J Stat Softw*. 2014;59(5):1-38.
+-   Shi B, Choirat C, Coull BA, VanderWeele TJ, Valeri L. CMAverse: a suite of functions for reproducible causal mediation analyses. *Epidemiology*. 2021;32:e20-e22.
+-   Hayes AF. *Introduction to Mediation, Moderation, and Conditional Process Analysis*. Guilford Press; 2013.
+-   Westreich D, Greenland S. The Table 2 fallacy: presenting and interpreting confounder and modifier coefficients. *Am J Epidemiol*. 2013;177:292-298.

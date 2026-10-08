@@ -104,3 +104,19 @@ cuadrante_lisa <- function(x, lw, alfa = 0.05) {
                           TRUE ~ "Bajo-Alto")
   factor(out, levels = c("Alto-Alto", "Bajo-Bajo", "Alto-Bajo", "Bajo-Alto", "No significativo"))
 }
+
+# ---- Evaluación de pronósticos -----------------------------------------
+
+#' Medidas de exactitud de un pronóstico (RMSE, MAE, MAPE y MASE)
+#'
+#' @param pred pronóstico para el periodo de prueba
+#' @param real valores observados en el periodo de prueba
+#' @param entrenamiento serie usada para ajustar (sirve para el MASE)
+#' @param m periodicidad (12 = mensual): el MASE compara con el error medio de
+#'   repetir el mismo mes del año anterior dentro de la muestra de entrenamiento
+#'   (igual que `forecast::accuracy()`). MASE < 1: mejor que ese pronóstico ingenuo.
+exactitud <- function(pred, real, entrenamiento, m = 12) {
+  e <- as.numeric(real) - as.numeric(pred)
+  c(RMSE = sqrt(mean(e^2)), MAE = mean(abs(e)), MAPE = 100 * mean(abs(e / as.numeric(real))),
+    MASE = mean(abs(e)) / mean(abs(diff(as.numeric(entrenamiento), lag = m))))
+}
