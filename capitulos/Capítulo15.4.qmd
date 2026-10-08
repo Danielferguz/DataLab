@@ -62,7 +62,7 @@ ols <- lm(ltasa ~ tiempo + s1 + c1 + ola_covid + post + t_post, data = its)
 dwtest(ols)                                                   # H0: no hay autocorrelación de orden 1
 ```
 
-**Qué vemos.** La autocorrelación de orden 1 es de **`r sprintf("%.2f", acf(r, plot = FALSE)$acf[2])`** (la primera barra de la ACF sobrepasa la banda) y las siguientes decaen poco a poco; en la PACF solo destaca el primer rezago. Es el patrón típico de un **proceso AR(1)**: el mes de hoy se parece al de ayer. Las pruebas coinciden: Ljung-Box da *p* = `r sprintf("%.3f", Box.test(r, lag = 12, type = "Ljung-Box")$p.value)` y Durbin-Watson, *p* < 0.001 (un DW de `r sprintf("%.2f", dwtest(ols)$statistic)`; ≈ 2 significa sin autocorrelación y < 2, autocorrelación positiva).
+**Qué vemos.** La autocorrelación de orden 1 es de **`r sprintf("%.2f", acf(r, plot = FALSE)$acf[2])`** (la primera barra de la ACF sobrepasa la banda) y las siguientes decaen poco a poco; en la PACF solo destaca el primer rezago. Es el patrón típico de un **proceso AR(1)**: el mes de hoy se parece al de ayer. (Una barra suelta por fuera de la banda en rezagos lejanos es esperable por azar: con 24 barras y una banda del 95 %, alguna sale sin que signifique nada.) Las pruebas coinciden: Ljung-Box da *p* = `r sprintf("%.3f", Box.test(r, lag = 12, type = "Ljung-Box")$p.value)` y Durbin-Watson, *p* < 0.001 (un DW de `r sprintf("%.2f", dwtest(ols)$statistic)`; ≈ 2 significa sin autocorrelación y < 2, autocorrelación positiva).
 
 ¿Cuánto importa? Con una autocorrelación positiva $\rho$, los 96 meses aportan **menos información** que 96 observaciones independientes. Una regla para un AR(1) es $n_{\text{efectivo}} \approx n\,(1-\rho)/(1+\rho)$:
 
@@ -89,15 +89,20 @@ La elección del número de rezagos importa un poco. Comparamos el error estánd
 
 ```{r}
 #| label: hac-rezagos-tabla-c15-4
-tabla_ee <- tibble(
-  `Error estándar` = c("Clásico", "HAC, 3 rezagos", "HAC, 6 rezagos", "HAC, 12 rezagos"),
-  nivel = c(sqrt(diag(vcov(m_its)))["post"], sapply(c(3, 6, 12), \(l) sqrt(diag(NeweyWest(m_its, lag = l, prewhite = FALSE)))["post"])),
-  pendiente = c(sqrt(diag(vcov(m_its)))["t_post"], sapply(c(3, 6, 12), \(l) sqrt(diag(NeweyWest(m_its, lag = l, prewhite = FALSE)))["t_post"]))
-)
+# Para cada número de rezagos: error estándar y valor p de la pendiente (t_post)
+hac_pend <- function(l) {
+  ct <- coeftest(m_its, vcov = NeweyWest(m_its, lag = l, prewhite = FALSE))["t_post", ]
+  c(ee = unname(ct[2]), p = unname(ct[4]))
+}
+ct0 <- coeftest(m_its)["t_post", ]
+tabla_ee <- tibble(`Error estándar` = c("Clásico", "HAC, 3 rezagos", "HAC, 6 rezagos", "HAC, 12 rezagos"),
+                   ee_nivel = c(sqrt(vcov(m_its)["post", "post"]), sapply(c(3, 6, 12), \(l) sqrt(NeweyWest(m_its, lag = l, prewhite = FALSE)["post", "post"]))),
+                   ee_pendiente = c(unname(ct0[2]), sapply(c(3, 6, 12), \(l) hac_pend(l)["ee"])),
+                   p_pendiente = c(unname(ct0[4]), sapply(c(3, 6, 12), \(l) hac_pend(l)["p"])))
 tabla_ee |> mutate(across(where(is.numeric), \(x) round(x, 4)))
 ```
 
-**Qué vemos.** El error estándar de la **pendiente** pasa de `r sprintf("%.4f", tabla_ee$pendiente[1])` a `r sprintf("%.4f", tabla_ee$pendiente[3])` con 6 rezagos (un `r round(100 * (tabla_ee$pendiente[3] / tabla_ee$pendiente[1] - 1))` % más), y el del nivel apenas cambia. Con el HAC, el cambio de pendiente (RR `r sprintf("%.4f", exp(coef(m_its)["t_post"]))` por mes) tiene *p* = `r sprintf("%.3f", coeftest(m_its, vcov = V_hac)["t_post", 4])`: **ya no pasa el 0.05** con holgura. La conclusión cualitativa se debilita, y con razón: el modelo ingenuo era demasiado optimista. No hay una regla única para los rezagos; lo sensato es mostrar que la conclusión no depende de esa elección y reportar el HAC como análisis principal o de sensibilidad.
+**Qué vemos.** El error estándar de la **pendiente** pasa de `r sprintf("%.4f", tabla_ee$ee_pendiente[1])` a `r sprintf("%.4f", tabla_ee$ee_pendiente[3])` con 6 rezagos (un `r round(100 * (tabla_ee$ee_pendiente[3] / tabla_ee$ee_pendiente[1] - 1))` % más), y el del nivel apenas cambia. Con el HAC, el valor *p* del cambio de pendiente (RR `r sprintf("%.4f", exp(coef(m_its)["t_post"]))` por mes) pasa de `r sprintf("%.3f", tabla_ee$p_pendiente[1])` a un rango de `r sprintf("%.2f", min(tabla_ee$p_pendiente[2:4]))` a `r sprintf("%.2f", max(tabla_ee$p_pendiente[2:4]))` según los rezagos: queda **en el límite de la significación**. La conclusión cualitativa se debilita, y con razón: el modelo ingenuo era demasiado optimista. No hay una regla única para los rezagos; lo sensato es mostrar que la conclusión no depende de esa elección y reportar el HAC como análisis principal o de sensibilidad.
 
 ::: {.callout-tip}
 ## 💡 Qué corrige y qué no corrige el HAC
@@ -207,13 +212,13 @@ ggplot() +
   geom_line(data = graf, aes(fecha, tasa, colour = metodo), linewidth = 0.9, linetype = "dashed") +
   geom_line(data = its, aes(fecha, tasa), colour = "grey35") +
   geom_vline(xintercept = as.Date("2021-01-01"), linetype = "dotted") +
-  scale_colour_manual(values = c("#D55E00", "#009E73"), name = NULL) +
-  scale_fill_manual(values = c("#D55E00", "#009E73"), name = NULL) +
-  labs(x = NULL, y = "Inicios de diálisis por 100 000 hab. por mes") +
+  scale_colour_manual(values = c("Con tendencia y estacionalidad" = "#D55E00", "ARIMA automático (solo la serie)" = "#009E73"), name = NULL) +
+  scale_fill_manual(values = c("Con tendencia y estacionalidad" = "#D55E00", "ARIMA automático (solo la serie)" = "#009E73"), name = NULL) +
+  labs(x = NULL, y = "Inicios por 100 000 hab. por mes") +
   theme_minimal(base_size = 11) + theme(legend.position = "bottom")
 ```
 
-**Qué vemos.** El pronóstico con estructura (naranja) predice un contrafactual de **`r round(sum(cf_a))`** casos en los 48 meses, es decir, **`r round(sum(cf_a) - sum(its$casos[post]))` casos evitados**; la verdad es **`r round(verdad_cf)`** de contrafactual y **`r round(verdad_cf - sum(filter(oraculo, region == "Intervenida", mes_num >= 49)$mu_esperado))`** evitados. El ARIMA automático (verde) **ve la serie sin tendencia ni onda** y pronostica una línea plana: su contrafactual (`r round(sum(cf_b))`) casi coincide con lo observado y concluiría que el programa **no hizo nada**. Dos modelos "correctos" estadísticamente, dos conclusiones opuestas: el contrafactual **depende de la estructura que le das al modelo**, y esa estructura sale del conocimiento clínico, no de un algoritmo. Además, los intervalos de predicción se ensanchan con el horizonte: proyectar 4 años es muy incierto.
+**Qué vemos.** El pronóstico con estructura (naranja) predice un contrafactual de **`r sprintf("%.0f", sum(cf_a))`** casos en los 48 meses, es decir, **`r sprintf("%.0f", sum(cf_a) - sum(its$casos[post]))` casos evitados**; la verdad es **`r sprintf("%.0f", verdad_cf)`** de contrafactual y **`r sprintf("%.0f", verdad_cf - sum(filter(oraculo, region == "Intervenida", mes_num >= 49)$mu_esperado))`** evitados (el IC de predicción de cada mes es amplio, ver la banda). El ARIMA automático (verde) **ve la serie sin tendencia ni onda** y pronostica una línea plana: su contrafactual (`r sprintf("%.0f", sum(cf_b))`) casi coincide con los `r sprintf("%.0f", sum(its$casos[post]))` observados y concluiría que el programa **no hizo nada**. Dos modelos "correctos" estadísticamente, dos conclusiones opuestas: el contrafactual **depende de la estructura que le das al modelo**, y esa estructura sale del conocimiento clínico, no de un algoritmo. Además, los intervalos de predicción se ensanchan con el horizonte: proyectar 4 años es muy incierto.
 
 ## Paso 5. Pronosticar y evaluar como en *Forecasting: Principles and Practice*
 
@@ -248,7 +253,7 @@ Las medidas, en las unidades de la tasa (por 100 000 por mes), salvo MAPE (% de 
 -   **MAPE**: error porcentual medio.
 -   **MASE**: error del modelo **relativo al de repetir el mismo mes del año pasado** (calculado en el entrenamiento). Menos de 1 = mejor que ese pronóstico ingenuo.
 
-**Qué vemos.** El pronóstico que **codifica lo que sabemos** (tendencia, estacionalidad, y que la ola COVID no vuelve) es el mejor en todas las medidas (MASE de `r sprintf("%.2f", exactitud(f_dhr, prueba, entren)["MASE"])`); los métodos automáticos que solo miran la serie quedan por detrás, y el ingenuo estacional es el peor de los cuatro (MASE de `r sprintf("%.2f", exactitud(f_ingenuo$mean, prueba, entren)["MASE"])`). Con **un** año de prueba y 12 pronósticos, no conviene sacar conclusiones tajantes (el azar de un año pesa); la forma más robusta es la **validación cruzada de series de tiempo**, con orígenes sucesivos (`tsCV()`):
+**Qué vemos.** El pronóstico que **codifica lo que sabemos** (tendencia, estacionalidad, y que la ola COVID no vuelve) es el mejor en todas las medidas (MASE de `r sprintf("%.2f", exactitud(f_dhr, prueba, entren)["MASE"])`); los métodos automáticos que solo miran la serie quedan por detrás, y el ingenuo estacional es el peor de los cuatro (MASE de `r sprintf("%.2f", exactitud(f_ingenuo$mean, prueba, entren)["MASE"])`). La regresión gana en parte porque la simulación sigue justo esa estructura; en datos reales la ventaja suele ser menor, pero la lección se mantiene: empieza por un modelo **ingenuo** y exige que los demás lo superen. Con **un** año de prueba y 12 pronósticos, no conviene sacar conclusiones tajantes (el azar de un año pesa); la forma más robusta es la **validación cruzada de series de tiempo**, con orígenes sucesivos (`tsCV()`):
 
 ```{r}
 #| label: tscv-c15-4

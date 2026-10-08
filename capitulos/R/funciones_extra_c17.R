@@ -259,7 +259,7 @@ experimento_sobreajuste <- function(datos, oraculo, n, ruidosas = 6, R = 50, sem
     for (v in ruido) d[[v]] <- stats::rnorm(n)
     if (bootstrap) {
       ajuste <- rms::cph(fml, data = d, x = TRUE, y = TRUE)
-      vb <- rms::validate(ajuste, B = B)
+      vb <- suppressWarnings(rms::validate(ajuste, B = B))
       c_boot <- (vb["Dxy", "index.corrected"] + 1) / 2
       m <- survival::coxph(fml, data = d)
     } else {
@@ -321,4 +321,69 @@ r2_cs_maximo <- function(tipo = c("binario", "supervivencia"), prevalencia = NUL
   e <- if (tipo == "binario") prevalencia else eventos_por_persona
   lnl0 <- if (tipo == "binario") e * log(e) + (1 - e) * log(1 - e) else e * log(e) - e
   1 - exp(2 * lnl0)
+}
+
+# ---- 17.4 Validación interna: ¿qué estimador del rendimiento se acerca a la verdad? -----------
+
+#' Repite R veces: submuestra de `n` pacientes -> modelo "hambriento" (9 predictores + `ruidosas` de ruido) ->
+#' C de Harrell estimado de cuatro formas (aparente, bootstrap con optimismo, validación cruzada 10 pliegues
+#' y una sola división 70/30) y C VERDADERO en el oráculo. Para la división, la verdad es la del modelo
+#' entrenado con el 70 % (que NO es el modelo final que usarías).
+#' @return tibble con una fila por repetición
+comparar_validaciones <- function(datos, oraculo, n = 400, ruidosas = 6, R = 30, semilla = 1, B = 100) {
+  base <- c("edad", "sexo", "tfg", "lu", "albumina", "fosforo", "bicarbonato", "dm", "ecv")
+  ruido <- paste0("ruido", seq_len(ruidosas))
+  fml <- stats::reformulate(c(base, ruido), response = "survival::Surv(tiempo_meses, krt)")
+  set.seed(semilla)
+  oraculo <- oraculo[seq_len(min(nrow(oraculo), 20000)), ]
+  for (v in ruido) oraculo[[v]] <- stats::rnorm(nrow(oraculo))
+  c_or <- function(m) unname(c_harrell(stats::predict(m, newdata = oraculo, type = "lp"), oraculo$tiempo_meses, oraculo$krt)["C"])
+  dplyr::bind_rows(lapply(seq_len(R), function(r) {
+    d <- datos[sample(nrow(datos), n), ]
+    for (v in ruido) d[[v]] <- stats::rnorm(n)
+    ajuste <- rms::cph(fml, data = d, x = TRUE, y = TRUE)
+    m <- survival::coxph(fml, data = d)
+    vb <- suppressWarnings(rms::validate(ajuste, B = B))
+    vc <- suppressWarnings(rms::validate(ajuste, method = "crossvalidation", B = 10))
+    i <- sample(n, round(0.7 * n))                               # una sola división 70/30
+    m70 <- survival::coxph(fml, data = d[i, ])
+    c_div <- unname(c_harrell(stats::predict(m70, newdata = d[-i, ], type = "lp"), d$tiempo_meses[-i], d$krt[-i])["C"])
+    tibble::tibble(aparente = unname(vb["Dxy", "index.orig"]) / 2 + 0.5,
+                   bootstrap = unname(vb["Dxy", "index.corrected"]) / 2 + 0.5,
+                   cv10 = unname(vc["Dxy", "index.corrected"]) / 2 + 0.5,
+                   division = c_div,
+                   verdad = c_or(m), verdad_division = c_or(m70))
+  }))
+}
+
+# ---- 17.5 Validación externa y recalibración ---------------------------------------
+
+#' Recalibración de riesgos a `t` meses (riesgo con competencia) en la escala logit:
+#'   tipo = "intercepto"           -> p* = expit(a + logit(p))        (solo corrige el nivel medio)
+#'   tipo = "intercepto_pendiente" -> p* = expit(a + b * logit(p))    (corrige nivel y dispersión)
+#' a y b se estiman en los datos de validación con pseudo-observaciones de la incidencia acumulada.
+#' @return lista con a, b y la función `actualizar(p)` que devuelve el riesgo recalibrado
+recalibrar_cif <- function(pred, tiempo, estado, t, tipo = c("intercepto", "intercepto_pendiente"), causa = 1) {
+  tipo <- match.arg(tipo)
+  pseudo <- pseudo_cif(tiempo, estado, t, causa)
+  d <- data.frame(ps = pseudo, x = stats::qlogis(pmin(pmax(pred, 1e-4), 1 - 1e-4)), id = seq_along(pred))
+  if (tipo == "intercepto") {
+    g <- geepack::geese(ps ~ 1 + offset(x), id = id, data = d, mean.link = "logit", variance = "binomial")
+    a <- unname(g$beta[1]); b <- 1
+  } else {
+    g <- geepack::geese(ps ~ x, id = id, data = d, mean.link = "logit", variance = "binomial")
+    a <- unname(g$beta[1]); b <- unname(g$beta[2])
+  }
+  list(a = a, b = b, actualizar = function(p) stats::plogis(a + b * stats::qlogis(pmin(pmax(p, 1e-4), 1 - 1e-4))))
+}
+
+#' Evaluación de un modelo congelado en una cohorte (para meta-analizar varias validaciones):
+#' C de Harrell con su error estándar, y O/E a `t` meses con el error estándar de log(O/E).
+validar_cohorte <- function(datos, modelos, t = 60) {
+  lp <- stats::predict(modelos$krt, newdata = datos, type = "lp")
+  c_h <- c_harrell(lp, datos$tiempo_meses, datos$krt)
+  riesgo <- cif_cox(modelos$krt, modelos$muerte, datos, t)
+  obs <- cif_observada(datos$tiempo_meses, datos$estado, t)
+  tibble::tibble(n = nrow(datos), eventos = sum(datos$krt), C = unname(c_h["C"]), ee_C = unname(c_h["ee"]),
+                 oe = obs$est / mean(riesgo), ee_log_oe = obs$ee / obs$est)
 }

@@ -1,0 +1,253 @@
+# GEE vs. modelos mixtos: ¿cuál elegir?
+
+::: {.callout-note}
+## 🩺 Escenario
+
+Dos colegas analizan la misma base de hospitalizaciones por unidad de diálisis. Ana ajusta una **regresión logística mixta** (efecto aleatorio por unidad) y reporta que el catéter multiplica las odds de hospitalización por 1.8. Beto usa **GEE** y reporta 1.7. Para la intervención, Ana tiene OR = 0.54 (*p* = 0.01) y Beto 0.62 (*p* = 0.06). ¿Alguien se equivocó? No: **responden preguntas distintas**. Entender cuál es cuál evita discusiones y malas decisiones.
+:::
+
+**Lo que vamos a hacer**
+
+-   Entender la diferencia entre un efecto **condicional** (modelos mixtos) y uno **marginal** o promedio poblacional (GEE).
+-   Verla en un experimento controlado, donde conocemos la verdad.
+-   Comparar `glm`, errores robustos, `clogit`, `glmer` y `geeglm` con la base de unidades de diálisis, y elegir según la pregunta.
+
+*Datos simulados (`hd_unidades`).* Conocemos la verdad: el catéter multiplica las odds de hospitalización por **exp(0.45) = 1.57** y la intervención por **exp(−0.50) = 0.61**, ambos *condicionales* al paciente y a la unidad; la desviación estándar entre unidades en el logit es de 0.70.
+
+## Paso 1. Dos preguntas distintas
+
+Con datos agrupados hay dos maneras de plantear la pregunta sobre un efecto:
+
+-   **Condicional** (o *unit-specific*): "para **este paciente**, o para pacientes de **la misma unidad**, ¿cuánto cambian las odds si tiene catéter?". Es la que responden los **modelos mixtos** (`glmer`): comparan a pacientes dentro de la misma unidad (con el mismo efecto aleatorio).
+-   **Marginal** (o *population-averaged*): "en **toda la red**, ¿cuánto cambian las odds de hospitalización entre quienes tienen catéter y quienes no?". Es la que responde **GEE** (*generalized estimating equations*, ecuaciones de estimación generalizadas): promedia sobre todas las unidades.
+
+Cuando el desenlace es **continuo** y el modelo es lineal (enlace identidad), las dos preguntas **coinciden**. Cuando el enlace no es lineal (logit en el binario, log en conteos), **no coinciden**: el efecto marginal queda **más cerca del nulo** que el condicional. No es un error de ningún modelo; se llama **no colapsabilidad** del OR. Lo vemos a continuación.
+
+## Paso 2. Un experimento donde conocemos todo
+
+Simulamos 200 unidades con 50 pacientes cada una, una exposición binaria asignada al azar **dentro** de cada unidad y un **OR condicional verdadero de 0.5**. Variamos cuánto difieren las unidades entre sí (la desviación estándar del efecto aleatorio) y comparamos lo que estima `glmer` (condicional) y GEE (marginal) con el **OR marginal verdadero**, calculado integrando sobre la distribución de los efectos aleatorios:
+
+```{r}
+#| label: setup-144
+library(tidyverse)
+library(lme4)
+library(geepack)
+library(survival)
+library(sandwich)
+library(lmtest)
+source("R/funciones_epi.R")
+source("R/funciones_extra_a.R")
+source("R/funciones_extra_cap14.R")
+theme_set(theme_minimal(base_size = 12))
+```
+
+```{r}
+#| label: juguete-144
+juguete <- function(sd_u, J = 200, m = 50, beta0 = -1, or_cond = 0.5, semilla = 1) {
+  set.seed(semilla)
+  d <- tibble(cl = rep(1:J, each = m), x = rep(c(0, 1), length.out = J * m)) |>
+    mutate(u = rnorm(J, 0, sd_u)[cl],                                   # efecto aleatorio de la unidad
+           y = rbinom(n(), 1, plogis(beta0 + log(or_cond) * x + u))) |> as.data.frame()
+
+  or_glmer <- suppressWarnings(exp(fixef(glmer(y ~ x + (1 | cl), data = d, family = binomial))["x"]))   # condicional
+  or_gee   <- exp(coef(geeglm(y ~ x, id = cl, data = d, family = binomial, corstr = "exchangeable"))["x"])  # marginal
+
+  riesgo <- \(a) if (sd_u == 0) plogis(a) else integrate(\(u) plogis(a + u) * dnorm(u, 0, sd_u), -Inf, Inf)$value
+  p0 <- riesgo(beta0); p1 <- riesgo(beta0 + log(or_cond))
+  tibble(sd_unidades = sd_u, ICC = sd_u^2 / (sd_u^2 + pi^2 / 3), OR_condicional_verdadero = or_cond,
+         OR_glmer = or_glmer, OR_marginal_verdadero = (p1 / (1 - p1)) / (p0 / (1 - p0)), OR_GEE = or_gee)
+}
+
+tabla_juguete <- map_dfr(c(0, 1, 2), juguete)
+tabla_juguete |> mutate(across(where(is.numeric), \(x) round(x, 2)))
+```
+
+**Qué vemos.**
+
+-   `glmer` recupera el OR **condicional** (0.5) en los tres escenarios, aunque las unidades se parezcan cada vez menos entre sí.
+-   El OR **marginal verdadero** se aleja de 0.5 conforme crece la heterogeneidad entre unidades: de `r num(tabla_juguete$OR_marginal_verdadero[1], 2)` (sin heterogeneidad) a `r num(tabla_juguete$OR_marginal_verdadero[3], 2)` (con ICC de `r num(tabla_juguete$ICC[3], 2)`). El GEE lo estima bien en cada caso (`r num(tabla_juguete$OR_GEE[3], 2)` en el último), pero es un número **distinto** al de `glmer`.
+-   Con una heterogeneidad moderada (desviación 1, ICC de `r num(tabla_juguete$ICC[2], 2)`) la diferencia es de 0.5 vs. `r num(tabla_juguete$OR_marginal_verdadero[2], 2)`: pequeña, pero ya visible.
+
+La razón intuitiva: en el modelo condicional, las unidades de **riesgo muy alto o muy bajo** tienen poca "movilidad" (si el riesgo ya es 95 % no puede subir mucho más), y al promediar todas las unidades el efecto se **diluye**. En la escala de probabilidad, el efecto no es el mismo en todas las unidades; el OR condicional es el mismo para todas y el marginal es un promedio.
+
+## Paso 3. Con los datos de las unidades de diálisis
+
+Ahora el desenlace es la **hospitalización a 12 meses** (0/1, un registro por paciente, agrupados en 40 unidades). Preparamos los datos. `geeglm()` exige que los datos estén **ordenados por conglomerado** y que el identificador sea **numérico** (con un identificador de texto puede "colgarse"):
+
+```{r}
+#| label: datos-144
+pac <- read_csv("Bases/hd_unidades.csv", show_col_types = FALSE) |>
+  arrange(unidad, id) |>                                       # los datos DEBEN estar ordenados por conglomerado
+  mutate(uni = as.integer(factor(unidad)),                     # identificador numérico de la unidad
+         edad_c = edad - 64, alb_c = albumina - 3.7, razon_c = razon_pac_enf - 5) |>
+  as.data.frame()
+
+c(pacientes = nrow(pac), unidades = n_distinct(pac$uni), riesgo_hospitalizacion = mean(pac$hospitalizado))
+```
+
+Ajustamos el **mismo modelo** (catéter, edad, diabetes, albúmina, razón paciente-enfermera e intervención) con cinco enfoques y reunimos los OR del catéter y de la intervención:
+
+```{r}
+#| label: cinco-144
+f <- hospitalizado ~ cateter + edad_c + dm + alb_c + razon_c + intervencion
+
+m_glm   <- glm(f, data = pac, family = binomial)                                                    # 1. ingenuo
+m_rob   <- coeftest(m_glm, vcov = vcovCL(m_glm, cluster = pac$uni))                                 # 2. errores robustos por unidad
+m_gee   <- geeglm(f, id = uni, data = pac, family = binomial, corstr = "exchangeable")              # 3. GEE (marginal)
+m_glmer <- glmer(update(f, . ~ . + (1 | uni)), data = pac, family = binomial,
+                 control = glmerControl(optimizer = "bobyqa"))                                       # 4. mixto (condicional)
+m_clog  <- clogit(hospitalizado ~ cateter + edad_c + dm + alb_c + strata(uni), data = pac, method = "efron")  # 5. efecto fijo por unidad
+
+sacar <- function(est, ee, termino) {
+  tibble(OR = exp(est), ic_inf = exp(est - 1.96 * ee), ic_sup = exp(est + 1.96 * ee))
+}
+tabla5 <- bind_rows(
+  `1. glm ingenuo`          = sacar(coef(m_glm)[c("cateter", "intervencion")], summary(m_glm)$coef[c("cateter", "intervencion"), 2]),
+  `2. glm + robusto (unidad)` = sacar(m_rob[c("cateter", "intervencion"), 1], m_rob[c("cateter", "intervencion"), 2]),
+  `3. GEE intercambiable`   = sacar(coef(m_gee)[c("cateter", "intervencion")], summary(m_gee)$coef[c("cateter", "intervencion"), 2]),
+  `4. glmer (intercepto aleatorio)` = sacar(fixef(m_glmer)[c("cateter", "intervencion")], summary(m_glmer)$coef[c("cateter", "intervencion"), 2]),
+  `5. clogit (estrato = unidad)`    = sacar(coef(m_clog)["cateter"], summary(m_clog)$coef["cateter", 3]),
+  .id = "modelo") |>
+  mutate(variable = c(rep(c("cateter", "intervencion"), 4), "cateter"))
+
+tabla5 |>
+  mutate(estimado = sprintf("%.2f (%.2f a %.2f)", OR, ic_inf, ic_sup)) |>
+  select(modelo, variable, estimado) |>
+  pivot_wider(names_from = variable, values_from = estimado)
+```
+
+Veamos qué dice cada fila:
+
+1.  **`glm` ingenuo**: ignora la unidad. Intervalos demasiado estrechos para la intervención, que es una característica **de la unidad** (como en 14.1).
+2.  **`glm` + errores robustos por unidad**: mismos coeficientes, intervalos **honestos** (más amplios, sobre todo para la intervención).
+3.  **GEE**: coeficientes parecidos a los del `glm` (estima el efecto **marginal**) y errores robustos por unidad. Estructura de correlación "intercambiable": todos los pacientes de una unidad se parecen igual entre sí.
+4.  **`glmer`**: el efecto **condicional**: ambos OR **se alejan más de 1** que los marginales (catéter `r num(exp(fixef(m_glmer)["cateter"]), 2)` vs. `r num(exp(coef(m_gee)["cateter"]), 2)`; intervención `r num(exp(fixef(m_glmer)["intervencion"]), 2)` vs. `r num(exp(coef(m_gee)["intervencion"]), 2)`).
+5.  **`clogit`**: trata a **cada unidad como un estrato** (un efecto fijo por unidad, 8.3), compara solo **dentro** de la unidad y no puede estimar variables que son constantes dentro de ella (la intervención). Para el catéter da casi lo mismo que `glmer`.
+
+Y la verdad, calculada con el oráculo. El OR **condicional** verdadero es el que sembramos (1.57 y 0.61); el **marginal** de la intervención se obtiene promediando el riesgo de **todos los pacientes** con y sin el protocolo (la intervención se asignó al azar, así que la comparación cruda no tiene confusión):
+
+```{r}
+#| label: verdad-144
+orc <- read_csv("Bases/hd_unidades_oraculo_pacientes.csv", show_col_types = FALSE)
+p_sin <- mean(plogis(orc$lp_hosp_sin)); p_con <- mean(plogis(orc$lp_hosp_con))      # riesgo medio si nadie / todos tienen el protocolo
+or_marginal_verdadero <- (p_con / (1 - p_con)) / (p_sin / (1 - p_sin))
+
+c(OR_condicional = exp(-0.50), OR_marginal = or_marginal_verdadero, riesgo_sin = p_sin, riesgo_con = p_con) |> round(3)
+```
+
+Para la intervención, el OR condicional verdadero es **0.61** y el marginal **`r num(or_marginal_verdadero, 2)`**. Con solo 40 unidades las estimaciones tienen mucho ruido (los IC contienen ambos valores), pero **el patrón es el esperado**: `glmer` (`r num(exp(fixef(m_glmer)["intervencion"]), 2)`) más lejos del 1 que GEE (`r num(exp(coef(m_gee)["intervencion"]), 2)`). **Esto explica en buena parte la discrepancia de Ana y Beto**: no discrepan; uno estima un efecto "por unidad" y otro "en la red".
+
+## Paso 4. ¿Qué riesgo predice cada modelo?
+
+Otra diferencia práctica: el **riesgo promedio de la red** (¿qué porcentaje se hospitaliza?). El GEE lo reproduce directamente. En un modelo mixto, `predict(..., re.form = NA)` **no** da el promedio de la red: da el riesgo de **la unidad típica** (la que tiene efecto aleatorio 0), que es menor porque el logit es una curva y no una recta:
+
+```{r}
+#| label: riesgos-144
+c(observado = mean(pac$hospitalizado),
+  GEE_marginal = mean(fitted(m_gee)),
+  glmer_unidad_tipica = mean(predict(m_glmer, re.form = NA, type = "response")),
+  glmer_con_BLUP = mean(fitted(m_glmer))) |> round(3)
+```
+
+La **unidad típica** del `glmer` tiene un riesgo de `r pct(mean(predict(m_glmer, re.form = NA, type = "response")), 1)`, menor que el `r pct(mean(pac$hospitalizado), 1)` observado en la red. Si quieres el riesgo marginal desde un modelo mixto, hay que **integrar** sobre la distribución de los efectos aleatorios (o usar los BLUP, como en la última línea, que sí recupera el promedio observado).
+
+## Paso 5. Con un desenlace continuo no hay discrepancia (y la correlación)
+
+Con la **hemoglobina mensual** (continua, enlace identidad), GEE y mixto estiman **lo mismo**. Aprovechamos para ver cómo se elige la estructura de correlación del GEE. Aquí el conglomerado natural para las mediciones repetidas es el **paciente** (hasta 12 meses cada uno). Los datos deben estar ordenados por paciente y por mes; el argumento `waves` indica el orden de las mediciones (necesario cuando faltan meses):
+
+```{r}
+#| label: gee-hb-144
+hb <- read_csv("Bases/hd_unidades_hb.csv", show_col_types = FALSE) |>
+  left_join(read_csv("Bases/hd_unidades.csv", show_col_types = FALSE), by = c("id", "unidad")) |>
+  arrange(id, mes) |>
+  mutate(edad_c = edad - 64, alb_c = albumina - 3.7) |> as.data.frame()
+
+fh <- hb ~ cateter + edad_c + dm + alb_c + intervencion
+estructuras <- c("independence", "exchangeable", "ar1")
+gee_hb <- map(set_names(estructuras), \(cs) geeglm(fh, id = id, waves = mes, data = hb, family = gaussian, corstr = cs))
+
+tabla_corr <- map_dfr(gee_hb, \(m) tibble(cateter = coef(m)["cateter"], ee_cateter = summary(m)$coef["cateter", 2],
+                                          QIC = QIC(m)[["QIC"]]), .id = "estructura") |>
+  mutate(across(where(is.numeric), \(x) round(x, 3)))
+tabla_corr
+```
+
+**Qué vemos.** Las tres estructuras dan **casi la misma estimación** del catéter (`r num(min(tabla_corr$cateter), 2)` a `r num(max(tabla_corr$cateter), 2)` g/dL) y errores estándar muy parecidos: la propiedad más útil del GEE es que **los coeficientes son consistentes aunque la estructura de correlación esté mal especificada**; la matriz de trabajo solo afecta la eficiencia. El **QIC** (*quasi-likelihood information criterion*, el "AIC" del GEE) sirve para elegir la estructura (menor es mejor): aquí no distingue entre ellas. Sin diferencias, se prefiere la **más simple** (independiente o intercambiable), como sugiere el material del autor.
+
+Ahora el modelo mixto equivalente y la comparación:
+
+```{r}
+#| label: lmer-hb-144
+library(lme4); library(lmerTest)
+mix_pac <- lmer(hb ~ cateter + edad_c + dm + alb_c + intervencion + (1 | id), data = hb)               # solo paciente
+mix_ani <- lmer(hb ~ cateter + edad_c + dm + alb_c + intervencion + (1 | unidad) + (1 | id), data = hb)  # unidad y paciente
+
+tibble(modelo = c("GEE intercambiable (id = paciente)", "Mixto (1 | paciente)", "Mixto (1 | unidad) + (1 | paciente)"),
+       cateter = c(coef(gee_hb$exchangeable)["cateter"], fixef(mix_pac)["cateter"], fixef(mix_ani)["cateter"]),
+       ee_cateter = c(summary(gee_hb$exchangeable)$coef["cateter", 2], summary(mix_pac)$coef["cateter", 2], summary(mix_ani)$coef["cateter", 2]),
+       intervencion = c(coef(gee_hb$exchangeable)["intervencion"], fixef(mix_pac)["intervencion"], fixef(mix_ani)["intervencion"]),
+       ee_intervencion = c(summary(gee_hb$exchangeable)$coef["intervencion", 2], summary(mix_pac)$coef["intervencion", 2], summary(mix_ani)$coef["intervencion", 2])) |>
+  mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+**Qué vemos.**
+
+-   GEE y modelo mixto **coinciden** en el catéter (`r num(coef(gee_hb$exchangeable)["cateter"], 2)` vs. `r num(fixef(mix_pac)["cateter"], 2)` g/dL; verdad −0.35): enlace identidad, misma pregunta.
+-   Pero ambos con **un solo nivel de agrupamiento (el paciente)** dan un error estándar de la intervención de ~0.05, que es **absurdamente pequeño** para un protocolo asignado a 40 unidades. Solo el mixto con **unidad y paciente** da el error correcto (`r num(summary(mix_ani)$coef["intervencion", 2], 2)`). Moraleja: **el conglomerado del GEE debe ser el nivel más alto de agrupamiento** (la unidad) cuando la exposición es de la unidad; con 12 mediciones por paciente y 45 pacientes por unidad, `geeglm()` con `id = unidad` es muy lento, así que en la práctica se prefiere el modelo mixto de tres niveles o el análisis a nivel de paciente (como en el Paso 3).
+
+## Paso 6. ¿Cuál elijo?
+
+Un resumen práctico:
+
+| Si... | Prefiere |
+|---|---|
+| Quieres el efecto **promedio en la población** (política, salud pública, ensayos por conglomerados) | **GEE** o `glm` con errores robustos por conglomerado |
+| Quieres el efecto **para un paciente o una unidad concretos**, o estudiar la **variabilidad entre unidades** (ICC, BLUP, benchmarking) | **Modelo mixto** |
+| El desenlace es **continuo** y el modelo lineal | **Cualquiera**: coinciden |
+| Hay **muchos conglomerados pequeños** (≥ 40) | **GEE** funciona muy bien |
+| Hay **pocos conglomerados** (< 30-40) | **Mixto** o GEE con **corrección de pocos conglomerados** (14.5) |
+| Hay **más de dos niveles** o conglomerados cruzados | **Mixto** |
+| Hay **datos faltantes** que dependen de lo observado (MAR) | **Mixto** (el GEE clásico exige MCAR; hay versiones ponderadas) |
+| Quieres **comparar solo dentro** de cada unidad y no te importan las variables de la unidad | **`clogit`** / efecto fijo |
+
+::: {.callout-warning}
+## ⚠️ Trampas frecuentes
+
+-   **Comparar el coeficiente de un `glmer` con el de un GEE como si midieran lo mismo.** En escala logit o log son cosas distintas; con heterogeneidad grande entre unidades, el condicional será siempre más extremo. Di explícitamente qué pregunta responde tu modelo.
+-   **Un GEE con id equivocado o datos desordenados.** Si los datos no están ordenados por conglomerado, o el id numérico no identifica a un conglomerado real, el error estándar robusto **pierde su sentido** sin avisarte. Y con **pocos** conglomerados (< 30-40), el error robusto estándar es **demasiado pequeño** (14.5).
+:::
+
+::: {.callout-tip}
+## 💡 Otros paquetes que el autor usa para GEE
+
+-   `geepack::geeglm()` (el que usamos) da errores robustos por defecto y `QIC()`.
+-   El paquete `gee` (`gee::gee()`) hace lo mismo con otra sintaxis; el paquete `geeasy` ofrece una interfaz común para ambos (código no verificado en el entorno de pruebas del libro):
+
+```{r}
+#| label: geeasy-144
+#| eval: !expr requireNamespace("geeasy", quietly = TRUE)
+#| error: true
+library(geeasy)
+m_geeasy <- geelm(hospitalizado ~ cateter + edad_c + dm + alb_c + intervencion,
+                  id = uni, data = pac, family = binomial, corstr = "exchangeable")
+summary(m_geeasy)
+```
+
+-   Para gráficos de efectos de un GEE o un `glmer`, el paquete `ggeffects` (`ggemmeans()`) y `emmeans` calculan **medias marginales estimadas** con intervalos.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   **Mixto = efecto condicional** (por paciente o unidad); **GEE = efecto marginal** (promedio de la red). Con enlace identidad son lo mismo; con logit o log, **no**: el condicional queda más lejos del nulo (en la intervención, `r num(exp(fixef(m_glmer)["intervencion"]), 2)` con `glmer` frente a `r num(exp(coef(m_gee)["intervencion"]), 2)` con GEE; verdades 0.61 y `r num(or_marginal_verdadero, 2)`).
+-   Los errores robustos por conglomerado hacen válido el `glm` o el GEE aunque la correlación esté mal especificada, pero **solo si el conglomerado es el correcto** (el nivel más alto) y hay suficientes (≥ 30-40).
+-   `predict(re.form = NA)` de un modelo mixto da el riesgo de la **unidad típica**, no el promedio de la red.
+-   El **QIC** elige la estructura de correlación del GEE; si no distingue, usa la más simple.
+-   `clogit` (8.3) es la versión de **efectos fijos por unidad**: compara solo dentro y no estima variables de la unidad.
+:::
+
+## Ejercicio
+
+1.  En el experimento del Paso 2, cambia el OR condicional verdadero a 0.25 (efecto más fuerte). ¿La diferencia entre el OR marginal y el condicional crece o se achica?
+2.  Ajusta el modelo del Paso 3 con `corstr = "independence"` y con `corstr = "exchangeable"` en `geeglm()`. ¿Cambian los OR? ¿Y los errores estándar?
+3.  Repite el análisis de la intervención **sin covariables** (`hospitalizado ~ intervencion`) con GEE y con `glmer`. ¿Cuál se acerca más al OR marginal verdadero?

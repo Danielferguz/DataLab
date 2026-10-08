@@ -65,14 +65,18 @@ ggacf <- function(x, lag_max = 24, parcial = FALSE, titulo = NULL, nivel = 0.95)
 
 # ---- Datos espaciales --------------------------------------------------
 
-#' Mapa coropletico de una variable numérica (clases por cuantiles), con ggplot2 + sf
-mapa_coropletico <- function(mapa, var, titulo = NULL, leyenda = NULL, n_clases = 5, paleta = "YlOrRd") {
+#' Mapa coropletico de una variable numérica (clases), con ggplot2 + sf
+#'
+#' @param cortes límites de las clases; si es NULL se usan cuantiles de la propia variable.
+#'   Para comparar varios mapas, pasa los mismos `cortes` a todos.
+mapa_coropletico <- function(mapa, var, titulo = NULL, leyenda = NULL, n_clases = 5, paleta = "YlOrRd", cortes = NULL) {
   v <- mapa[[var]]
-  cortes <- unique(stats::quantile(v, seq(0, 1, length.out = n_clases + 1), na.rm = TRUE))
+  if (is.null(cortes)) cortes <- unique(stats::quantile(v, seq(0, 1, length.out = n_clases + 1), na.rm = TRUE))
+  cortes[1] <- min(cortes[1], min(v, na.rm = TRUE)); cortes[length(cortes)] <- max(cortes[length(cortes)], max(v, na.rm = TRUE))
   mapa$.clase <- cut(v, cortes, include.lowest = TRUE, dig.lab = 3)
   ggplot2::ggplot(mapa) +
     ggplot2::geom_sf(ggplot2::aes(fill = .clase), colour = "white", linewidth = 0.3) +
-    ggplot2::scale_fill_brewer(palette = paleta, name = leyenda %||% var) +
+    ggplot2::scale_fill_brewer(palette = paleta, name = leyenda %||% var, drop = FALSE) +
     ggplot2::labs(title = titulo) +
     ggplot2::theme_void(base_size = 11) +
     ggplot2::theme(legend.position = "right")
@@ -93,9 +97,12 @@ moran_scatter <- function(x, lw, etiquetas = NULL) {
 }
 
 #' Clasificación LISA (Moran local) en Alto-Alto, Bajo-Bajo, Alto-Bajo, Bajo-Alto o no significativo
-cuadrante_lisa <- function(x, lw, alfa = 0.05) {
+#'
+#' @param ajuste método de `p.adjust()` para corregir por las 60 pruebas simultáneas
+#'   ("none" = sin corregir; "fdr" = tasa de falsos descubrimientos)
+cuadrante_lisa <- function(x, lw, alfa = 0.05, ajuste = "none") {
   loc <- spdep::localmoran(x, lw)
-  p <- loc[, ncol(loc)]                      # última columna = valor p (bilateral)
+  p <- stats::p.adjust(loc[, ncol(loc)], method = ajuste)   # última columna = valor p (bilateral)
   z <- as.numeric(scale(x)); retardo <- spdep::lag.listw(lw, z)
   out <- dplyr::case_when(p >= alfa ~ "No significativo",
                           z > 0 & retardo > 0 ~ "Alto-Alto",

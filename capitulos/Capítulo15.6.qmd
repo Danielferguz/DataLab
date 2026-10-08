@@ -1,0 +1,328 @@
+# Datos geoespaciales: mapas, autocorrelación espacial y suavizado
+
+```{r}
+#| label: setup-c15-6
+#| message: false
+#| warning: false
+library(tidyverse)
+library(sf)           # datos espaciales: geometrías + tablas
+library(spdep)        # vecindad, I de Moran, LISA, suavizado bayesiano empírico
+library(patchwork)
+source("R/funciones_extra_cap15.R")
+source("R/simular_distritos_erc.R")      # solo para dibujar los polígonos inventados (crear_poligonos_distritos)
+
+datos   <- read_csv("Bases/distritos_erc.csv", show_col_types = FALSE)          # datos SIMULADOS
+oraculo <- read_csv("Bases/distritos_erc_oraculo.csv", show_col_types = FALSE)  # la verdad (tasa verdadera de cada distrito)
+```
+
+::: {.callout-note}
+## 🩺 Escenario
+
+El ministerio quiere decidir **dónde abrir un nuevo centro de diálisis** y te pide un mapa: ¿en qué distritos hay más pacientes en diálisis por cada 100 000 habitantes? Al verlo, surgen tres preguntas. ¿Los distritos con tasas altas están **juntos** (un foco) o repartidos al azar? ¿Por qué algunos distritos **pequeños** salen como extremos? Y si la tasa depende de la pobreza y de la distancia al centro de diálisis, ¿cómo se analiza cuando **los vecinos se parecen entre sí**?
+:::
+
+**Lo que vamos a hacer**
+
+-   Construir un objeto espacial (`sf`), unirlo a una tabla y dibujar **mapas** con `ggplot2`.
+-   Definir **vecindad** y medir la **autocorrelación espacial** con la **I de Moran** (global y local).
+-   **Suavizar** tasas inestables de distritos pequeños y **modelar** con covariables respetando la estructura espacial.
+
+Todo con datos **simulados**: 60 distritos **inventados** (una malla de 6 × 10 con bordes irregulares), con sus pacientes en diálisis, población, pobreza y distancia al centro de diálisis más cercano. Como los simulamos, conocemos la **tasa verdadera** de cada distrito.
+
+## Paso 1. Un mapa es una tabla con geometría
+
+Un objeto `sf` (*simple features*) es un `data.frame` con una columna especial, `geometry`, que guarda el polígono de cada fila. Aquí lo creamos con una función propia (en tus datos reales lo leerías de un archivo con `st_read("distritos.shp")` o `read_sf()`) y le unimos la tabla de datos:
+
+```{r}
+#| label: sf-c15-6
+mapa <- crear_poligonos_distritos() |>                                       # 60 polígonos inventados
+  left_join(datos, by = c("id_distrito", "fila", "col")) |>                  # se une como cualquier data.frame
+  mutate(tasa = pacientes_dialisis / poblacion * 1e5,                        # pacientes por 100 000 habitantes
+         area_km2 = as.numeric(st_area(geometry)))                           # área de cada distrito
+
+mapa |> select(id_distrito, poblacion, pacientes_dialisis, tasa) |> head(3)
+```
+
+Fíjate en la cabecera: tipo de geometría (`POLYGON`), la caja que contiene todo el mapa (*bounding box*) y el **CRS** (sistema de referencia de coordenadas), que aquí es `NA` porque los polígonos son inventados y están en kilómetros. Con datos reales el CRS importa: define cómo se proyecta la Tierra y en qué unidades se miden distancias y áreas (`st_crs()`, `st_transform()`).
+
+::: {.callout-tip}
+## 💡 `sf` en lugar de `sp`, `rgdal` y `rgeos`
+
+Muchos tutoriales antiguos (incluido el que sirvió de base a este subcapítulo) usan `sp`, `rgdal`, `rgeos` o `maptools`. Esos paquetes fueron **retirados de CRAN** y `sf` los reemplaza con una sintaxis más cercana al `tidyverse`. Si te topas con `readOGR()` o `coordinates()`, la traducción es `st_read()` y `st_coordinates()`.
+:::
+
+## Paso 2. El primer mapa (y su trampa)
+
+Dibujamos la tasa **cruda** por distrito. `mapa_coropletico()` (nuestra función: `ggplot2` + `geom_sf`, con clases por cuantiles) lo hace en una línea. A su lado, la tasa frente a la población de cada distrito:
+
+```{r}
+#| label: mapa-crudo-c15-6
+#| fig-width: 9
+#| fig-height: 3.6
+tasa_global <- sum(mapa$pacientes_dialisis) / sum(mapa$poblacion) * 1e5     # tasa de toda la región
+
+p_mapa <- mapa_coropletico(mapa, "tasa", titulo = "Tasa cruda de pacientes en diálisis", leyenda = "Por 100 000")
+
+p_embudo <- ggplot(mapa, aes(poblacion, tasa)) +
+  geom_hline(yintercept = tasa_global, linetype = "dashed") +
+  geom_point(colour = "#0072B2") +
+  scale_x_log10(labels = scales::label_number(big.mark = " ")) +
+  labs(x = "Población del distrito (escala log)", y = "Tasa cruda por 100 000") +
+  theme_minimal(base_size = 11)
+
+p_mapa + p_embudo
+```
+
+**Qué vemos.** Dos cosas. **(1)** Los distritos más oscuros parecen agruparse en algunas zonas (volveremos a ello). **(2)** En el gráfico de la derecha, los distritos **pequeños** (a la izquierda) se dispersan mucho más alrededor de la tasa global (`r sprintf("%.0f", tasa_global)` por 100 000) que los grandes: forman un **embudo**. No es que los distritos pequeños sean "más enfermos" o "más sanos": con pocos pacientes, **uno más o uno menos** cambia mucho la tasa. Por ejemplo, el distrito con la tasa más alta (`r mapa$id_distrito[which.max(mapa$tasa)]`, `r sprintf("%.0f", max(mapa$tasa))` por 100 000) tiene solo `r format(mapa$poblacion[which.max(mapa$tasa)], big.mark = " ")` habitantes y `r mapa$pacientes_dialisis[which.max(mapa$tasa)]` pacientes, frente a una mediana de `r format(median(mapa$poblacion), big.mark = " ")` habitantes por distrito. Es el **problema de los números pequeños**, y lo resolveremos en el Paso 6.
+
+## Paso 3. ¿Quiénes son vecinos? La matriz de pesos
+
+Para hablar de "cercanía" hay que **definirla**. La definición más usada es la **contigüidad**: dos distritos son vecinos si comparten frontera. Con `spdep::poly2nb()`:
+
+-   **Reina** (*queen*): basta con compartir un **punto** (una esquina).
+-   **Torre** (*rook*): hay que compartir un **lado**.
+
+```{r}
+#| label: vecinos-c15-6
+nb_reina <- poly2nb(mapa, queen = TRUE)
+nb_torre <- poly2nb(mapa, queen = FALSE)
+nb_reina                                       # resumen de la vecindad "reina"
+c(vecinos_promedio_reina = mean(card(nb_reina)), vecinos_promedio_torre = mean(card(nb_torre)))
+```
+
+Los enlaces se pueden dibujar uniendo los centroides de los distritos vecinos:
+
+```{r}
+#| label: vecinos-grafico-c15-6
+#| fig-width: 7
+#| fig-height: 3.6
+centroides <- st_centroid(st_geometry(mapa))                                 # un punto por distrito
+enlaces <- nb2lines(nb_reina, coords = st_coordinates(centroides), as_sf = TRUE)   # líneas entre vecinos
+
+ggplot() +
+  geom_sf(data = mapa, fill = "grey95", colour = "white") +
+  geom_sf(data = enlaces, colour = "#D55E00", linewidth = 0.4) +
+  geom_sf(data = centroides, size = 0.8) +
+  theme_void()
+```
+
+Con la lista de vecinos se arma la **matriz de pesos** $w_{ij}$: cuánto pesa el distrito $j$ como vecino del $i$. Lo más común es **estandarizar por fila** (`style = "W"`): cada distrito reparte un peso total de 1 entre sus vecinos, de modo que "el promedio de mis vecinos" se calcula con facilidad:
+
+```{r}
+#| label: pesos-c15-6
+lw <- nb2listw(nb_reina, style = "W")          # "W" = estandarizado por fila (cada fila suma 1)
+lw$weights[[1]]                                # el distrito 1 tiene 3 vecinos: cada uno pesa 1/3
+```
+
+## Paso 4. La I de Moran: ¿se parecen los vecinos?
+
+La **autocorrelación espacial** es la correlación de una variable consigo misma **entre vecinos**. Es la primera ley de la geografía de Tobler: «todo se parece a todo, pero lo cercano se parece más que lo lejano». La **I de Moran** la resume en un número parecido a una correlación:
+
+-   **I > 0** (cerca de 1): valores similares **cerca** (agrupamiento).
+-   **I ≈ 0** (el valor esperado bajo azar es $-1/(n-1)$): sin patrón espacial.
+-   **I < 0**: valores distintos **cerca** (patrón de tablero de ajedrez).
+
+```{r}
+#| label: moran-global-c15-6
+mt <- moran.test(mapa$tasa, lw)               # I de Moran con aproximación normal (hipótesis: no hay autocorrelación)
+mt
+
+set.seed(2029)
+mc <- moran.mc(mapa$tasa, lw, nsim = 999)     # prueba de permutaciones: reordena los valores al azar 999 veces
+mc$p.value
+```
+
+**Qué vemos.** La I de Moran es de **`r sprintf("%.2f", mt$estimate["Moran I statistic"])`** (frente a `r sprintf("%.3f", mt$estimate["Expectation"])` esperado sin patrón), con *p* < 0.001 por las dos pruebas (la de permutaciones da *p* = `r sprintf("%.3f", mc$p.value)`, el mínimo posible con 999 permutaciones). **Los vecinos se parecen**: la tasa de diálisis está espacialmente agrupada. Un gráfico ayuda a entenderlo: el **diagrama de dispersión de Moran** pone en el eje *x* el valor estandarizado de cada distrito y en el *y* el promedio de sus vecinos; la pendiente de la recta es la I de Moran.
+
+```{r}
+#| label: moran-scatter-c15-6
+#| fig-width: 5
+#| fig-height: 3.8
+moran_scatter(mapa$tasa, lw)
+```
+
+El cuadrante superior derecho son distritos **altos rodeados de altos**; el inferior izquierdo, **bajos rodeados de bajos**; los otros dos, **valores discordantes** con su entorno.
+
+## Paso 5. ¿Dónde están los focos? Moran local (LISA) y Getis-Ord
+
+La I global dice **si** hay agrupamiento; no dice **dónde**. El **Moran local** (LISA, *local indicators of spatial association*) calcula un valor para cada distrito y lo clasifica según su cuadrante:
+
+-   **Alto-Alto**: distrito alto con vecinos altos (**foco caliente**).
+-   **Bajo-Bajo**: bajo con vecinos bajos (**foco frío**).
+-   **Alto-Bajo** y **Bajo-Alto**: distritos discordantes (*outliers* espaciales).
+
+Hay un problema: son **60 pruebas a la vez**, y con un umbral de 0.05 esperamos unas 3 "significativas" solo por azar. Por eso se corrige por **comparaciones múltiples** (aquí, tasa de falsos descubrimientos, FDR):
+
+```{r}
+#| label: lisa-c15-6
+mapa$lisa_sin_ajuste <- cuadrante_lisa(mapa$tasa, lw, ajuste = "none")     # sin corregir
+mapa$lisa            <- cuadrante_lisa(mapa$tasa, lw, ajuste = "fdr")      # corrigiendo por 60 pruebas
+
+rbind(`sin ajuste` = table(mapa$lisa_sin_ajuste), `con FDR` = table(mapa$lisa))
+```
+
+```{r}
+#| label: lisa-mapa-c15-6
+#| fig-width: 9
+#| fig-height: 3.6
+colores <- c("Alto-Alto" = "#B2182B", "Bajo-Bajo" = "#2166AC", "Alto-Bajo" = "#F4A582", "Bajo-Alto" = "#92C5DE",
+             "No significativo" = "grey90")
+
+p_lisa <- ggplot(mapa) +
+  geom_sf(aes(fill = lisa), colour = "white", linewidth = 0.3) +
+  scale_fill_manual(values = colores, name = NULL, drop = FALSE) +
+  labs(title = "Moran local (LISA), ajustado por FDR") +
+  theme_void(base_size = 11)
+
+# Getis-Ord Gi*: vecinos por DISTANCIA (distritos a menos de 15 km), incluyéndose a sí mismo
+nb_dist <- dnearneigh(st_coordinates(centroides), 0, 15)
+gi <- localG(mapa$tasa, nb2listw(include.self(nb_dist), style = "B"))      # z-score de Gi* por distrito
+mapa$gi_z <- as.numeric(gi)
+
+p_gi <- ggplot(mapa) +
+  geom_sf(aes(fill = gi_z), colour = "white", linewidth = 0.3) +
+  scale_fill_gradient2(low = "#2166AC", mid = "white", high = "#B2182B", name = "z de Gi*") +
+  labs(title = "Getis-Ord Gi* (distritos a < 15 km)") +
+  theme_void(base_size = 11)
+
+p_lisa + p_gi
+```
+
+**Qué vemos.** Tras el ajuste quedan **`r sum(mapa$lisa == "Alto-Alto")` distritos Alto-Alto** (foco caliente, en rojo) y **`r sum(mapa$lisa == "Bajo-Bajo")` Bajo-Bajo** (foco frío, en azul). El Gi* (derecha) cuenta una historia parecida con otra definición de vecindad: `r sum(mapa$gi_z > 1.96)` distritos con *z* > 1.96 (puntos calientes) y `r sum(mapa$gi_z < -1.96)` con *z* < −1.96 (puntos fríos). ¿Aciertan? Como simulamos, lo sabemos: pusimos un **foco de alta carga** en la zona sureste (la tasa se multiplica por 1.5 en `r sum(oraculo$foco)` distritos) y un efecto del **acceso** (menos diálisis lejos del centro de diálisis). De los distritos Alto-Alto, **`r sum(mapa$lisa == "Alto-Alto" & oraculo$foco[match(mapa$id_distrito, oraculo$id_distrito)] == 1)` están dentro del foco verdadero**: el método lo encuentra, aunque no sea perfecto.
+
+::: {.callout-warning}
+## ⚠️ Un foco en el mapa no es una causa
+
+-   **Alto no significa «más enfermo»**: la tasa de **diálisis** depende de la carga de ERC **y** del acceso al tratamiento. Los focos fríos de aquí están **lejos de los centros de diálisis** (los distritos Bajo-Bajo están en promedio a `r sprintf("%.0f", mean(mapa$dist_centro_km[mapa$lisa == "Bajo-Bajo"]))` km del centro más cercano, frente a `r sprintf("%.0f", mean(mapa$dist_centro_km[mapa$lisa != "Bajo-Bajo"]))` km en el resto): pueden ser distritos con **más** ERC sin tratar, no con menos.
+-   **La falacia ecológica**: un patrón entre **distritos** no se puede trasladar a **personas** (que un distrito tenga más pobreza y más diálisis no dice que los pobres de ese distrito dialicen más). Y los resultados cambian con el tamaño y el trazado de las unidades (el **problema de la unidad de área modificable**, MAUP).
+:::
+
+## Paso 6. Suavizar los números pequeños
+
+Volvamos al embudo. Para estimar la tasa verdadera de un distrito pequeño conviene **pedirle prestada información**: encoger su tasa cruda hacia un valor de referencia, **más** cuanto más pequeña es su población. Así funcionan los estimadores **bayesianos empíricos** (BE), que en `spdep` son dos:
+
+-   `EBest()`: encoge hacia la **tasa global** de toda la región.
+-   `EBlocal()`: encoge hacia la tasa de los **vecinos** (aprovecha la estructura espacial).
+
+Hacemos también un suavizado **ingenuo** y fácil de explicar: la tasa del distrito **junto con la de sus vecinos** (sumar casos y poblaciones del distrito y sus vecinos).
+
+```{r}
+#| label: suavizado-c15-6
+eb_g <- EBest(mapa$pacientes_dialisis, mapa$poblacion)                     # bayes empírico global
+eb_l <- EBlocal(mapa$pacientes_dialisis, mapa$poblacion, nb_reina)         # bayes empírico local
+
+mapa <- mapa |>
+  left_join(oraculo, by = "id_distrito") |>                                # añade la tasa verdadera (solo porque es simulación)
+  mutate(tasa_eb_global = eb_g$estmm * 1e5,
+         tasa_eb_local  = eb_l$est * 1e5,
+         tasa_vecinos   = sapply(seq_len(n()), \(i) {                      # distrito + vecinos
+           idx <- c(i, nb_reina[[i]]); sum(pacientes_dialisis[idx]) / sum(poblacion[idx]) * 1e5 }))
+
+rmse <- \(x) sqrt(mean((x - mapa$tasa_verdadera_100mil)^2))                # error respecto a la verdad
+tibble(estimador = c("Tasa cruda", "BE global", "BE local", "Distrito + vecinos"),
+       RMSE = c(rmse(mapa$tasa), rmse(mapa$tasa_eb_global), rmse(mapa$tasa_eb_local), rmse(mapa$tasa_vecinos))) |>
+  mutate(RMSE = round(RMSE, 1))
+```
+
+```{r}
+#| label: suavizado-mapas-c15-6
+#| fig-width: 9
+#| fig-height: 3.2
+# Mismas clases en los tres mapas (cuantiles de la verdad; los extremos cubren todos los valores)
+cortes <- quantile(mapa$tasa_verdadera_100mil, seq(0, 1, 0.2))
+cortes[c(1, 6)] <- c(floor(min(mapa$tasa, mapa$tasa_eb_local, mapa$tasa_verdadera_100mil)),
+                     ceiling(max(mapa$tasa, mapa$tasa_eb_local, mapa$tasa_verdadera_100mil)))
+
+(mapa_coropletico(mapa, "tasa", "Cruda", "Por 100 000", cortes = cortes) +
+   mapa_coropletico(mapa, "tasa_eb_local", "Bayes empírico local", "Por 100 000", cortes = cortes) +
+   mapa_coropletico(mapa, "tasa_verdadera_100mil", "Verdad (simulada)", "Por 100 000", cortes = cortes)) +
+  plot_layout(guides = "collect")
+```
+
+**Qué vemos.** El error respecto de la verdad baja de **`r sprintf("%.1f", rmse(mapa$tasa))`** (tasa cruda) a **`r sprintf("%.1f", rmse(mapa$tasa_eb_local))`** (BE local) por 100 000: casi la **mitad**. El BE global (`r sprintf("%.1f", rmse(mapa$tasa_eb_global))`) y el simple "distrito + vecinos" (`r sprintf("%.1f", rmse(mapa$tasa_vecinos))`) también mejoran. En el mapa, la cruda (izquierda) tiene "manchas" aisladas que son ruido de distritos pequeños; la suavizada (centro) se parece mucho más a la verdad (derecha). A cambio, el suavizado **borra** variación real: no lo uses para decidir que un distrito concreto es "malo", sino para **ver el patrón**.
+
+::: {.callout-tip}
+## 💡 Suavizar crea autocorrelación espacial
+
+La I de Moran de la tasa suavizada (BE local) es **`r sprintf("%.2f", moran.test(mapa$tasa_eb_local, lw)$estimate[1])`**, frente a **`r sprintf("%.2f", moran.test(mapa$tasa, lw)$estimate[1])`** de la cruda y **`r sprintf("%.2f", moran.test(mapa$tasa_verdadera_100mil, lw)$estimate[1])`** de la verdad. El suavizado local **fabrica parte del agrupamiento** (cada tasa se acerca a la de sus vecinos). Por eso: **mide** la autocorrelación con las tasas crudas (o en un modelo, Paso 7) y **suaviza** solo para dibujar.
+:::
+
+## Paso 7. Modelar con covariables: la estructura espacial en los residuos
+
+La pregunta final: ¿cómo se asocian la pobreza y la distancia al centro con la tasa de diálisis? Un modelo de Poisson (con la sobredispersión que ya conocemos, `quasipoisson`) con `offset(log(poblacion))`, como en 15.2:
+
+```{r}
+#| label: modelo-espacial-c15-6
+m1 <- glm(pacientes_dialisis ~ I(pobreza_pct / 10) + dist_centro_km + offset(log(poblacion)),
+          family = quasipoisson, data = mapa)
+
+tibble(efecto = c("RR por +10 puntos de pobreza", "RR por +10 km de distancia al centro"),
+       estimado = c(exp(coef(m1)[2]), exp(10 * coef(m1)[3])),
+       inf = c(exp(confint.default(m1)[2, 1]), exp(10 * confint.default(m1)[3, 1])),
+       sup = c(exp(confint.default(m1)[2, 2]), exp(10 * confint.default(m1)[3, 2])),
+       verdad = c(exp(0.15), exp(-0.12))) |>
+  mutate(across(where(is.numeric), \(x) round(x, 2)))
+```
+
+Con la verdad al lado, el modelo recupera bien los dos efectos: a más pobreza, más pacientes dializados (RR ≈ `r sprintf("%.2f", exp(coef(m1)[2]))` por cada 10 puntos); a más distancia al centro, **menos** (RR ≈ `r sprintf("%.2f", exp(10 * coef(m1)[3]))` por cada 10 km): el **acceso**, otra vez. Pero este modelo supone que los distritos son **independientes**. Comprobamos si el residuo conserva estructura espacial:
+
+```{r}
+#| label: moran-residuos-c15-6
+mr <- moran.test(residuals(m1, type = "pearson"), lw)
+c(I_residuos = unname(mr$estimate["Moran I statistic"]), p = mr$p.value) |> round(4)
+```
+
+La I de Moran de los residuos es de **`r sprintf("%.2f", mr$estimate["Moran I statistic"])`** (*p* < 0.001): **aún hay agrupamiento espacial** que el modelo no explica (en este caso, el foco y otros factores no medidos). Igual que con la autocorrelación temporal, los **errores estándar** de arriba son optimistas. Una solución flexible es añadir al modelo una **superficie suave de las coordenadas** (*spline* espacial, con `mgcv`) que capture lo que el modelo no ve:
+
+```{r}
+#| label: modelo-gam-espacial-c15-6
+m2 <- mgcv::gam(pacientes_dialisis ~ I(pobreza_pct / 10) + dist_centro_km + s(x_km, y_km, k = 15) + offset(log(poblacion)),
+                family = quasipoisson, data = mapa)
+
+mr2 <- moran.test(residuals(m2, type = "pearson"), lw)
+tibble(modelo = c("Sin estructura espacial", "Con superficie espacial s(x, y)"),
+       RR_pobreza_10pts = c(exp(coef(m1)[2]), exp(coef(m2)[2])),
+       ee_log_pobreza = c(summary(m1)$coef[2, 2], summary(m2)$p.table[2, 2]),
+       RR_distancia_10km = c(exp(10 * coef(m1)[3]), exp(10 * coef(m2)[3])),
+       I_Moran_residuos = c(mr$estimate[1], mr2$estimate[1])) |>
+  mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+**Qué vemos.** Con la superficie espacial los residuos **ya no** muestran agrupamiento (I de Moran = `r sprintf("%.2f", mr2$estimate[1])`) y el error estándar del efecto de la pobreza **crece** (de `r sprintf("%.3f", summary(m1)$coef[2, 2])` a `r sprintf("%.3f", summary(m2)$p.table[2, 2])`). Además, el RR de la pobreza **se atenúa** (`r sprintf("%.2f", exp(coef(m1)[2]))` → `r sprintf("%.2f", exp(coef(m2)[2]))`; la verdad es 1.16): como la pobreza **también** varía suavemente en el espacio, la superficie espacial le "roba" parte de su efecto. A esto se le llama **confusión espacial** (*spatial confounding*) y no tiene una respuesta única: la lección es **mostrar ambos modelos** y entender qué supone cada uno. Otras opciones, para cuando quieras modelos de **error espacial** o de **retardo espacial**, están en el paquete `spatialreg` (`errorsarlm()`, `lagsarlm()`).
+
+::: {.callout-tip}
+## 💡 Los mapas con `tmap` (código no verificado en el entorno de pruebas del libro)
+
+El paquete `tmap` es el más usado para mapas temáticos, y el que aparece en el material que sirvió de base. Aquí dibujamos con `ggplot2` porque es lo que se puede ejecutar en las pruebas del libro; con `tmap` el mapa de tasas sería:
+:::
+
+```{r}
+#| label: tmap-c15-6
+#| eval: !expr requireNamespace("tmap", quietly = TRUE)
+#| error: true
+library(tmap)
+
+# Sintaxis de tmap 4.x. (En tmap 3.x: tm_shape(mapa) + tm_polygons("tasa", style = "quantile", palette = "YlOrRd"))
+tm_shape(mapa) +
+  tm_polygons(fill = "tasa",
+              fill.scale = tm_scale_intervals(style = "quantile", n = 5, values = "brewer.yl_or_rd"),
+              fill.legend = tm_legend(title = "Por 100 000")) +
+  tm_title("Pacientes en diálisis por 100 000 habitantes")
+```
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   Un **objeto `sf`** es una tabla con una columna de geometría: se une a tus datos con `left_join()` y se dibuja con `geom_sf()`. Revisa siempre el **CRS**.
+-   Las tasas de **distritos pequeños** son inestables (el **embudo**): no interpretes los extremos sin mirar la población.
+-   La **vecindad** (reina, torre, distancia) y los **pesos** son una decisión; la **I de Moran** mide si los vecinos se parecen, y **LISA** o **Gi\*** dicen **dónde** (corrigiendo por pruebas múltiples).
+-   El **suavizado** (bayes empírico) reduce el error de las tasas pequeñas, pero **induce** autocorrelación y **borra** variación real: úsalo para ver, no para medir.
+-   Si los **residuos** de un modelo tienen autocorrelación espacial, los errores estándar son optimistas; una **superficie espacial** (`s(x, y)`) o los modelos de `spatialreg` lo corrigen, a costa de atenuar covariables que también son espaciales.
+-   Un patrón en un mapa es **ecológico**: no es una causa ni se traslada a individuos.
+:::
+
+## Ejercicio
+
+1.  Calcula la I de Moran con la vecindad de **torre** (`nb_torre`). ¿Cambia mucho respecto de la de reina?
+2.  Cambia el umbral de distancia del Gi* de 15 a 25 km. ¿Qué pasa con el número de puntos calientes y fríos? ¿Por qué un umbral grande "borra" los focos pequeños?
+3.  Repite el análisis de los distritos pequeños pero **solo con los 20 distritos más poblados**. ¿La I de Moran es parecida? ¿Y el error de la tasa cruda?
