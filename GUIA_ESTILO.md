@@ -32,8 +32,27 @@ Máximo **3-4 callouts por subcapítulo** en total. Una tabla solo si compara de
 -   Un bloque = una idea. Etiqueta (`#| label:`) única en todo el libro.
 -   **Muestra primero el resultado "feo" y luego el bueno** cuando enseñes un error (sesgo, mala imputación, PH violado).
 -   Código **reutilizable**: funciones propias van en `capitulos/R/` y se cargan con `source()`.
--   Adaptar y simplificar el código del autor (`Mis códigos/`) a **datos de nefrología simulados del libro**. Para paquetes que el autor usa pero que no se pueden instalar aquí (`tableone`, `gtsummary`, `cobalt`, `WeightIt`, `dagitty`, `ggdag`, `janitor`, `naniar`, `meta`, `mediation`…), incluir el código del paquete en un bloque **`#| eval: false`** claramente rotulado "Con el paquete X (no se ejecuta aquí)", **además** de la versión ejecutable propia.
+-   Adaptar y simplificar el código del autor (`Mis códigos/`) a **datos de nefrología simulados del libro**. Para paquetes que el autor usa pero que no se pueden instalar aquí (`tableone`, `gtsummary`, `cobalt`, `WeightIt`, `dagitty`, `ggdag`, `janitor`, `naniar`, `meta`, `mediation`…), incluir el código del paquete con el patrón de §3 bis (evaluación condicional), **además** de la versión ejecutable propia.
 -   Nunca usar datos reales de pacientes ni copiar bases de `Mis códigos/`. Todo dato es simulado o hipotético y se **rotula**.
+
+### §3 bis · Paquetes que el autor usa (tableone, gtsummary, cobalt, WeightIt, dagitty, naniar, janitor, mediation…)
+
+No se pueden instalar en el entorno donde se escribe el libro, pero el autor sí los tiene. Por eso **sí se usan en el libro** con este patrón (siempre **dos versiones**, la propia ejecutable y la del paquete):
+
+````
+```{r}
+#| label: tabla1-gtsummary
+#| eval: !expr requireNamespace("gtsummary", quietly = TRUE)
+#| error: true
+library(gtsummary)
+...
+```
+````
+
+-   `eval: !expr requireNamespace(...)` ejecuta el bloque solo si el paquete está instalado (en la máquina del autor sí; en el servidor de pruebas, no).
+-   `error: true` evita que un fallo no verificado detenga el render del libro.
+-   Antes del bloque, una frase: "Con el paquete X (código no verificado en el entorno de pruebas del libro)". Escribe el código con mucho cuidado (sintaxis y argumentos reales del paquete) y mantén **siempre** la versión propia que sí se ejecuta aquí.
+-   Para `cobalt`/`WeightIt` usa sus funciones reales (`bal.tab`, `love.plot`, `weightit(..., method = "glm"/"ebal"/"cbps", estimand = "ATE")`); para `tableone` `CreateTableOne`/`print(..., smd = TRUE)`; para `gtsummary` `tbl_summary(by=)`, `add_p()`, `add_difference()`, `tbl_regression()`, `tbl_merge()`.
 
 ## 4. Cifras y verdad
 
