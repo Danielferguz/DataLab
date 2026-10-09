@@ -1,0 +1,208 @@
+# La lógica del tamaño de muestra: efecto, variabilidad, error y potencia
+
+::: {.callout-note}
+## 🩺 Escenario
+
+El ensayo de bicarbonato (Cap. 11) encontró que, a 12 meses, la TFGe cae algo menos con bicarbonato que con placebo. El efecto es modesto y el comité quiere un **segundo ensayo confirmatorio**. En la reunión, un colega pregunta: *"¿Cuántos pacientes?"*; otro responde: *"Los mismos 640, que ya nos funcionaron"*; y un tercero propone: *"Calculemos la potencia que tuvo el primero, a ver si fue por eso"*. Los tres razonan con una idea a medias. Este subcapítulo pone orden: qué es lo que se decide **antes** de reclutar y por qué calcular la potencia **después** no sirve.
+:::
+
+**Lo que vamos a hacer**
+
+-   Entender los **cinco ingredientes** del cálculo (efecto, variabilidad, α, potencia y *n*) y los dos errores que se pueden cometer.
+-   **Ver** la lógica en una figura y **comprobarla** con miles de ensayos simulados.
+-   Distinguir el efecto **clínicamente relevante** del efecto **observado**, y por qué la «potencia post hoc» no aporta información.
+
+```{r}
+#| label: setup-c201
+#| message: false
+library(tidyverse)
+library(pwr)
+source("R/funciones_extra_a.R")      # num(), pct()
+source("R/funciones_cap20.R")
+theme_set(theme_minimal(base_size = 12))
+
+# Ensayo piloto (SIMULADO, Cap. 11): 640 pacientes con ERC G3b-G4
+eca <- read_csv("Bases/eca_bicarbonato.csv", show_col_types = FALSE) |>
+  mutate(brazo = factor(brazo, levels = c("Placebo", "Bicarbonato")),
+         dif12 = tfg_12 - tfg0)                       # cambio de TFGe a 12 meses
+```
+
+## Paso 1: los cinco ingredientes
+
+Un ensayo que compara dos grupos es, en esencia, una **señal** (la diferencia entre grupos) que hay que distinguir de un **ruido** (la variabilidad entre pacientes). El tamaño de muestra decide cuánto ruido se promedia. Intervienen cinco cantidades y **cuatro cualesquiera determinan la quinta**:
+
+1.  **El efecto a detectar** (δ): la diferencia entre grupos que quieres poder distinguir del azar. Aquí, mL/min/1.73 m² de TFGe a 12 meses.
+2.  **La variabilidad** (σ): cuánto se dispersan los pacientes alrededor de su media. A más dispersión, más ruido y más pacientes.
+3.  **El error tipo I tolerado** (α, casi siempre 0.05 bilateral): la probabilidad de «ver» un efecto que no existe.
+4.  **La potencia** (1 − β, casi siempre 0.80 o 0.90): la probabilidad de detectar el efecto **si existe** con el tamaño δ.
+5.  **El tamaño de muestra** (*n*, por grupo).
+
+La señal y el ruido se resumen en un solo número, el **tamaño del efecto estandarizado** *d* de Cohen (Cohen, 1988): *d* = δ / σ, es decir, el efecto medido en desviaciones estándar. Para σ usamos la dispersión del cambio de TFGe a 12 meses en el piloto:
+
+```{r}
+#| label: sigma-c201
+resumen12 <- eca |> filter(!is.na(dif12)) |>
+  group_by(brazo) |> summarise(n = n(), media = mean(dif12), de = sd(dif12), .groups = "drop")
+resumen12
+
+sigma <- round(sqrt(mean(resumen12$de^2)), 1)     # DE común, redondeada: es una suposición de planificación
+sigma
+```
+
+**Qué vemos.** El cambio de TFGe a 12 meses tiene una DE de unos **`r num(sigma, 1)` mL/min/1.73 m²** en ambos grupos; es el «ruido» con el que planificaremos. Observa también que `r sum(is.na(eca$dif12))` de los `r nrow(eca)` pacientes no tienen medición a 12 meses: de las pérdidas nos ocupamos en 20.2 y 20.7.
+
+## Paso 2: los dos errores y cómo se ven
+
+Al terminar el ensayo decides «hay efecto» o «no hay evidencia de efecto». La realidad también tiene dos estados, de modo que hay dos formas de acertar y dos de equivocarse:
+
+| | **No hay efecto** (H₀ cierta) | **Sí hay efecto** (H₁ cierta) |
+|---|---|---|
+| **Concluyes «hay efecto»** | **Error tipo I** (falso positivo), probabilidad α | Acierto: **potencia** = 1 − β |
+| **Concluyes «no hay evidencia»** | Acierto, probabilidad 1 − α | **Error tipo II** (falso negativo), probabilidad β |
+
+Dibujémoslo para el segundo ensayo. Supón que quieres detectar una diferencia de **1.0 mL/min/1.73 m²** a 12 meses (más abajo justificamos por qué) con 108 pacientes por grupo:
+
+```{r}
+#| label: fig-dos-distribuciones-c201
+#| fig-cap: "Distribución de la diferencia de medias observada si no hay efecto (gris) y si el efecto verdadero es 1.0 (azul). Parámetros hipotéticos; σ tomada del piloto simulado."
+#| fig-width: 7.5
+#| fig-height: 4
+grafico_potencia(delta = 1.0, sd = sigma, n_por_grupo = 108)
+```
+
+Cómo leerla: cada campana muestra **qué diferencia observaríamos** en un ensayo con 108 por grupo. Si no hay efecto (gris), la diferencia oscila alrededor de 0; las líneas punteadas marcan el límite a partir del cual el resultado se declara «significativo», y el área naranja que queda más allá es **α** (5 %). Si el efecto es 1.0 (azul), la diferencia oscila alrededor de 1.0; la parte azul clara que supera la línea es la **potencia**, y la parte amarilla que se queda del lado «no significativo» es **β**.
+
+Para subir la potencia hay tres palancas: **más pacientes** (las campanas se estrechan y se separan menos del azar), **menos ruido** (σ menor, por ejemplo ajustando por la TFGe basal, 20.5) o **un efecto mayor**. Para bajar α pagas con potencia.
+
+## Paso 3: comprobarlo con miles de ensayos
+
+La figura es teoría. Como los datos son simulados, repitamos el experimento: 5 000 ensayos con 108 pacientes por grupo, una vez **sin efecto** (para medir α) y otra con el efecto de 1.0 (para medir la potencia).
+
+```{r}
+#| label: sim-errores-c201
+set.seed(2027)
+R <- 5000
+p_sin_efecto <- replicate(R, t.test(rnorm(108, 0, sigma), rnorm(108, 0, sigma))$p.value)
+p_con_efecto <- replicate(R, t.test(rnorm(108, 1, sigma), rnorm(108, 0, sigma))$p.value)
+
+tibble(escenario = c("Sin efecto (mide α)", "Efecto = 1.0 (mide potencia)"),
+       rechazos = c(mean(p_sin_efecto < 0.05), mean(p_con_efecto < 0.05)),
+       error_mc = sqrt(rechazos * (1 - rechazos) / R)) |>
+  mutate(across(where(is.numeric), \(x) round(x, 3)))
+
+potencia_teorica <- pwr.t.test(n = 108, d = 1.0 / sigma, sig.level = 0.05)$power
+```
+
+**Qué vemos.** Sin efecto, **`r pct(mean(p_sin_efecto < 0.05), 1)`** de los ensayos salen «significativos» (α nominal 5 %); con el efecto de 1.0 lo hacen **`r pct(mean(p_con_efecto < 0.05), 1)`**, frente a una potencia teórica de **`r pct(potencia_teorica, 1)`**. La diferencia entre la potencia simulada y la teórica es de `r num(100 * (mean(p_con_efecto < 0.05) - potencia_teorica), 1)` puntos porcentuales, dentro del **error de Monte Carlo** (con 5 000 ensayos, ±`r num(100 * sqrt(0.8 * 0.2 / R), 1)` puntos): la simulación solo puede ser tan exacta como su número de réplicas, y por eso las cifras de este capítulo se comparan con ese margen.
+
+## Paso 4: efecto relevante frente a efecto observado
+
+La pregunta más importante del cálculo no es estadística: **¿qué diferencia sería clínicamente importante?** Esa es la **diferencia mínima importante** (DMI, *minimal important difference*): el menor cambio que un paciente o un clínico consideraría que vale la pena. Se fija **antes** del ensayo, por consenso clínico, con datos de otros estudios o con *anclas* (comparar con un cambio que sí se percibe como importante).
+
+::: {.callout-tip}
+## 💡 Cómo traducir la DMI a algo con sentido clínico
+
+Una DMI de 1.0 mL/min/1.73 m² en 12 meses puede parecer poco. Tradúcela: el placebo pierde **`r num(-resumen12$media[1], 1)`** mL/min/1.73 m² por año, así que ganar 1.0 equivale a **«ahorrar» unos `r num(12 * 1.0 / -resumen12$media[1], 0)` meses de deterioro** en un año de seguimiento. La DMI de 1.0 es una decisión hipotética de este libro; en un protocolo real se discute con el comité clínico y con pacientes.
+:::
+
+Ahora compara la DMI con lo que mostró el piloto:
+
+```{r}
+#| label: efecto-piloto-c201
+tt <- t.test(dif12 ~ brazo, data = eca) |> broom::tidy()
+piloto <- tibble(diferencia = -tt$estimate, ic_inf = -tt$conf.high, ic_sup = -tt$conf.low, p = tt$p.value)
+piloto |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+El piloto estimó una diferencia de **`r num(piloto$diferencia, 2)`** (IC 95 %: `r num(piloto$ic_inf, 2)` a `r num(piloto$ic_sup, 2)`), con *p* = `r num(piloto$p, 3)`: estadísticamente distinguible de cero, pero **por debajo de la DMI de 1.0**. Hay tres lecturas posibles, y el cálculo debe decir cuál asume:
+
+-   **Planificar con la DMI (1.0)**: «solo me interesa saber si el beneficio llega a ser importante». Es lo que hemos dibujado.
+-   **Planificar con el efecto esperado (~0.5)**: «quiero confirmar el efecto probable». Exige muchos más pacientes.
+-   **Planificar con la estimación del piloto sin más**: el camino más tentador y más arriesgado, porque la estimación de un estudio pequeño es imprecisa (su IC es ancho) y, si fue «significativa», probablemente algo **exagerada** (lo vemos en 20.7).
+
+Veamos qué pasa con la potencia del ensayo de 108 por grupo si el efecto verdadero es cada uno de estos valores:
+
+```{r}
+#| label: fig-curva-potencia-c201
+#| fig-cap: "Potencia de un ensayo con 108 pacientes por grupo según el efecto verdadero (σ del piloto simulado). Parámetros hipotéticos."
+#| fig-width: 6.8
+#| fig-height: 3.6
+curva <- tibble(efecto = seq(0, 1.6, by = 0.02)) |>
+  mutate(potencia = potencia_medias(108, 108, efecto, sigma))
+puntos <- tibble(efecto = c(piloto$diferencia, 1.0)) |>
+  mutate(potencia = potencia_medias(108, 108, efecto, sigma),
+         etiqueta = c("Estimación del piloto", "DMI"))
+
+ggplot(curva, aes(efecto, potencia)) +
+  geom_hline(yintercept = 0.8, linetype = "dashed", color = "grey40") +
+  geom_line(linewidth = 1, color = "#0072B2") +
+  geom_point(data = puntos, size = 3, color = "#D55E00") +
+  geom_text(data = puntos, aes(label = etiqueta), nudge_y = -0.06, hjust = 0.3, size = 3.3) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+  labs(x = "Efecto verdadero (mL/min/1.73 m² a 12 meses)", y = "Potencia")
+```
+
+**Qué vemos.** Con 108 por grupo, la potencia es **`r pct(puntos$potencia[2], 0)`** si el efecto verdadero es la DMI (1.0) y cae a **`r pct(puntos$potencia[1], 0)`** si es el del piloto (`r num(piloto$diferencia, 2)`). Un ensayo calibrado para la DMI casi seguro no confirmará un efecto de la mitad de tamaño. No es un fallo del cálculo: es lo que significa «potencia **para** ese efecto». La potencia no es una propiedad del ensayo, sino de la pareja **ensayo + efecto supuesto**.
+
+## Paso 5: por qué la «potencia post hoc» no sirve
+
+Tras un resultado no significativo es tentador calcular la potencia **con el efecto observado** y concluir «el ensayo estaba poco potenciado, por eso no salió». Hoenig y Heisey (2001) mostraron que ese razonamiento es circular: la «potencia observada» es una **función directa del valor *p***, y no agrega nada. Lo comprobamos simulando 3 000 ensayos de 108 por grupo con un efecto verdadero de 0.6 (hipotético, cercano al del piloto) y calculando en cada uno la potencia «observada»:
+
+```{r}
+#| label: potencia-posthoc-c201
+set.seed(11)
+post_hoc <- map_dfr(1:3000, \(i) {
+  a <- rnorm(108, 0.6, sigma); b <- rnorm(108, 0, sigma)
+  tibble(p = t.test(a, b)$p.value,
+         potencia_obs = potencia_medias(108, 108, abs(mean(a) - mean(b)), sqrt((var(a) + var(b)) / 2)))
+})
+
+post_hoc |>
+  mutate(p_en = cut(p, c(0, 0.01, 0.05, 0.10, 0.25, 0.50, 1))) |>
+  group_by(p_en) |>
+  summarise(ensayos = n(), potencia_observada = mean(potencia_obs), .groups = "drop") |>
+  mutate(potencia_observada = round(potencia_observada, 2))
+```
+
+```{r}
+#| label: fig-posthoc-c201
+#| fig-cap: "«Potencia observada» frente al valor p en 3 000 ensayos simulados (efecto verdadero 0.6, n = 108 por grupo). Todos los puntos caen sobre una sola curva."
+#| fig-width: 6.5
+#| fig-height: 3.6
+ggplot(post_hoc, aes(p, potencia_obs)) +
+  geom_point(alpha = 0.25, color = "#0072B2") +
+  geom_vline(xintercept = 0.05, linetype = "dashed") +
+  labs(x = "Valor p del ensayo", y = "«Potencia observada»")
+```
+
+```{r}
+#| label: p005-c201
+cerca_005 <- post_hoc |> filter(abs(p - 0.05) < 0.003)
+max_no_signif <- max(post_hoc$potencia_obs[post_hoc$p >= 0.05])
+```
+
+**Qué vemos.** Los 3 000 resultados forman **una sola curva**: dado el *p*, la «potencia observada» queda determinada. Los ensayos con *p* ≈ 0.05 tienen una «potencia observada» de **`r pct(mean(cerca_005$potencia_obs), 0)`** (el mismo número sea cual sea el ensayo), y **todo** resultado no significativo tiene una «potencia observada» de como máximo `r pct(max_no_signif, 0)`, por construcción. No aporta información adicional: explica el *p* con otras palabras. Lo que sí informa después del ensayo es el **intervalo de confianza**: dice qué efectos son compatibles con los datos y si el ensayo descarta el efecto importante (la DMI).
+
+::: {.callout-warning}
+## ⚠️ Dos usos del «poder» que sí son legítimos, y uno que no
+
+-   **Legítimo, antes del ensayo**: calcular la potencia para un rango de efectos plausibles (Paso 4) y el **efecto detectable** con el *n* que puedes reclutar (20.7).
+-   **Legítimo, después**: interpretar el IC frente a la DMI.
+-   **No legítimo**: usar la potencia con el efecto observado para explicar un resultado no significativo, o para «defender» uno que sí lo fue.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   El tamaño de muestra surge de cinco cantidades (δ, σ, α, potencia y *n*): fijando cuatro, calculas la quinta.
+-   El **error tipo I** (α) es declarar un efecto que no existe; el **tipo II** (β) es no declarar uno que sí existe. En los `r format(R, big.mark = " ")` ensayos simulados, α fue `r pct(mean(p_sin_efecto < 0.05), 1)` y la potencia `r pct(mean(p_con_efecto < 0.05), 1)`, como predice la teoría (`r pct(potencia_teorica, 1)`).
+-   Se planifica con la **DMI** (decisión clínica) o con un efecto esperado razonado, **no** con la estimación de un piloto pequeño.
+-   La potencia depende del efecto supuesto: con 108 por grupo es `r pct(puntos$potencia[2], 0)` para 1.0 y `r pct(puntos$potencia[1], 0)` para `r num(piloto$diferencia, 2)`.
+-   La «potencia post hoc» es una función del valor *p*; después del ensayo, usa el **IC**.
+:::
+
+## Ejercicio
+
+1.  Con la ayuda de `grafico_potencia()`, dibuja el caso de **n = 50 por grupo**. ¿Qué pasa con el área amarilla (β)? Calcula la potencia con `pwr.t.test()`.
+2.  Repite el Paso 3 con `delta = 0.5`. ¿Cuántas veces de 5 000 acierta el ensayo de 108 por grupo? ¿Coincide con la curva del Paso 4?
+3.  Si el comité decidiera que la DMI es de 0.75 mL/min/1.73 m², ¿cuál es la potencia de un ensayo con 108 por grupo? (Pista: `potencia_medias()`.) ¿Qué *n* se necesitaría para el 80 %? (La respuesta general está en 20.2.)

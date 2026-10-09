@@ -1,0 +1,255 @@
+# Tamaño de muestra para diferencias de medias y de proporciones
+
+::: {.callout-note}
+## 🩺 Escenario
+
+El comité aprobó planificar el segundo ensayo de bicarbonato con dos desenlaces: la **TFGe a 12 meses** (una media) y la **falla renal a 24 meses** (una proporción). Además, farmacia ofrece fármaco para el doble de pacientes activos que de placebo y el coordinador advierte que *«siempre se nos pierde alguien»*. Hay que traducir todo eso a **cuántos pacientes reclutar**.
+:::
+
+**Lo que vamos a hacer**
+
+-   Calcular *n* para una **diferencia de medias** a mano y con `pwr`, y comprobar que coinciden.
+-   Hacer lo mismo para una **diferencia de proporciones**, con asignación **1:2** y con **pérdidas**.
+-   Armar una **tabla de sensibilidad** (tamaño según efecto, variabilidad y potencia) y **verificar con simulación**.
+
+```{r}
+#| label: setup-c202
+#| message: false
+library(tidyverse)
+library(pwr)
+library(survival)
+source("R/funciones_extra_a.R")      # num(), pct()
+source("R/funciones_cap20.R")
+theme_set(theme_minimal(base_size = 12))
+
+eca <- read_csv("Bases/eca_bicarbonato.csv", show_col_types = FALSE) |>   # piloto SIMULADO (Cap. 11)
+  mutate(brazo = factor(brazo, levels = c("Placebo", "Bicarbonato")), dif12 = tfg_12 - tfg0)
+sigma <- 2.6      # DE del cambio de TFGe a 12 meses (piloto, 20.1)
+delta <- 1.0      # diferencia mínima importante (hipotética, 20.1)
+```
+
+## Paso 1: diferencia de medias, a mano
+
+Con dos grupos del mismo tamaño y una prueba bilateral, el número de pacientes **por grupo** es:
+
+$$
+n = \frac{2\,\sigma^2\,(z_{1-\alpha/2} + z_{1-\beta})^2}{\delta^2} = \frac{2\,(z_{1-\alpha/2} + z_{1-\beta})^2}{d^2}
+$$
+
+donde $z_{1-\alpha/2}$ = 1.96 para α = 0.05 y $z_{1-\beta}$ = 0.84 para una potencia del 80 %. La segunda forma usa el tamaño del efecto $d = \delta/\sigma$ (Cohen, 1988). La lógica: cuanto más pequeño el efecto (en DE), más pacientes, y **el número crece con el inverso del cuadrado** del efecto.
+
+```{r}
+#| label: n-medias-mano-c202
+d <- delta / sigma
+za <- qnorm(1 - 0.05 / 2); zb <- qnorm(0.80)      # 1.96 y 0.84 (los lee R, no hay que memorizarlos)
+
+n_normal <- 2 * (za + zb)^2 / d^2                 # fórmula a mano (aproximación normal)
+n_normal
+```
+
+La fórmula da **`r num(n_normal, 1)`** por grupo, es decir, **`r ceiling(n_normal)`** al redondear **siempre hacia arriba** (si redondeas hacia abajo, la potencia queda por debajo de 80 %). Ahora con el paquete `pwr`, que usa la distribución *t* de Student en vez de la normal:
+
+```{r}
+#| label: n-medias-pwr-c202
+n_pwr <- pwr.t.test(d = d, sig.level = 0.05, power = 0.80, type = "two.sample")
+n_pwr$n
+
+# La función propia (R/funciones_cap20.R) hace la misma búsqueda con la t exacta
+bind_rows(a_mano_normal = n_medias(delta, sigma, exacto = FALSE),
+          a_mano_t_exacta = n_medias(delta, sigma, exacto = TRUE),
+          .id = "metodo") |>
+  mutate(pwr = ceiling(n_pwr$n))
+```
+
+**Qué vemos.** `pwr` da **`r num(n_pwr$n, 2)`** (→ **`r ceiling(n_pwr$n)`** por grupo, **`r 2 * ceiling(n_pwr$n)`** en total). Mi búsqueda con la *t* exacta da `r n_medias(delta, sigma)$n1`: **coincide** con `pwr`. La fórmula normal pide `r n_medias(delta, sigma, exacto = FALSE)$n1` (uno menos): la *t* es algo más ancha que la normal y exige un paciente más. Con muestras de este tamaño la diferencia es mínima; con un efecto grande (*d* = 1) y muestras pequeñas, la normal pide `r n_medias(1, 1, exacto = FALSE)$n1` por grupo y la *t*, `r n_medias(1, 1)$n1`, y la brecha relativa ya es mayor. Con el tamaño del efecto de Cohen *d* = `r num(d, 2)`: ni «pequeño» (0.2) ni «mediano» (0.5), pero esas etiquetas son convenciones; lo que importa es la DMI.
+
+::: {.callout-tip}
+## 💡 Otras formas de calcularlo
+
+-   **Gratis y sin programar:** Epidat y G*Power calculan estos mismos tamaños con menús (el autor del libro los usa en sus cursos). Sirven para **comprobar** tu código.
+-   **Con el paquete `pwrss`** (no instalado en el entorno de pruebas del libro, código no verificado aquí):
+
+```{r}
+#| label: pwrss-c202
+#| eval: !expr requireNamespace("pwrss", quietly = TRUE)
+#| error: true
+library(pwrss)
+pwrss.t.2means(mu1 = 1.0, mu2 = 0, sd1 = 2.6, sd2 = 2.6, alpha = 0.05, power = 0.80,
+               alternative = "not equal")
+```
+:::
+
+## Paso 2: asignación 1:2
+
+Si asignas el doble de pacientes al grupo activo (razón *k* = 2, es decir, *n*₂ = 2 *n*₁), la fórmula se convierte en $n_1 = (1 + 1/k)\,\sigma^2 (z_{1-\alpha/2} + z_{1-\beta})^2/\delta^2$. Con la t exacta:
+
+```{r}
+#| label: razon-c202
+uno_a_dos <- n_medias(delta, sigma, razon = 2)
+uno_a_dos
+
+# Comprobación con pwr: potencia con esos tamaños (debe ser >= 0.80)
+pwr.t2n.test(n1 = uno_a_dos$n1, n2 = uno_a_dos$n2, d = d, sig.level = 0.05)$power
+```
+
+**Qué vemos.** Con 1:2 hacen falta `r uno_a_dos$n1` en placebo y `r uno_a_dos$n2` en bicarbonato: **`r uno_a_dos$total` en total** frente a `r 2 * ceiling(n_pwr$n)` con 1:1. **El desbalance siempre cuesta pacientes**; solo se justifica si el fármaco activo es barato o si los pacientes quieren más probabilidad de recibirlo (mejora el reclutamiento). La asignación 1:1 es la más eficiente para un efecto dado.
+
+## Paso 3: las pérdidas
+
+El cálculo anterior supone **medir a todos** a 12 meses. En el piloto simulado, `r sum(is.na(eca$dif12))` de `r nrow(eca)` pacientes (**`r pct(mean(is.na(eca$dif12)), 1)`**) no tienen TFGe a 12 meses. Si planeas con esa tasa de pérdidas:
+
+```{r}
+#| label: perdidas-c202
+perdida <- mean(is.na(eca$dif12))
+n_base <- ceiling(n_pwr$n)
+
+c(sin_perdidas = n_base,
+  correcto = n_inflar(n_base, perdida),                     # n / (1 - L)
+  error_comun = ceiling(n_base * (1 + perdida)))            # n * (1 + L): se queda corto
+```
+
+Se divide entre (1 − pérdidas) porque **los que quedan** deben sumar *n*: `r n_base` / (1 − `r num(perdida, 3)`) = **`r n_inflar(n_base, perdida)`**. Multiplicar por (1 + pérdidas) da `r ceiling(n_base * (1 + perdida))`: parece lo mismo y no lo es, y el error crece con las pérdidas. Lo comprobamos simulando 3 000 ensayos con pérdidas al azar, con la tasa del piloto y con una pérdida mayor (30 %):
+
+```{r}
+#| label: sim-perdidas-c202
+sim_perdidas <- function(n, L, R = 3000, semilla = 5) {
+  set.seed(semilla)
+  mean(replicate(R, {
+    a <- rnorm(rbinom(1, n, 1 - L), delta, sigma)      # los que SÍ se miden en bicarbonato
+    b <- rnorm(rbinom(1, n, 1 - L), 0, sigma)          # y en placebo
+    t.test(a, b)$p.value < 0.05
+  }))
+}
+comparar_perdidas <- \(L) tibble(perdidas = L,
+  sin_inflar = n_base, n_multiplicando = ceiling(n_base * (1 + L)), n_dividiendo = n_inflar(n_base, L)) |>
+  mutate(pot_sin_inflar = sim_perdidas(sin_inflar, L), pot_multiplicando = sim_perdidas(n_multiplicando, L),
+         pot_dividiendo = sim_perdidas(n_dividiendo, L))
+
+tab_perdidas <- bind_rows(comparar_perdidas(perdida), comparar_perdidas(0.30))
+tab_perdidas |> mutate(across(starts_with("pot_"), \(x) round(x, 3)), perdidas = round(perdidas, 3))
+```
+
+**Qué vemos.** Con las pérdidas del piloto, **no inflar** deja la potencia en **`r pct(tab_perdidas$pot_sin_inflar[1], 0)`**; multiplicar da `r pct(tab_perdidas$pot_multiplicando[1], 0)` y dividir **`r pct(tab_perdidas$pot_dividiendo[1], 0)`** (error de Monte Carlo ≈ ±`r num(100 * sqrt(0.8 * 0.2 / 3000), 1)` puntos, así que aquí multiplicar y dividir casi no se distinguen). Con **30 %** de pérdidas la diferencia ya es nítida: multiplicar (`r tab_perdidas$n_multiplicando[2]` por grupo) deja la potencia en **`r pct(tab_perdidas$pot_multiplicando[2], 0)`** y dividir (`r tab_perdidas$n_dividiendo[2]`) la mantiene en **`r pct(tab_perdidas$pot_dividiendo[2], 0)`**. Todo esto supone pérdidas **al azar**; si se pierden los que evolucionan peor, el problema es de sesgo y no se arregla con más pacientes (20.5 y 20.7).
+
+## Paso 4: diferencia de proporciones
+
+Para el desenlace binario (falla renal a 24 meses) necesitas el **riesgo esperado en el control** y el **riesgo esperado con tratamiento**. Tomamos el riesgo en el placebo del piloto (Kaplan-Meier a 24 meses) y suponemos una **reducción relativa del 25 %** (RR = 0.75, hipotético y cercano al efecto ITT del piloto):
+
+```{r}
+#| label: props-datos-c202
+km <- survfit(Surv(tiempo_meses, estado == 1) ~ 1, data = filter(eca, brazo == "Placebo"))
+riesgo_24 <- 1 - summary(km, times = 24)$surv        # riesgo de falla renal a 24 meses, placebo
+
+p_ctrl <- round(riesgo_24, 2)
+p_trat <- p_ctrl * 0.75
+c(control = p_ctrl, tratamiento = p_trat, diferencia_absoluta = p_ctrl - p_trat)
+```
+
+La fórmula clásica (con la varianza agrupada bajo la hipótesis nula, como la prueba χ² de Pearson) y la de `pwr` (que usa la transformación arcoseno, *h* de Cohen):
+
+$$
+n = \frac{\left[z_{1-\alpha/2}\sqrt{2\bar p(1-\bar p)} + z_{1-\beta}\sqrt{p_1(1-p_1) + p_2(1-p_2)}\right]^2}{(p_1 - p_2)^2}, \qquad \bar p = \frac{p_1+p_2}{2}
+$$
+
+```{r}
+#| label: n-props-c202
+n_clasica <- n_props(p_ctrl, p_trat)
+n_arcsen  <- pwr.2p.test(h = ES.h(p_ctrl, p_trat), sig.level = 0.05, power = 0.80)
+
+tibble(metodo = c("Fórmula clásica (propia)", "pwr (arcoseno)"),
+       n_por_grupo = c(n_clasica$n1, ceiling(n_arcsen$n)),
+       total = 2 * n_por_grupo)
+```
+
+**Qué vemos.** `pwr` da `r num(n_arcsen$n, 1)` (→ `r ceiling(n_arcsen$n)`) y la fórmula clásica `r n_clasica$n1`: **difieren en `r n_clasica$n1 - ceiling(n_arcsen$n)` pacientes por grupo** (menos del 1 %), porque son dos aproximaciones distintas de la misma distribución binomial. Para decidir cuántos reclutar, la diferencia es irrelevante; para **reportar**, indica cuál usaste. Una **reducción relativa del 25 %** parece grande, pero como el riesgo basal es `r pct(p_ctrl, 0)`, la diferencia **absoluta** es de `r num(100 * (p_ctrl - p_trat), 1)` puntos y exige **`r format(n_clasica$total, big.mark = " ")` pacientes**: unas `r num(n_clasica$total / (2 * ceiling(n_pwr$n)), 1)` veces los que pide la TFGe. Con proporciones el tamaño depende del riesgo basal, no solo de la diferencia: detectar esos mismos `r num(100 * (p_ctrl - p_trat), 1)` puntos partiendo de un riesgo de 50 % exigiría **`r n_props(0.5, 0.5 - (p_ctrl - p_trat))$n1`** por grupo, porque la variabilidad de una proporción es mayor cerca de 50 %.
+
+### Verificación por simulación
+
+¿Cumple de verdad la fórmula? Simulamos 4 000 ensayos de `r n_clasica$n1` por grupo y analizamos cada uno con la prueba de proporciones sin corrección de continuidad (la que corresponde a la fórmula):
+
+```{r}
+#| label: sim-props-c202
+set.seed(2028)
+R <- 4000
+rechazo <- replicate(R, {
+  x <- c(rbinom(1, n_clasica$n1, p_ctrl), rbinom(1, n_clasica$n1, p_trat))
+  prop.test(x, c(n_clasica$n1, n_clasica$n1), correct = FALSE)$p.value < 0.05
+})
+c(simulada = mean(rechazo), formula = potencia_props(n_clasica$n1, n_clasica$n1, p_ctrl, p_trat),
+  pwr_arcoseno = pwr.2p.test(h = ES.h(p_ctrl, p_trat), n = n_clasica$n1)$power) |> round(3)
+```
+
+La potencia simulada es **`r pct(mean(rechazo), 1)`**, frente a `r pct(potencia_props(n_clasica$n1, n_clasica$n1, p_ctrl, p_trat), 1)` de la fórmula: diferencia de `r num(100 * (mean(rechazo) - potencia_props(n_clasica$n1, n_clasica$n1, p_ctrl, p_trat)), 1)` puntos, dentro del error de Monte Carlo (±`r num(100 * sqrt(0.8 * 0.2 / R), 1)`). Repite lo mismo para la razón 1:2:
+
+```{r}
+#| label: props-razon-c202
+n_12 <- n_props(p_ctrl, p_trat, razon = 2)
+n_12
+c(formula = potencia_props(n_12$n1, n_12$n2, p_ctrl, p_trat),
+  pwr = pwr.2p2n.test(h = ES.h(p_ctrl, p_trat), n1 = n_12$n1, n2 = n_12$n2)$power) |> round(3)
+```
+
+Con 1:2 se necesitan `r n_12$n1` en placebo y `r n_12$n2` en bicarbonato (**`r format(n_12$total, big.mark = " ")` en total**, `r n_12$total - n_clasica$total` más que con 1:1). Y si esperas, por ejemplo, un 15 % de pérdidas, `n_inflar()` lo lleva a **`r n_inflar(n_clasica$n1, 0.15)` por grupo**. Esas «pérdidas» en un desenlace binario a plazo fijo son pacientes sin dato del evento; si el seguimiento difiere entre pacientes, el diseño correcto es de **tiempo hasta evento** (20.3).
+
+## Paso 5: tabla de sensibilidad
+
+Como el efecto y la desviación estándar son **suposiciones**, un buen protocolo no da un solo número sino un **rango**. Para la TFGe a 12 meses (con σ = `r sigma`):
+
+```{r}
+#| label: sensibilidad-c202
+rejilla <- expand_grid(delta = c(0.5, 0.75, 1.0, 1.25, 1.5), potencia = c(0.80, 0.90)) |>
+  mutate(d = delta / sigma,
+         n_por_grupo = map2_int(delta, potencia, \(dl, pw) as.integer(n_medias(dl, sigma, potencia = pw)$n1)))
+
+rejilla |>
+  pivot_wider(names_from = potencia, values_from = n_por_grupo, names_prefix = "potencia_") |>
+  mutate(d = round(d, 2))
+```
+
+```{r}
+#| label: fig-sensibilidad-c202
+#| fig-cap: "Pacientes por grupo según el efecto a detectar y la desviación estándar (potencia 80 %, α = 0.05). Parámetros hipotéticos."
+#| fig-width: 6.8
+#| fig-height: 3.7
+curvas <- expand_grid(delta = seq(0.4, 1.6, by = 0.05), sd = c(2.2, 2.6, 3.0)) |>
+  mutate(n = map2_dbl(delta, sd, \(dl, s) n_medias(dl, s)$n1))
+
+ggplot(curvas, aes(delta, n, color = factor(sd))) +
+  geom_line(linewidth = 1) +
+  scale_color_manual(values = c("#009E73", "#0072B2", "#D55E00"), name = "DE (σ)") +
+  labs(x = "Efecto a detectar (mL/min/1.73 m² a 12 meses)", y = "Pacientes por grupo")
+```
+
+```{r}
+#| label: lectura-sens-c202
+n_a <- \(dl, s = sigma, pw = 0.8) n_medias(dl, s, potencia = pw)$n1
+```
+
+**Qué vemos.** Detectar **0.5** en lugar de **1.0** exige **`r n_a(0.5)`** en lugar de **`r n_a(1.0)`** por grupo: la mitad del efecto cuesta **`r num(n_a(0.5) / n_a(1.0), 1)` veces** más pacientes (el cuadrado inverso). Pasar de 80 % a 90 % de potencia añade un `r pct(n_a(1.0, pw = 0.9) / n_a(1.0) - 1, 0)`. Y si la variabilidad real es 3.0 en vez de 2.6, necesitas `r n_a(1.0, 3.0)` por grupo para la DMI (`r pct(n_a(1.0, 3.0) / n_a(1.0) - 1, 0)` más). La columna *d* de la tabla traduce cada efecto a desviaciones estándar: **dos estudios con la misma *d* necesitan el mismo *n***, aunque midan en unidades distintas.
+
+## Trampas frecuentes
+
+::: {.callout-warning}
+## ⚠️ Errores clásicos de este paso
+
+-   **Redondear hacia abajo** o dar el *n* con decimales. Siempre `ceiling()`.
+-   **Mezclar DE y error estándar**: σ es la desviación entre **pacientes**, no el error estándar de la media del piloto (que es más pequeño y daría un *n* ridículo).
+-   **Tomar σ de la bibliografía sin mirar la población**: la variabilidad del cambio de TFGe en un ensayo de ERC G3b-G4 no es la de una cohorte general.
+-   **Inflar por pérdidas multiplicando** en vez de dividir (Paso 3).
+-   **Olvidar que el *n* total es la suma de los dos grupos** al presupuestar, o que *n* es por grupo cuando dices «necesito 108».
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   Para dos medias: *n* por grupo = 2 (z + z)² / *d*², con *d* = δ/σ. Con δ = 1.0 y σ = `r sigma`: **`r ceiling(n_pwr$n)` por grupo** (`pwr` y la *t* exacta coinciden; la normal da `r n_medias(delta, sigma, exacto = FALSE)$n1`).
+-   Para dos proporciones, con control `r pct(p_ctrl, 0)` y RR 0.75: **`r n_clasica$n1` por grupo** (clásica) o `r ceiling(n_arcsen$n)` (`pwr`); la simulación da una potencia de `r pct(mean(rechazo), 1)`.
+-   La asignación **1:2** exige más pacientes en total (`r uno_a_dos$total` frente a `r 2 * ceiling(n_pwr$n)`); las **pérdidas** se compensan **dividiendo** entre (1 − pérdidas).
+-   La mitad del efecto cuesta unas **`r num(n_a(0.5) / n_a(1.0), 0)` veces** más pacientes: entrega siempre una **tabla de sensibilidad**, no un solo número.
+:::
+
+## Ejercicio
+
+1.  Con σ = 2.6 y δ = 0.6 (el efecto «esperado» del piloto), calcula *n* por grupo para 80 % y 90 % de potencia. ¿Es viable reclutar eso?
+2.  Para el desenlace binario, calcula *n* si el riesgo en el control fuera 15 % y 40 % (con el mismo RR = 0.75). ¿Cuál es más difícil?
+3.  Verifica por simulación (como en el Paso 3) que `n_inflar()` mantiene la potencia en el 80 % con un 20 % de pérdidas al azar.

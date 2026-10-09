@@ -1,0 +1,221 @@
+# La simulación como herramienta de potencia
+
+::: {.callout-note}
+## 🩺 Escenario
+
+Tu protocolo del segundo ensayo de bicarbonato dice: *«análisis por ANCOVA, ajustado por la TFGe basal y la albuminuria; se espera que el grupo activo pierda más pacientes que el placebo; cuatro visitas (0, 6, 12 y 24 meses)»*. El revisor pide la potencia. ¿Qué fórmula se aplica? **Ninguna** sirve tal cual: están hechas para una *t* simple con datos completos. Para estos diseños, la potencia se calcula **ensayando el ensayo**: se simula miles de veces y se cuenta cuántas veces el análisis previsto detecta el efecto.
+:::
+
+**Lo que vamos a hacer**
+
+-   Escribir y usar una función reutilizable, `potencia_sim()`, y entender su **error de Monte Carlo**.
+-   Comparar tres **análisis** del mismo ensayo (valor final, cambio, ANCOVA) y ver cuánto vale la covariable basal.
+-   Simular **pérdidas diferenciales** y **medidas repetidas**, y **buscar el *n*** que da el 80 %.
+
+```{r}
+#| label: setup-c205
+#| message: false
+library(tidyverse)
+library(pwr)
+library(lmerTest)       # lmer() con valores p (Satterthwaite)
+source("R/funciones_extra_a.R")      # num(), pct()
+source("R/funciones_cap20.R")
+theme_set(theme_minimal(base_size = 12))
+```
+
+## Paso 1: la receta en cuatro pasos
+
+Simular la potencia es repetir un ensayo de mentira muchas veces:
+
+1.  **Generar** los datos de un ensayo con el efecto que quieres detectar (`generar`).
+2.  **Analizar** ese ensayo como lo harás en la vida real (`analizar`) y guardar el valor *p*.
+3.  **Repetir** (`nsim` veces).
+4.  **Contar** en cuántos ensayos *p* < 0.05: esa proporción es la potencia.
+
+El corazón de `potencia_sim()` (la versión completa, con el intervalo de confianza y el control de errores, está en `R/funciones_cap20.R`) son tres líneas:
+
+```{r}
+#| label: nucleo-c205
+#| eval: false
+p <- replicate(nsim, analizar(generar(n))["p"])    # pasos 1 a 3
+mean(p < 0.05)                                     # paso 4: la potencia
+binom.test(sum(p < 0.05), nsim)$conf.int           # su intervalo de confianza de Monte Carlo
+```
+
+Los datos los produce `generar_tfg()`: un ensayo simulado con TFGe basal, una covariable pronóstica (por ejemplo, la albuminuria), pérdidas, no adherencia y un efecto del fármaco. Sus argumentos son:
+
+```{r}
+#| label: args-c205
+args(generar_tfg)
+```
+
+Empezamos con lo más simple, un ensayo con 108 pacientes por grupo, sin pérdidas, que mide el cambio de TFGe a 12 meses con una *t*. Sabemos la respuesta de la fórmula (20.2): potencia ≈ 80 % para un efecto de 1.0.
+
+```{r}
+#| label: sim-base-c205
+gen <- \(n) generar_tfg(n, efecto = 1.0)                       # ensayo con efecto = 1.0 mL/min/1.73 m2
+
+an_cambio <- function(d) {                                     # t sobre el cambio de TFGe
+  m <- lm(I(tfg12 - tfg0) ~ brazo, data = d)
+  c(p = summary(m)$coefficients["brazo", 4], est = coef(m)[["brazo"]])
+}
+
+base <- potencia_sim(gen, an_cambio, n = 108, nsim = 1000, semilla = 1)
+base
+```
+
+**Qué vemos.** La potencia simulada es **`r pct(base$potencia, 1)`** (IC 95 % de Monte Carlo: `r pct(base$ic_inf, 1)` a `r pct(base$ic_sup, 1)`), frente al **`r pct(pwr.t.test(n = 108, d = 1 / 2.6)$power, 1)`** de `pwr`: la fórmula cae dentro del intervalo. La estimación media del efecto es `r num(base$est_media, 2)`, es decir, el análisis recupera el efecto de 1.0 que pusimos: el generador y el análisis están bien conectados. **Esa comprobación siempre es el primer paso**: si tu simulación no reproduce un caso con fórmula conocida, no te fíes de ella en el caso complejo.
+
+## Paso 2: cuántas réplicas son suficientes
+
+La simulación es un experimento y tiene su propio error: el **error de Monte Carlo**, √(*p*(1 − *p*)/`nsim`). Con pocas réplicas, la potencia «bailará»:
+
+```{r}
+#| label: mc-c205
+mc <- map_dfr(c(100, 400, 1600), \(r) potencia_sim(gen, an_cambio, n = 108, nsim = r, semilla = 7))
+mc |> select(nsim, potencia, ic_inf, ic_sup, error_mc) |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+nsim_1pt <- ceiling(1.96^2 * 0.8 * 0.2 / 0.01^2)               # para un IC de ±1 punto con potencia 80 %
+```
+
+**Qué vemos.** Con 100 réplicas, el IC de la potencia mide **±`r num(100 * (mc$ic_sup[1] - mc$ic_inf[1]) / 2, 0)` puntos**; con 1 600, ±`r num(100 * (mc$ic_sup[3] - mc$ic_inf[3]) / 2, 1)`. El error baja con la raíz de `nsim`: para conocer la potencia con ±1 punto necesitarías unas **`r format(nsim_1pt, big.mark = " ")`** réplicas. Una regla práctica: 1 000 a 2 000 réplicas para **explorar** y 5 000 o más para el número que irá al protocolo. **Fija siempre la semilla** (`semilla =`) y anota cuántas réplicas usaste.
+
+## Paso 3: el análisis también cuenta (ANCOVA)
+
+Con los **mismos datos** se pueden analizar de tres maneras. `potencia_sim()` permite compararlas con la misma semilla y el mismo generador:
+
+```{r}
+#| label: sim-ancova-c205
+an_final <- function(d) {                                      # solo el valor final de TFGe
+  m <- lm(tfg12 ~ brazo, data = d); c(p = summary(m)$coefficients["brazo", 4], est = coef(m)[["brazo"]])
+}
+an_ancova <- function(d) {                                     # ANCOVA: ajusta por TFGe basal y covariable
+  m <- lm(tfg12 ~ brazo + tfg0 + z, data = d); c(p = summary(m)$coefficients["brazo", 4], est = coef(m)[["brazo"]])
+}
+
+analisis <- bind_rows(`Valor final` = potencia_sim(gen, an_final, 108, 1000, semilla = 1),
+                      `Cambio (t)`   = base,
+                      `ANCOVA`       = potencia_sim(gen, an_ancova, 108, 1000, semilla = 1), .id = "analisis")
+analisis |> select(analisis, potencia, ic_inf, ic_sup, est_media) |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+
+# Fórmula: el ANCOVA reduce la DE en sqrt(1 - R2); aquí R2 = 0.25
+pwr.t.test(n = 108, d = 1 / (2.6 * sqrt(1 - 0.25)))$power
+```
+
+**Qué vemos.**
+
+-   Analizar **solo el valor final** da una potencia de **`r pct(analisis$potencia[1], 0)`**: la TFGe final varía mucho entre pacientes (por la TFGe basal, DE de 6), y ese ruido tapa el efecto. **Usar la basal como covariable es casi obligatorio.**
+-   El **cambio** respecto de la basal recupera el `r pct(analisis$potencia[2], 0)` y el **ANCOVA** sube a **`r pct(analisis$potencia[3], 0)`**, porque además usa la covariable pronóstica (que explica el 25 % de la varianza en este escenario hipotético). La fórmula con la DE reducida (`pwr`) da **`r pct(pwr.t.test(n = 108, d = 1 / (2.6 * sqrt(1 - 0.25)))$power, 0)`**, coincidiendo con la simulación.
+-   Dicho de otro modo: el ANCOVA permite un ensayo más pequeño. El *n* para 80 % pasa de **`r n_medias(1.0, 2.6)$n1`** a unos **`r n_medias(1.0, 2.6 * sqrt(0.75))$n1`** por grupo (aprovechable solo si **prespecificas** el modelo en el protocolo).
+
+## Paso 4: abandono diferencial
+
+El simulador del ensayo (Cap. 11) pierde más pacientes en el brazo activo que en el placebo. Simulemos tres situaciones con el ANCOVA: (a) sin pérdidas, (b) 10 % en placebo y 25 % en activo, **al azar**, y (c) las mismas cifras, pero **perdiendo más a quienes evolucionan peor** (pérdida informativa):
+
+```{r}
+#| label: sim-perdidas-c205
+escenarios <- list(`(a) Sin pérdidas`        = \(n) generar_tfg(n, perdida = c(0, 0)),
+                   `(b) 10 % / 25 %, al azar` = \(n) generar_tfg(n, perdida = c(0.10, 0.25)),
+                   `(c) 10 % / 25 %, informativas` = \(n) generar_tfg(n, perdida = c(0.10, 0.25), informativa = 1))
+
+perdidas <- imap_dfr(escenarios, \(g, nombre) potencia_sim(g, an_ancova, 108, 1000, semilla = 3) |> mutate(escenario = nombre))
+perdidas |> select(escenario, potencia, ic_inf, ic_sup, est_media) |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+
+# Fórmula aproximada para (b): menos pacientes con dato (pérdida media 17.5 %)
+pwr.t.test(n = 108 * (1 - 0.175), d = 1 / (2.6 * sqrt(0.75)))$power
+```
+
+**Qué vemos.**
+
+-   (b) Con pérdidas al azar la potencia baja de `r pct(perdidas$potencia[1], 0)` a **`r pct(perdidas$potencia[2], 0)`**: justo lo que anticipa «tener un `r pct(0.175, 1)` menos de pacientes» (la fórmula da `r pct(pwr.t.test(n = 108 * (1 - 0.175), d = 1 / (2.6 * sqrt(0.75)))$power, 0)`). Aquí **sí** basta con inflar el *n* (20.2).
+-   (c) Con pérdidas informativas la **potencia sube** (`r pct(perdidas$potencia[3], 0)`) y la estimación media del efecto es `r num(perdidas$est_media[3], 2)`, **no 1.0**. No es una buena noticia sino un sesgo: al irse más pacientes que evolucionan mal del brazo activo, el bicarbonato parece mejor de lo que es. La «potencia» ya no mide la capacidad de detectar el efecto **verdadero**. Con pérdidas informativas el problema es de sesgo y no se arregla con más pacientes.
+
+## Paso 5: medidas repetidas
+
+Con cuatro visitas (0, 6, 12 y 24 meses), el análisis puede usar **toda la trayectoria**: comparar la **pendiente** de TFGe entre grupos. Ningún `pwr` hace esto. Generamos TFGe con pendiente individual aleatoria y error de medición como en el simulador del libro (DE de pendiente 1.3 y error de 2.2, que reproducen la DE de 2.6 del cambio a 12 meses) y comparamos tres análisis con **54 pacientes por grupo**:
+
+```{r}
+#| label: rep-datos-c205
+meses <- c(0, 6, 12, 24)
+generar_rep <- function(n, efecto = 1.0, sd_pend = 1.3, sd_err = 2.2) {
+  N <- 2 * n; brazo <- rep(0:1, each = n)
+  tfg0 <- rnorm(N, 30, 6)
+  pend <- -3 + efecto * brazo + rnorm(N, 0, sd_pend)                       # pendiente individual (mL/min/año)
+  y <- sapply(meses, \(m) tfg0 + pend * m / 12 + if (m > 0) rnorm(N, 0, sd_err) else 0)
+  list(brazo = brazo, y = y)
+}
+set.seed(1)
+chequeo <- replicate(300, {d <- generar_rep(100); sd(d$y[, 3] - d$y[, 1])})   # ¿reproduce la DE de 2.6?
+mean(chequeo)
+```
+
+```{r}
+#| label: rep-analisis-c205
+an_12m <- function(d) {                                         # solo la visita de 12 meses (ANCOVA con la basal)
+  m <- lm(d$y[, 3] ~ d$brazo + d$y[, 1]); c(p = summary(m)$coefficients[2, 4], est = coef(m)[[2]])
+}
+an_pend <- function(d) {                                        # pendiente de cada paciente (MCO) y una t entre grupos
+  tc <- meses / 12 - mean(meses / 12)
+  pend <- as.vector(d$y %*% tc) / sum(tc^2)
+  c(p = t.test(pend ~ d$brazo, var.equal = TRUE)$p.value, est = unname(diff(tapply(pend, d$brazo, mean))))
+}
+an_mixto <- function(d) {                                       # modelo mixto con pendiente aleatoria: efecto tiempo x brazo
+  largo <- tibble(id = rep(seq_along(d$brazo), 4), t = rep(meses / 12, each = length(d$brazo)),
+                  brazo = rep(d$brazo, 4), y = as.vector(d$y))
+  m <- suppressWarnings(lmer(y ~ t * brazo + (t | id), data = largo, control = lmerControl(check.conv.singular = "ignore")))
+  c(p = summary(m)$coefficients["t:brazo", "Pr(>|t|)"], est = fixef(m)[["t:brazo"]])
+}
+
+gr <- \(n) generar_rep(n, efecto = 1.0)
+rep_res <- bind_rows(`Visita de 12 meses` = potencia_sim(gr, an_12m, 54, 1000, semilla = 5),
+                     `Pendiente (dos etapas)` = potencia_sim(gr, an_pend, 54, 1000, semilla = 5),
+                     `Modelo mixto (lme4)` = potencia_sim(gr, an_mixto, 54, 150, semilla = 5), .id = "analisis")
+rep_res |> select(analisis, nsim, potencia, ic_inf, ic_sup, est_media) |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+**Qué vemos.** La DE del cambio a 12 meses simulada es `r num(mean(chequeo), 2)` (el generador reproduce el piloto). Con 54 por grupo, el análisis de la **visita de 12 meses** tiene una potencia de **`r pct(rep_res$potencia[1], 0)`**; usar **todas las visitas** (pendiente) llega a **`r pct(rep_res$potencia[2], 0)`**, y el **modelo mixto**, con solo `r rep_res$nsim[3]` réplicas (IC de `r pct(rep_res$ic_inf[3], 0)` a `r pct(rep_res$ic_sup[3], 0)`), a `r pct(rep_res$potencia[3], 0)`: ambos análisis de trayectoria concuerdan. La ganancia es enorme (el mismo ensayo, con el mismo número de pacientes, **pasa de moneda al aire a ensayo potente**), pero depende de supuestos que debes **defender**: trayectorias lineales, efecto que acumula con el tiempo y datos completos. Además la pregunta es otra (diferencia de **pendiente**, no de cambio a 12 meses): la potencia solo compara análisis que responden a la misma pregunta.
+
+## Paso 6: buscar el *n* para el 80 %
+
+Para escoger el tamaño con el diseño real (ANCOVA, pérdidas 10 % / 25 % al azar) se simula una **rejilla** de tamaños y se interpola:
+
+```{r}
+#| label: fig-buscar-n-c205
+#| fig-cap: "Potencia simulada (con IC de Monte Carlo) según los pacientes por grupo; ANCOVA con pérdidas de 10 % y 25 % al azar. Línea punteada: 80 %. Datos y parámetros hipotéticos."
+#| fig-width: 6.8
+#| fig-height: 3.6
+g_b <- \(n) generar_tfg(n, perdida = c(0.10, 0.25))
+rejilla <- map_dfr(c(60, 80, 100, 120, 140), \(n) potencia_sim(g_b, an_ancova, n, nsim = 600, semilla = 11))
+
+n_80 <- approx(rejilla$potencia, rejilla$n, xout = 0.80)$y       # interpolación lineal
+ggplot(rejilla, aes(n, potencia)) +
+  geom_hline(yintercept = 0.8, linetype = "dashed", color = "grey40") +
+  geom_pointrange(aes(ymin = ic_inf, ymax = ic_sup), color = "#0072B2") + geom_line(color = "#0072B2") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Pacientes por grupo (asignados)", y = "Potencia simulada")
+```
+
+Interpolando, la potencia llega al 80 % con unos **`r ceiling(n_80)` pacientes por grupo** (el cálculo sin pérdidas y con ANCOVA daba `r n_medias(1.0, 2.6 * sqrt(0.75))$n1`; dividir entre 1 − 0.175 sugiere `r n_inflar(n_medias(1.0, 2.6 * sqrt(0.75))$n1, 0.175)`; la diferencia cabe en el error de Monte Carlo y de la interpolación). El último paso, siempre: **volver a simular con ese *n*** y más réplicas para confirmarlo y reportar su IC.
+
+::: {.callout-warning}
+## ⚠️ Cuándo la simulación te engaña
+
+-   **Simular el mundo equivocado.** La simulación solo responde por lo que pusiste en el generador. Si el efecto, la DE o las pérdidas son suposiciones malas, los números salen precisos pero inútiles. **Varía los supuestos** (sensibilidad) en vez de simular un solo escenario.
+-   **Pocas réplicas y sin semilla.** Con 100 réplicas, la potencia tiene unos ±`r num(100 * (mc$ic_sup[1] - mc$ic_inf[1]) / 2, 0)` puntos de error.
+-   **Confundir potencia y sesgo.** Como en el Paso 4, un análisis sesgado puede mostrar potencia alta. Mira siempre también la **estimación media** frente a la verdad.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   Cuando el diseño no tiene fórmula (covariables, pérdidas, medidas repetidas), **simula el ensayo y cuenta rechazos**: `potencia_sim()` = generar, analizar, repetir, contar.
+-   **Valida el simulador** con un caso de fórmula conocida: aquí, `r pct(base$potencia, 0)` simulada frente a `r pct(pwr.t.test(n = 108, d = 1 / 2.6)$power, 0)` de `pwr`.
+-   Reporta el **error de Monte Carlo**: 1 000 réplicas dan ±`r num(100 * 1.96 * sqrt(0.8 * 0.2 / 1000), 1)` puntos.
+-   El **análisis cuenta**: valor final `r pct(analisis$potencia[1], 0)`, cambio `r pct(analisis$potencia[2], 0)`, ANCOVA `r pct(analisis$potencia[3], 0)` con el mismo ensayo.
+-   Las pérdidas **al azar** se compensan con *n*; las **informativas** crean sesgo que ningún *n* corrige.
+:::
+
+## Ejercicio
+
+1.  Con `potencia_sim()`, calcula la potencia del ANCOVA con `efecto = 0.5` y 108 por grupo. ¿Coincide con `pwr.t.test(n = 108, d = 0.5 / (2.6 * sqrt(0.75)))`?
+2.  Cambia `r2_cov` a 0 en el generador. ¿Cuánto vale ahora la covariable `z` (ANCOVA frente al cambio)?
+3.  En el Paso 4(c), prueba `informativa = 2`. ¿Qué pasa con la estimación media del efecto?

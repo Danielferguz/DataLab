@@ -1,0 +1,220 @@
+# Ensayos por conglomerados: efecto de diseño y número de unidades
+
+::: {.callout-note}
+## 🩺 Escenario
+
+Quieres evaluar un protocolo de ajuste de EPO y hierro guiado por algoritmo, pero **se aplica a toda la unidad de hemodiálisis**: no puedes tener dentro de la misma sala pacientes con y sin algoritmo. Aleatorizas **unidades**, no pacientes. Un colega calcula el tamaño como si fueran pacientes independientes y concluye: *«con un par de centenares de pacientes en total bastan»*. Pero los pacientes de una misma unidad se parecen entre sí (mismo equipo, misma agua, mismos protocolos), así que **cada paciente adicional aporta menos información** de la que parece. Hay que inflar el tamaño con el **efecto de diseño**.
+:::
+
+**Lo que vamos a hacer**
+
+-   Estimar la **correlación intraclase (ICC)** con las unidades simuladas del libro y calcular el **efecto de diseño** y el **tamaño efectivo**.
+-   Ver por qué más pacientes por unidad dan **rendimientos decrecientes** y qué conviene más: unidades o pacientes.
+-   **Verificar con simulación** (medias por unidad y `lme4`) y ver qué pasa si se ignoran las unidades.
+
+El cálculo básico del efecto de diseño ya apareció en 14.1 y 14.5; aquí lo usamos para **planificar** un ensayo nuevo y lo comprobamos con simulación.
+
+```{r}
+#| label: setup-c204
+#| message: false
+library(tidyverse)
+library(pwr)
+library(lme4)
+library(lmerTest)       # valores p para modelos mixtos (Satterthwaite)
+library(patchwork)
+source("R/funciones_extra_a.R")      # num(), pct()
+source("R/funciones_cap20.R")
+theme_set(theme_minimal(base_size = 12))
+
+# Unidades de hemodiálisis SIMULADAS (Cap. 14): hemoglobina mensual durante 12 meses
+hb  <- read_csv("Bases/hd_unidades_hb.csv", show_col_types = FALSE)
+pac <- read_csv("Bases/hd_unidades.csv", show_col_types = FALSE)
+```
+
+## Paso 1: ¿cuánto se parecen los pacientes de una misma unidad?
+
+La **ICC** es la fracción de la variabilidad total que ocurre **entre unidades**: vale 0 si las unidades no importan y se acerca a 1 si todos los pacientes de una unidad son iguales. Se estima con un modelo mixto con una intercepción aleatoria por unidad. Como la usaremos para planificar un ensayo **donde el protocolo se asignará al azar**, la estimamos **ajustando por el brazo** del ensayo anterior (si no, el efecto del protocolo se cuela como variabilidad entre unidades).
+
+```{r}
+#| label: icc-c204
+# Hemoglobina media de cada paciente en los 12 meses, y brazo de su unidad
+pm <- hb |> group_by(id, unidad) |> summarise(hb_media = mean(hb), .groups = "drop") |>
+  left_join(select(pac, id, intervencion), by = "id")
+
+estimar_icc <- function(datos, y) {
+  m <- lmer(reformulate(c("intervencion", "(1 | unidad)"), response = y), data = datos)
+  vc <- as.data.frame(VarCorr(m))
+  tibble(icc = vc$vcov[1] / sum(vc$vcov), sd_total = sqrt(sum(vc$vcov)))
+}
+
+h12 <- hb |> filter(mes == 12) |> left_join(select(pac, id, intervencion), by = "id")
+bind_rows(`Media de 12 meses` = estimar_icc(pm, "hb_media"),
+          `Una sola medida (mes 12)` = estimar_icc(h12, "hb"), .id = "desenlace") |>
+  mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+```{r}
+#| label: params-c204
+est <- estimar_icc(pm, "hb_media")
+icc <- est$icc; sd_total <- est$sd_total               # parámetros de planificación
+icc_mes12 <- estimar_icc(h12, "hb")$icc
+delta <- 0.40                                           # diferencia mínima importante de Hb (g/dL), hipotética
+m <- 30                                                 # pacientes que se seguirán en cada unidad (hipotético)
+```
+
+**Qué vemos.** La ICC depende de **cómo definas el desenlace**: `r num(icc, 2)` para la hemoglobina media de 12 meses y `r num(icc_mes12, 2)` para una sola medida del mes 12. El promedio de varios meses elimina el ruido de cada visita y deja más peso relativo a lo que comparten los pacientes de la misma unidad. **Estima la ICC del mismo desenlace que vas a analizar**. Aquí planificamos con `r num(icc, 2)` y una DE total de `r num(sd_total, 2)` g/dL.
+
+## Paso 2: efecto de diseño y tamaño efectivo
+
+Si en cada unidad se sigue a *m* pacientes, la varianza de la media de la unidad no es σ²/*m* sino σ²/*m* × DEFF, con:
+
+$$
+\text{DEFF} = 1 + (m - 1)\times \text{ICC}
+$$
+
+El **tamaño efectivo** es el número de pacientes **independientes** que equivaldrían a tus pacientes reales: *n* / DEFF. Veámoslo para distintos tamaños de unidad:
+
+```{r}
+#| label: deff-c204
+tibble(m = c(10, 30, 50, 100, 500)) |>
+  mutate(deff = deff(m, icc),
+         valor_de_cada_paciente = 1 / deff,                 # fracción de un paciente independiente
+         efectivos_por_unidad = m / deff)
+```
+
+**Qué vemos.** Con *m* = `r m` pacientes por unidad, el DEFF es **`r num(deff(m, icc), 1)`**: cada paciente vale solo el `r pct(1 / deff(m, icc), 0)` de uno independiente, y una unidad de `r m` pacientes equivale a **`r num(m / deff(m, icc), 1)` pacientes independientes**. Con 500 por unidad, una unidad entera vale unos **`r num(500 / deff(500, icc), 1)`** (el tope es 1/ICC = `r num(1 / icc, 1)`): por muchos pacientes que agregues, **la unidad sigue siendo una sola unidad**.
+
+## Paso 3: cuántas unidades necesito
+
+Primero, los pacientes de un ensayo individual (potencia 80 %, α = 0.05, δ = `r delta` g/dL y la DE total):
+
+```{r}
+#| label: n-individual-c204
+n_ind <- n_medias(delta, sd_total)$n1
+n_ind                                                      # por grupo, si fueran independientes
+```
+
+La regla práctica: multiplicas por el DEFF y divides por el tamaño de la unidad para obtener las **unidades por brazo**. A mano y con la función exacta (que usa la *t* con 2(*k* − 1) grados de libertad sobre las medias por unidad), y comprobando con `pwr`:
+
+```{r}
+#| label: k-c204
+k_mano  <- ceiling(n_ind * deff(m, icc) / m)                          # inflar y dividir
+k_exacto <- k_cluster(m, icc, delta, sd_total)                        # búsqueda con la t exacta
+
+# Comprobación con pwr: t de dos muestras sobre las MEDIAS por unidad
+d_unidades <- delta / (sd_total * sqrt(deff(m, icc) / m))             # efecto estandarizado entre unidades
+k_pwr <- pwr.t.test(d = d_unidades, power = 0.80, sig.level = 0.05)$n
+
+c(pacientes_por_grupo_si_independientes = n_ind, a_mano = k_mano, exacto = k_exacto,
+  pwr = ceiling(k_pwr), pacientes_totales = 2 * k_exacto * m)
+```
+
+**Qué vemos.** Con `r m` pacientes por unidad hacen falta **`r k_exacto` unidades por brazo** (`r 2 * k_exacto` en total, **`r format(2 * k_exacto * m, big.mark = " ")` pacientes**), frente a los `r 2 * n_ind` de un ensayo individual. La fórmula a mano da `r k_mano`, la búsqueda exacta `r k_exacto` y `pwr` `r ceiling(k_pwr)`: **coinciden**.
+
+## Paso 4: unidades o pacientes por unidad
+
+¿Qué pasa si en lugar de `r m` pacientes se siguen 10, 100 o 500 por unidad? Calculamos las unidades por brazo y los pacientes totales:
+
+```{r}
+#| label: fig-rendimientos-c204
+#| fig-cap: "Unidades por brazo (izquierda) y pacientes totales (derecha) para 80 % de potencia, según los pacientes por unidad. Datos simulados; ICC y DE estimadas con las unidades del Cap. 14."
+#| fig-width: 8.5
+#| fig-height: 3.6
+rend <- tibble(m = c(5, 10, 20, 30, 50, 100, 200, 500, 1000)) |>
+  mutate(k = map_dbl(m, \(mm) k_cluster(mm, icc, delta, sd_total)), total = 2 * k * m)
+
+g1 <- ggplot(rend, aes(m, k)) + geom_line(color = "#0072B2", linewidth = 1) + geom_point(color = "#0072B2") +
+  scale_x_log10() + scale_y_continuous(limits = c(0, NA)) +
+  labs(x = "Pacientes por unidad (log)", y = "Unidades por brazo")
+g2 <- ggplot(rend, aes(m, total)) + geom_line(color = "#D55E00", linewidth = 1) + geom_point(color = "#D55E00") +
+  scale_x_log10() + scale_y_log10() +
+  labs(x = "Pacientes por unidad (log)", y = "Pacientes totales (log)")
+g1 + g2
+```
+
+**Qué vemos.** Pasar de 10 a 1 000 pacientes por unidad reduce las unidades por brazo de **`r rend$k[rend$m == 10]`** a solo **`r rend$k[rend$m == 1000]`** (el piso lo marca la ICC), mientras que los pacientes totales se multiplican por **`r num(rend$total[rend$m == 1000] / rend$total[rend$m == 10], 0)`**. Los **primeros** pacientes por unidad compran mucho (de 5 a 30 por unidad se ahorran `r rend$k[rend$m == 5] - rend$k[rend$m == 30]` unidades por brazo); los siguientes, casi nada. Reclutar el paciente 200 de una unidad no compra casi información; **abrir otra unidad sí**.
+
+Si cada unidad tiene un coste fijo (incorporarla, capacitarla, auditarla) y cada paciente un coste de seguimiento, hay un tamaño de unidad que **minimiza el coste total**. Con un coste de abrir una unidad **15 veces** el de seguir a un paciente (cifra hipotética):
+
+```{r}
+#| label: costo-c204
+c_unidad <- 15; c_paciente <- 1
+costos <- tibble(m = 2:150) |>
+  mutate(k = map_dbl(m, \(mm) k_cluster(mm, icc, delta, sd_total)), costo = 2 * k * (c_unidad + m * c_paciente))
+
+m_optimo_grilla  <- costos$m[which.min(costos$costo)]
+m_optimo_formula <- sqrt(c_unidad / c_paciente * (1 - icc) / icc)         # óptimo aproximado
+c(grilla = m_optimo_grilla, formula = round(m_optimo_formula, 1))
+```
+
+El tamaño de unidad que minimiza el coste es **`r m_optimo_grilla`** pacientes (la fórmula aproximada $m_{opt} = \sqrt{(c_{unidad}/c_{paciente})(1-\text{ICC})/\text{ICC}}$ da `r num(m_optimo_formula, 1)`). Es una guía, no una regla: en la práctica el tamaño de unidad lo fijan las unidades que existen. Pero explica por qué, con una ICC como esta, **conviene sumar unidades antes que pacientes**.
+
+## Paso 5: comprobarlo con simulación
+
+Simulamos ensayos con `simular_cluster()` (cada unidad recibe un efecto aleatorio, los pacientes un ruido individual; `R/funciones_cap20.R`) con los **`r k_exacto` unidades por brazo y `r m` pacientes** calculados. Cada ensayo se analiza de tres maneras:
+
+1.  **Medias por unidad**: una *t* de Student sobre las `r 2 * k_exacto` medias (el análisis más simple y válido).
+2.  **Modelo mixto** (`lmer`, intercepción aleatoria por unidad): el análisis habitual.
+3.  **Ingenuo**: una *t* sobre los pacientes, **ignorando** las unidades (incorrecto).
+
+```{r}
+#| label: sim-cluster-c204
+analizar_cluster <- function(d, k) {
+  medias <- tapply(d$y, d$unidad, mean)                      # una media por unidad
+  c(medias = t.test(medias ~ rep(0:1, each = k), var.equal = TRUE)$p.value,
+    ingenuo = t.test(y ~ brazo, data = d, var.equal = TRUE)$p.value)
+}
+
+R <- 2000
+set.seed(204)
+p_h1 <- replicate(R, analizar_cluster(simular_cluster(k_exacto, m, icc, delta, sd_total), k_exacto))
+p_h0 <- replicate(R, analizar_cluster(simular_cluster(k_exacto, m, icc, 0, sd_total), k_exacto))
+
+tibble(analisis = c("Medias por unidad", "Ingenuo (ignora unidades)"),
+       potencia = rowMeans(p_h1 < 0.05),                      # con efecto: mide la potencia
+       error_tipo_I = rowMeans(p_h0 < 0.05))                  # sin efecto: debería ser 0.05
+```
+
+```{r}
+#| label: sim-lmer-c204
+# El modelo mixto es más lento: menos réplicas (más error de Monte Carlo)
+R_mixto <- 300
+set.seed(205)
+p_mixto <- replicate(R_mixto, {
+  d <- simular_cluster(k_exacto, m, icc, delta, sd_total)
+  anova(lmer(y ~ brazo + (1 | unidad), data = d))[["Pr(>F)"]]
+})
+potencia_mixto <- mean(p_mixto < 0.05)
+potencia_teorica <- potencia_cluster(k_exacto, m, icc, delta, sd_total)
+c(potencia_mixto = potencia_mixto, potencia_formula = potencia_teorica) |> round(3)
+```
+
+**Qué vemos.**
+
+-   Con las medias por unidad, la potencia simulada es **`r pct(rowMeans(p_h1 < 0.05)[["medias"]], 1)`** frente a `r pct(potencia_teorica, 1)` de la fórmula (diferencia de `r num(100 * (rowMeans(p_h1 < 0.05)[["medias"]] - potencia_teorica), 1)` puntos; error de Monte Carlo ±`r num(100 * sqrt(0.8 * 0.2 / R), 1)`). El error tipo I es `r pct(rowMeans(p_h0 < 0.05)[["medias"]], 1)`: correcto.
+-   Con el modelo mixto (`r R_mixto` réplicas, error de Monte Carlo ±`r num(100 * sqrt(0.8 * 0.2 / R_mixto), 1)` puntos) la potencia es **`r pct(potencia_mixto, 1)`**: coincide con la fórmula.
+-   El análisis **ingenuo** parece tener una potencia de **`r pct(rowMeans(p_h1 < 0.05)[["ingenuo"]], 0)`**, pero su error tipo I es de **`r pct(rowMeans(p_h0 < 0.05)[["ingenuo"]], 0)`**, no 5 %: sin ningún efecto, casi la mitad de los ensayos «encuentran» uno. Su potencia aparente es **falsa**, producto de errores estándar demasiado pequeños.
+
+::: {.callout-warning}
+## ⚠️ Lo que se tuerce en el mundo real
+
+-   **ICC mal estimada.** Es el parámetro más incierto: sale de pocos conglomerados y varía según el desenlace, la población y la medida. Calcula el tamaño para un **rango** de ICC (por ejemplo, ½× y 2× la estimada) y planifica con la conservadora. Si la ICC real fuera el doble de la planificada, el diseño de este subcapítulo (`r k_exacto` unidades por brazo, `r m` pacientes) bajaría de `r pct(potencia_cluster(k_exacto, m, icc, delta, sd_total), 0)` a **`r pct(potencia_cluster(k_exacto, m, 2 * icc, delta, sd_total), 0)`** de potencia.
+-   **Unidades de tamaños distintos.** Con un coeficiente de variación (CV) del tamaño de unidad, el DEFF crece: DEFF ≈ 1 + [(CV² + 1)*m* − 1] ICC (Eldridge y cols.; ver 14.5). Si esperas tamaños muy desiguales, usa esta versión.
+-   **Pocas unidades.** Con pocas unidades por brazo las aproximaciones de los modelos mixtos fallan y necesitan correcciones (Kenward-Roger, Satterthwaite); con 4 por brazo, el ensayo es en la práctica una comparación de 8 observaciones, sean cuantos sean los pacientes.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   Cuando aleatorizas **grupos** (unidades, centros), los pacientes de un mismo grupo **no son independientes**: DEFF = 1 + (*m* − 1) ICC. Con ICC = `r num(icc, 2)` y *m* = `r m`, DEFF = `r num(deff(m, icc), 1)`.
+-   Tamaño del ensayo = tamaño individual × DEFF. Aquí: **`r k_exacto` unidades por brazo** (`r format(2 * k_exacto * m, big.mark = " ")` pacientes) frente a `r 2 * n_ind` si fueran independientes. La fórmula, `pwr` y la simulación (medias y `lme4`) coinciden.
+-   Más pacientes por unidad tienen **rendimientos decrecientes**: el techo es 1/ICC pacientes efectivos por unidad. **Suma unidades.**
+-   Ignorar las unidades en el análisis produce un error tipo I de `r pct(rowMeans(p_h0 < 0.05)[["ingenuo"]], 0)`, no de 5 %.
+-   La ICC depende del desenlace y es incierta: planifica con un **rango** y estímala del mismo desenlace.
+:::
+
+## Ejercicio
+
+1.  Repite el Paso 3 con la ICC de una sola medida del mes 12 (`icc_mes12`) y su DE (`estimar_icc(h12, "hb")$sd_total`). ¿Cuántas unidades hacen falta? ¿Por qué cambia?
+2.  Con `potencia_cluster()`, calcula la potencia si la ICC real fuera el **doble** de la planificada, con las unidades del Paso 3. ¿Cuántas unidades por brazo habría que añadir para volver al 80 %?
+3.  Simula (como en el Paso 5) unidades de **tamaños desiguales** (por ejemplo, *m* entre 10 y 50 con la misma media de `r m`). ¿Baja la potencia respecto a la calculada?
