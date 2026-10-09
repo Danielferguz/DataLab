@@ -1,0 +1,1876 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="es" xml:lang="es"><head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.10.18">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+<meta name="author" content="Daniel Fernandez">
+<title>¿Qué tan bueno es mi modelo? Discriminación, calibración, Brier y R² – DataLab for causal inference</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<link href="../capitulos/Capítulo17.4.html" rel="next">
+<link href="../capitulos/Capítulo17.2.html" rel="prev">
+<link href="../cover.png" rel="icon" type="image/png">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-64a204ab8560d761af7679ceaba22944.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-7aae4c44033a76e9a4abd926a4c61ba3.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light"><script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No se han encontrado resultados",
+    "search-matching-documents-text": "documentos encontrados",
+    "search-copy-link-title": "Copiar el enlace en la búsqueda",
+    "search-hide-matches-text": "Ocultar resultados adicionales",
+    "search-more-match-text": "resultado adicional en este documento",
+    "search-more-matches-text": "resultados adicionales en este documento",
+    "search-clear-button-title": "Borrar",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancelar",
+    "search-submit-button-title": "Enviar",
+    "search-label": "Buscar"
+  }
+}</script><script>
+  if (window.location.hostname === "danielferguz.github.io") {
+    window.location.replace("https://datalabperu.cloudflareaccess.com/");
+  }
+</script><script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script><script defer="" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js" type="text/javascript"></script><script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script><link rel="stylesheet" href="../css/libro.css">
+</head>
+<body class="nav-sidebar floating quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top"><nav class="quarto-secondary-nav"><div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Alternar barra lateral" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../capitulos/Capítulo17.html">Capítulo 17: Análisis predictivos: pronóstico</a></li><li class="breadcrumb-item"><a href="../capitulos/Capítulo17.3.html"><span class="chapter-title">¿Qué tan bueno es mi modelo? Discriminación, calibración, Brier y R²</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Alternar barra lateral" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+      <button type="button" class="btn quarto-search-button" aria-label="Buscar" onclick="window.quartoOpenSearch();">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+  </nav></header><!-- content --><div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto"><div class="pt-lg-2 mt-2 text-left sidebar-header">
+    <div class="sidebar-title mb-0 py-0">
+      <a href="../">DataLab for causal inference</a> 
+        <div class="sidebar-tools-main">
+  <a href="" class="quarto-reader-toggle quarto-navigation-tool px-1" onclick="window.quartoToggleReader(); return false;" title="Alternar modo lector">
+  <div class="quarto-reader-toggle-btn">
+  <i class="bi"></i>
+  </div>
+</a>
+</div>
+    </div>
+      </div>
+        <div class="mt-2 flex-shrink-0 align-items-center">
+        <div class="sidebar-search">
+        <div id="quarto-search" class="" title="Buscar"></div>
+        </div>
+        </div>
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Prefacio</span></a>
+  </div>
+</li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/intro.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Introducción</span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo1.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 1: Pregunta de investigación</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tipos de estudio: ¿generan datos nuevos o resumen lo que ya existe?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diseños de investigación: qué responde cada uno</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tareas científicas: describir, predecir o explicar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tareas descriptivas: contar bien y no prometer causas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tareas predictivas: anticipar, no explicar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tareas explicativas: la pregunta causal</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo2.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 2: Medidas en epidemiología</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo2.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Medidas de frecuencia: ¿cuántos tienen, cuántos se enferman y a qué velocidad?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo2.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Medidas de asociación: ¿cuántas veces más (o menos) frecuente?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo2.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Medidas de impacto: ¿a cuántos pacientes beneficia?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo2.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Entonces, ¿qué es "una asociación"? Describir, explicar o predecir</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo3.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 3: Casualidad vs. causalidad</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ensayos aleatorizados: por qué el azar permite hablar de causas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Resultados potenciales y estimandos: ¿qué es un efecto causal?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diagramas causales (DAG): qué ajustar y qué no</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">El análisis causal completo, paso a paso</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Simulaciones de DAG: ¿qué pasa si ajusto por…?</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo4.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 4: R y Quarto para el clínico</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Primeros pasos: instalar R y orientarte en RStudio</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Objetos, funciones y paquetes: tus primeras líneas de código</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo importar datos y revisar lo que llegó</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Quarto: tu análisis como un informe reproducible</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Errores, avisos y cómo pedir ayuda</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo5.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 5: Limpieza y manejo de datos</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-5" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Datos ordenados: la forma que R espera</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Manipular datos con `dplyr` y unificar categorías</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Fechas y tiempos</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Variables nefrológicas: unidades, TFGe y categorías KDIGO</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Control de calidad: duplicados, faltantes disfrazados y valores imposibles</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Unir tablas y construir la base final</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo6.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 6: Muestreo</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-6" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Población, marco y muestra</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diseños de muestreo: simple, estratificado y por conglomerados</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Muestras complejas con `survey`: del diseño al análisis</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de selección y no respuesta</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Caso integrado: prevalencia de ERC en la región y tamaño de muestra</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo7.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 7: Análisis descriptivo</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-7" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Cómo son mis pacientes? Variables y su distribución</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">La Tabla 1: ¿quiénes son y son comparables?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Gráficos que comunican</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Intervalos de confianza y *bootstrap*</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Estandarización por edad: comparar tasas con justicia</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo8.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 8: Asociación y regresión</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-8" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Dos variables: pruebas de hipótesis y correlación</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Regresión lineal: cuánto cambia el desenlace, en promedio</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Regresión logística y de Poisson: del OR al RR</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Interacción y modificación del efecto: ¿a quién beneficia más?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Supuestos, diagnóstico y no linealidad: ¿puedo creer mi modelo?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo reportar una regresión (y la *Table 2 fallacy*)</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Regresión ordinal, multinomial y binomial negativa</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo9.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 9: Análisis de supervivencia</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-9" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-9" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tiempo hasta evento y censura</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Kaplan-Meier y log-rank</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Regresión de Cox</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Riesgos proporcionales: cómo verificar y qué hacer</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Riesgos competitivos</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Supervivencia media restringida (RMST)</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo10.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 10: ¡¡¡No todo es confusión!!!</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-10" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-10" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de selección y colisionadores</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de tiempo inmortal</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de información y error de medición</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Causalidad inversa y sesgo de indicación</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de supervivencia y de pérdidas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo cuantificar un sesgo</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo11.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 11: Análisis inferencial en ensayos aleatorizados</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-11" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-11" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diseño del análisis: preespecificar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Comparación de dos grupos: intención de tratar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">ANCOVA: ajustar por el valor basal</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Mediciones repetidas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Subgrupos y heterogeneidad</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">No adherencia: por protocolo, *as-treated* y CACE</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Desenlaces compuestos y *win ratio*</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo12.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 12: Análisis inferencial en estudios observacionales</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-12" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-12" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Primero el protocolo: emular un ensayo objetivo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ajustar "a la antigua": estratificación y regresión</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Qué es el puntaje de propensión? Buscar al "gemelo clínico"</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Emparejamiento: formar parejas de pacientes comparables</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ponderación (IPW): dar más voz a los pacientes "raros"</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Fórmula g y estimadores doblemente robustos: predecir y promediar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Supervivencia: curvas ponderadas y riesgos a un tiempo fijo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.8.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Y si me falta algo? Análisis de sensibilidad</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.9.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diseñar para reducir la confusión: comparador activo y nuevo usuario</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.10.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Puntaje de propensión con encuestas, datos faltantes y más de dos tratamientos</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.11.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Aprendizaje automático y TMLE: modelos flexibles sin perder la inferencia</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo13.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 13: Datos faltantes</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-13" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-13" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Por qué faltan los datos? Los mecanismos MCAR, MAR y MNAR</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Mirar antes de imputar: ¿qué falta y en quiénes?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Casos completos: la opción por defecto (y cuándo es peligrosa)</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Imputación múltiple con `mice`: paso a paso</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Imputación en análisis causales y de supervivencia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Y si los que faltan son distintos? Sensibilidad a MNAR</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo14.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 14: Datos longitudinales y multinivel</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-14" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-14" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Por qué la independencia no se cumple?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Efectos aleatorios: pacientes dentro de unidades de diálisis</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Pendiente de TFGe con modelos mixtos</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">GEE vs. modelos mixtos: ¿cuál elegir?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ensayos por conglomerados e ICC</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Trayectorias y modelos conjuntos (*joint models*): visión general</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo15.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 15: Series de tiempo (y una mirada a los datos geoespaciales)</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-15" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-15" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Componentes de una serie de tiempo: tendencia, estacionalidad y ruido</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Modelos para conteos: tendencia, estacionalidad y población</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Serie temporal interrumpida: ¿cambió algo cuando empezó el programa?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Autocorrelación y estacionalidad: errores HAC y modelos ARIMA</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Series con grupo control: diferencias en diferencias y ITS controlada</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Datos geoespaciales: mapas, autocorrelación espacial y suavizado</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo16.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 16: Análisis predictivos: diagnóstico</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-16" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-16" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sensibilidad, especificidad, VPP y VPN: lo que la prevalencia cambia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">La curva ROC y el AUC: juzgar una prueba continua sin elegir un corte</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">El punto de corte: no hay uno "correcto", hay uno que sirve para algo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Un modelo diagnóstico multivariable: ¿qué añade el biomarcador?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Calibración: cuando el modelo dice "30 %", ¿de verdad es 30 %?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Curvas de decisión: ¿el modelo ayuda a decidir mejor?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de espectro, de verificación y *spin*: cuándo no creerle a un estudio diagnóstico</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo17.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 17: Análisis predictivos: pronóstico</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-17" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-17" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Cuántos pacientes necesito para construir un modelo de predicción?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo desarrollar un modelo de pronóstico tipo KFRE</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.3.html" class="sidebar-item-text sidebar-link active"><span class="chapter-title">¿Qué tan bueno es mi modelo? Discriminación, calibración, Brier y R²</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Validación interna: cuánto optimismo hay en mi modelo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Validación externa y recalibración: ¿funciona mi modelo en otro hospital?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Aporta el aprendizaje automático? LASSO, bosques y *boosting* frente a la regresión</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo reportar y evaluar un modelo: TRIPOD+AI y PROBAST</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo18.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 18: Análisis de mediación</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-18" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-18" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Efecto total, directo e indirecto: ¿por dónde actúa el fármaco?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Método de productos y de diferencias: dos regresiones y un bootstrap</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Los supuestos: las cuatro ausencias de confusión</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Mediación con interacción y desenlaces binarios o de supervivencia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Interpretación clínica: ¿la albuminuria media el efecto del iSGLT2?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Mediación moderada: ¿el camino indirecto es igual para todos?</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo19.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 19: Tratamientos que cambian en el tiempo y diseños cuasi-experimentales</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-19" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-19" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Confusión dependiente del tiempo: EPO y hemoglobina en hemodiálisis</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Modelos estructurales marginales: ponderar para romper el bucle</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Fórmula g paramétrica y estimación g: simular el mundo bajo cada estrategia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Variables instrumentales: la preferencia del nefrólogo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diferencias en diferencias y regresión discontinua</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Heterogeneidad del efecto: ¿a quién beneficia más?</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo20.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 20: Cálculo del tamaño de muestra</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-20" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-20" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">La lógica del tamaño de muestra: efecto, variabilidad, error y potencia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tamaño de muestra para diferencias de medias y de proporciones</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tamaño de muestra para tiempo hasta un evento: eventos y pacientes</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ensayos por conglomerados: efecto de diseño y número de unidades</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">La simulación como herramienta de potencia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tamaño de muestra por precisión: prevalencias, medias y pruebas diagnósticas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Pérdidas, análisis interinos y cómo reportar el tamaño de muestra</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-21" role="navigation" aria-expanded="true">
+ <span class="menu-text">Apéndices</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-21" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-21" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Apéndice-resumen.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Apéndice: cuadros de resumen y plantillas</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+    </ul>
+</div>
+</nav><div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active"><h2 id="toc-title">En esta página</h2>
+   
+  <ul>
+<li><a href="#paso-1-discriminaci%C3%B3n-la-probabilidad-de-ordenar-bien" id="toc-paso-1-discriminación-la-probabilidad-de-ordenar-bien" class="nav-link active" data-scroll-target="#paso-1-discriminaci%C3%B3n-la-probabilidad-de-ordenar-bien">Paso 1: discriminación, la probabilidad de ordenar bien</a></li>
+  <li><a href="#paso-2-calibraci%C3%B3n-son-ciertos-los-porcentajes" id="toc-paso-2-calibración-son-ciertos-los-porcentajes" class="nav-link" data-scroll-target="#paso-2-calibraci%C3%B3n-son-ciertos-los-porcentajes">Paso 2: calibración, ¿son ciertos los porcentajes?</a></li>
+  <li><a href="#paso-3-brier-y-varianza-explicada" id="toc-paso-3-brier-y-varianza-explicada" class="nav-link" data-scroll-target="#paso-3-brier-y-varianza-explicada">Paso 3: Brier y varianza explicada</a></li>
+  <li><a href="#paso-4-discriminar-bien-y-calibrar-mal-a-la-vez" id="toc-paso-4-discriminar-bien-y-calibrar-mal-a-la-vez" class="nav-link" data-scroll-target="#paso-4-discriminar-bien-y-calibrar-mal-a-la-vez">Paso 4: discriminar bien y calibrar mal, a la vez</a></li>
+  <li><a href="#paso-5-resumen-de-las-cuatro-lentes" id="toc-paso-5-resumen-de-las-cuatro-lentes" class="nav-link" data-scroll-target="#paso-5-resumen-de-las-cuatro-lentes">Paso 5: resumen de las cuatro lentes</a></li>
+  <li><a href="#ejercicio" id="toc-ejercicio" class="nav-link" data-scroll-target="#ejercicio">Ejercicio</a></li>
+  </ul></nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../capitulos/Capítulo17.html">Capítulo 17: Análisis predictivos: pronóstico</a></li><li class="breadcrumb-item"><a href="../capitulos/Capítulo17.3.html"><span class="chapter-title">¿Qué tan bueno es mi modelo? Discriminación, calibración, Brier y R²</span></a></li></ol></nav><div class="quarto-title">
+<h1 class="title"><span class="chapter-title">¿Qué tan bueno es mi modelo? Discriminación, calibración, Brier y R²</span></h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header><div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Nota</span>🩺 Escenario
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Dos calculadoras de riesgo de falla renal presumen del mismo “AUC de 0.84”. A la misma paciente, una le dice que su riesgo a 2 años es de 10 % y la otra de 27 %. Si le planeas un acceso vascular o la derivas a trasplante según ese número, <strong>no te da igual cuál tenga razón</strong>. El AUC solo te dijo si el modelo <strong>ordena</strong> bien a los pacientes; no dijo si los <strong>porcentajes</strong> que da son ciertos.</p>
+</div>
+</div>
+<p>Evaluar un modelo de pronóstico exige mirar <strong>cuatro cosas distintas</strong>:</p>
+<ul>
+<li>
+<strong>Discriminación</strong>: ¿ordena a los pacientes de mayor a menor riesgo? (C de Harrell, AUC).</li>
+<li>
+<strong>Calibración</strong>: ¿los porcentajes que da son ciertos? (gráfico de calibración, pendiente e intercepto).</li>
+<li>
+<strong>Error global</strong>: ¿qué tan lejos queda cada predicción de lo que ocurrió? (Brier).</li>
+<li>
+<strong>Varianza explicada</strong>: ¿cuánto “sabe” el modelo respecto de no saber nada? (<span class="math inline">\(R^2\)</span> e índice de precisión predictiva).</li>
+</ul>
+<p><strong>Lo que vamos a hacer</strong></p>
+<ul>
+<li>Calcular las cuatro medidas para el modelo de 17.2 y <strong>entender qué mide cada una</strong>.</li>
+<li>Ver que un modelo puede discriminar bien y estar <strong>muy mal calibrado</strong>.</li>
+<li>Comparar cada cifra con la <strong>verdad</strong> que da el oráculo.</li>
+</ul>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html">library</a></span><span class="op">(</span><span class="va"><a href="https://tidyverse.tidyverse.org">tidyverse</a></span><span class="op">)</span></span>
+<span><span class="kw"><a href="https://rdrr.io/r/base/library.html">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/therneau/survival">survival</a></span><span class="op">)</span></span>
+<span><span class="kw"><a href="https://rdrr.io/r/base/library.html">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/tagteam/riskRegression">riskRegression</a></span><span class="op">)</span>     <span class="co"># Score(): AUC y Brier con censura y riesgos competitivos</span></span>
+<span><span class="kw"><a href="https://rdrr.io/r/base/library.html">library</a></span><span class="op">(</span><span class="va"><a href="https://patchwork.data-imaginist.com">patchwork</a></span><span class="op">)</span></span>
+<span><span class="kw"><a href="https://rdrr.io/r/base/library.html">library</a></span><span class="op">(</span><span class="va"><a href="https://xrobin.github.io/pROC/">pROC</a></span><span class="op">)</span></span>
+<span><span class="kw"><a href="https://rdrr.io/r/base/source.html">source</a></span><span class="op">(</span><span class="st">"R/funciones_extra_c17.R"</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/pkg/ggplot2/man/theme_get.html">theme_set</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/ggplot2/man/ggtheme.html">theme_minimal</a></span><span class="op">(</span>base_size <span class="op">=</span> <span class="fl">12</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="va">f2</span> <span class="op">&lt;-</span> \<span class="op">(</span><span class="va">x</span><span class="op">)</span> <span class="fu"><a href="https://rdrr.io/r/base/sprintf.html">sprintf</a></span><span class="op">(</span><span class="st">"%.2f"</span>, <span class="va">x</span><span class="op">)</span>               <span class="co"># dos decimales para el texto</span></span>
+<span></span>
+<span><span class="va">dev</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/readr/man/read_delim.html">read_csv</a></span><span class="op">(</span><span class="st">"Bases/cohorte_pronostico.csv"</span>, show_col_types <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span> <span class="op">|&gt;</span> <span class="fu">preparar_pronostico</span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="va">mm</span> <span class="op">&lt;-</span> <span class="fu">ajustar_modelos_pronostico</span><span class="op">(</span><span class="va">dev</span><span class="op">)</span>      <span class="co"># los dos modelos de Cox de 17.2 (falla renal y muerte)</span></span>
+<span></span>
+<span><span class="co"># Riesgo de falla renal a 2, 4 y 5 años (incidencia acumulada, contando la muerte como competidor)</span></span>
+<span><span class="va">horizontes</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span><span class="fl">24</span>, <span class="fl">48</span>, <span class="fl">60</span><span class="op">)</span></span>
+<span><span class="va">pred</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/purrr/man/map.html">map</a></span><span class="op">(</span><span class="va">horizontes</span>, \<span class="op">(</span><span class="va">t</span><span class="op">)</span> <span class="fu">cif_cox</span><span class="op">(</span><span class="va">mm</span><span class="op">$</span><span class="va">krt</span>, <span class="va">mm</span><span class="op">$</span><span class="va">muerte</span>, <span class="va">dev</span>, <span class="va">t</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/pkg/rlang/man/set_names.html">set_names</a></span><span class="op">(</span><span class="va">horizontes</span><span class="op">)</span></span>
+<span><span class="va">lp</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/predict.html">predict</a></span><span class="op">(</span><span class="va">mm</span><span class="op">$</span><span class="va">krt</span>, type <span class="op">=</span> <span class="st">"lp"</span><span class="op">)</span>         <span class="co"># predictor lineal: ordena a los pacientes</span></span>
+<span></span>
+<span><span class="co"># Oráculo: 100 000 pacientes de la misma población, sin censura (la verdad)</span></span>
+<span><span class="va">oraculo</span> <span class="op">&lt;-</span> <span class="fu">oraculo_pronostico</span><span class="op">(</span><span class="fl">100000</span>, <span class="st">"desarrollo"</span>, semilla <span class="op">=</span> <span class="fl">99</span><span class="op">)</span></span>
+<span><span class="va">pred_or</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/purrr/man/map.html">map</a></span><span class="op">(</span><span class="va">horizontes</span>, \<span class="op">(</span><span class="va">t</span><span class="op">)</span> <span class="fu">cif_cox</span><span class="op">(</span><span class="va">mm</span><span class="op">$</span><span class="va">krt</span>, <span class="va">mm</span><span class="op">$</span><span class="va">muerte</span>, <span class="va">oraculo</span>, <span class="va">t</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/pkg/rlang/man/set_names.html">set_names</a></span><span class="op">(</span><span class="va">horizontes</span><span class="op">)</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Advertencia</span>⚠️ Estas cifras son <em>aparentes</em>
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Aquí medimos el modelo <strong>en los mismos pacientes con los que se construyó</strong>. Es lo que se llama rendimiento <strong>aparente</strong> y casi siempre es optimista (17.4). Por eso, cada cifra se acompaña de su valor <strong>verdadero</strong> (oráculo), que en la vida real no existe y se estima con validación interna y externa.</p>
+</div>
+</div>
+<section id="paso-1-discriminación-la-probabilidad-de-ordenar-bien" class="level2"><h2 class="anchored" data-anchor-id="paso-1-discriminación-la-probabilidad-de-ordenar-bien">Paso 1: discriminación, la probabilidad de ordenar bien</h2>
+<p>La <strong>discriminación</strong> responde a una pregunta simple: <em>si tomo al azar a dos pacientes, uno que llegó a falla renal antes que el otro, ¿el modelo le dio mayor riesgo al que falló antes?</em> La proporción de parejas en que acierta es el <strong>índice C de Harrell</strong> (para eventos con censura; para un desenlace binario es el <strong>AUC</strong>). Vale 0.5 si el modelo no ordena mejor que lanzar una moneda y 1 si ordena perfecto.</p>
+<p>Calculémoslo <strong>a mano</strong> en una submuestra de 500 pacientes, para ver que no es magia, y comparémoslo con la función de <code>survival</code>:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/Random.html">set.seed</a></span><span class="op">(</span><span class="fl">1</span><span class="op">)</span></span>
+<span><span class="va">idx</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/sample.html">sample</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/nrow.html">nrow</a></span><span class="op">(</span><span class="va">dev</span><span class="op">)</span>, <span class="fl">500</span><span class="op">)</span></span>
+<span><span class="va">s</span> <span class="op">&lt;-</span> <span class="va">dev</span><span class="op">[</span><span class="va">idx</span>, <span class="op">]</span>; <span class="va">lp_s</span> <span class="op">&lt;-</span> <span class="va">lp</span><span class="op">[</span><span class="va">idx</span><span class="op">]</span></span>
+<span></span>
+<span><span class="co"># Pareja (i, j) "comparable": i tuvo falla renal y antes del tiempo observado de j</span></span>
+<span><span class="va">comparables</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/outer.html">outer</a></span><span class="op">(</span><span class="va">s</span><span class="op">$</span><span class="va">tiempo_meses</span>, <span class="va">s</span><span class="op">$</span><span class="va">tiempo_meses</span>, <span class="st">"&lt;"</span><span class="op">)</span> <span class="op">&amp;</span> <span class="op">(</span><span class="va">s</span><span class="op">$</span><span class="va">krt</span> <span class="op">==</span> <span class="fl">1</span><span class="op">)</span></span>
+<span><span class="co"># La pareja es "concordante" si el modelo dio más riesgo a i que a j</span></span>
+<span><span class="va">concordantes</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/outer.html">outer</a></span><span class="op">(</span><span class="va">lp_s</span>, <span class="va">lp_s</span>, <span class="st">"&gt;"</span><span class="op">)</span></span>
+<span><span class="va">empates</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/outer.html">outer</a></span><span class="op">(</span><span class="va">lp_s</span>, <span class="va">lp_s</span>, <span class="st">"=="</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">c_mano</span> <span class="op">&lt;-</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/sum.html">sum</a></span><span class="op">(</span><span class="va">comparables</span> <span class="op">&amp;</span> <span class="va">concordantes</span><span class="op">)</span> <span class="op">+</span> <span class="fl">0.5</span> <span class="op">*</span> <span class="fu"><a href="https://rdrr.io/r/base/sum.html">sum</a></span><span class="op">(</span><span class="va">comparables</span> <span class="op">&amp;</span> <span class="va">empates</span><span class="op">)</span><span class="op">)</span> <span class="op">/</span> <span class="fu"><a href="https://rdrr.io/r/base/sum.html">sum</a></span><span class="op">(</span><span class="va">comparables</span><span class="op">)</span></span>
+<span><span class="va">c_survival</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/survival/man/concordance.html">concordance</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/survival/man/Surv.html">Surv</a></span><span class="op">(</span><span class="va">tiempo_meses</span>, <span class="va">krt</span><span class="op">)</span> <span class="op">~</span> <span class="va">lp_s</span>, data <span class="op">=</span> <span class="va">s</span>, reverse <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span><span class="op">$</span><span class="va">concordance</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span>a_mano <span class="op">=</span> <span class="va">c_mano</span>, survival <span class="op">=</span> <span class="va">c_survival</span>, parejas_comparables <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/sum.html">sum</a></span><span class="op">(</span><span class="va">comparables</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html">round</a></span><span class="op">(</span><span class="fl">3</span><span class="op">)</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>             a_mano            survival parejas_comparables 
+              0.786               0.785           52481.000 </code></pre>
+</div>
+</div>
+<p>Coinciden (la diferencia mínima viene de cómo se tratan los empates en el tiempo). Ahora con todos los pacientes y, además, el <strong>AUC dependiente del tiempo</strong> a 2 y 4 años, que pregunta: <em>entre los que tuvieron falla renal antes de ese momento y los que no, ¿el modelo da más riesgo a los primeros?</em>. En <code>riskRegression</code>, <code><a href="https://rdrr.io/pkg/riskRegression/man/Score.html">Score()</a></code> lo calcula corrigiendo la censura y <strong>tratando a quien murió antes como “sin falla renal”</strong>, justo lo que hace falta con riesgos competitivos.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="va">c_dev</span> <span class="op">&lt;-</span> <span class="fu">c_harrell</span><span class="op">(</span><span class="va">lp</span>, <span class="va">dev</span><span class="op">$</span><span class="va">tiempo_meses</span>, <span class="va">dev</span><span class="op">$</span><span class="va">krt</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">sc</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/riskRegression/man/Score.html">Score</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/list.html">list</a></span><span class="op">(</span>modelo <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/do.call.html">do.call</a></span><span class="op">(</span><span class="va">cbind</span>, <span class="va">pred</span><span class="op">[</span><span class="fl">1</span><span class="op">:</span><span class="fl">2</span><span class="op">]</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>            formula <span class="op">=</span> <span class="fu">Hist</span><span class="op">(</span><span class="va">tiempo_meses</span>, <span class="va">estado</span><span class="op">)</span> <span class="op">~</span> <span class="fl">1</span>, data <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/as.data.frame.html">as.data.frame</a></span><span class="op">(</span><span class="va">dev</span><span class="op">)</span>,</span>
+<span>            times <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span><span class="fl">24</span>, <span class="fl">48</span><span class="op">)</span>, metrics <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span><span class="st">"AUC"</span>, <span class="st">"Brier"</span><span class="op">)</span>, cause <span class="op">=</span> <span class="fl">1</span>, null.model <span class="op">=</span> <span class="cn">TRUE</span>, summary <span class="op">=</span> <span class="st">"ipa"</span><span class="op">)</span></span>
+<span><span class="va">sc</span><span class="op">$</span><span class="va">AUC</span><span class="op">$</span><span class="va">score</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/pkg/tibble/man/as_tibble.html">as_tibble</a></span><span class="op">(</span><span class="op">)</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/pkg/dplyr/man/select.html">select</a></span><span class="op">(</span>horizonte_meses <span class="op">=</span> <span class="va">times</span>, <span class="va">AUC</span>, inf <span class="op">=</span> <span class="va">lower</span>, sup <span class="op">=</span> <span class="va">upper</span><span class="op">)</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 2 × 4
+  horizonte_meses   AUC   inf   sup
+            &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;
+1              24 0.838 0.821 0.854
+2              48 0.817 0.796 0.838</code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="co"># La verdad, con el oráculo (sin censura: AUC de un desenlace binario "falla renal antes de t")</span></span>
+<span><span class="va">real_or</span> <span class="op">&lt;-</span> \<span class="op">(</span><span class="va">t</span><span class="op">)</span> <span class="fu"><a href="https://rdrr.io/r/base/numeric.html">as.numeric</a></span><span class="op">(</span><span class="va">oraculo</span><span class="op">$</span><span class="va">estado</span> <span class="op">==</span> <span class="fl">1</span> <span class="op">&amp;</span> <span class="va">oraculo</span><span class="op">$</span><span class="va">tiempo_meses</span> <span class="op">&lt;=</span> <span class="va">t</span><span class="op">)</span></span>
+<span><span class="va">auc_verdad</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/purrr/man/map.html">map_dbl</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span><span class="fl">24</span>, <span class="fl">48</span><span class="op">)</span>, \<span class="op">(</span><span class="va">t</span><span class="op">)</span> <span class="fu"><a href="https://rdrr.io/r/base/numeric.html">as.numeric</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/pROC/man/auc.html">auc</a></span><span class="op">(</span><span class="fu">real_or</span><span class="op">(</span><span class="va">t</span><span class="op">)</span>, <span class="va">pred_or</span><span class="op">[[</span><span class="fu"><a href="https://rdrr.io/r/base/character.html">as.character</a></span><span class="op">(</span><span class="va">t</span><span class="op">)</span><span class="op">]</span><span class="op">]</span>, quiet <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="va">c_verdad</span> <span class="op">&lt;-</span> <span class="fu">c_harrell</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/stats/predict.html">predict</a></span><span class="op">(</span><span class="va">mm</span><span class="op">$</span><span class="va">krt</span>, newdata <span class="op">=</span> <span class="va">oraculo</span>, type <span class="op">=</span> <span class="st">"lp"</span><span class="op">)</span>, <span class="va">oraculo</span><span class="op">$</span><span class="va">tiempo_meses</span>, <span class="va">oraculo</span><span class="op">$</span><span class="va">krt</span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/pkg/tibble/man/tibble.html">tibble</a></span><span class="op">(</span>medida <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span><span class="st">"C de Harrell"</span>, <span class="st">"AUC a 2 años"</span>, <span class="st">"AUC a 4 años"</span><span class="op">)</span>,</span>
+<span>       aparente <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span><span class="va">c_dev</span><span class="op">[[</span><span class="st">"C"</span><span class="op">]</span><span class="op">]</span>, <span class="va">sc</span><span class="op">$</span><span class="va">AUC</span><span class="op">$</span><span class="va">score</span><span class="op">$</span><span class="va">AUC</span><span class="op">)</span>,</span>
+<span>       verdad <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span><span class="va">c_verdad</span><span class="op">[[</span><span class="st">"C"</span><span class="op">]</span><span class="op">]</span>, <span class="va">auc_verdad</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/pkg/dplyr/man/mutate.html">mutate</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/dplyr/man/across.html">across</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/tidyselect/man/where.html">where</a></span><span class="op">(</span><span class="va">is.numeric</span><span class="op">)</span>, \<span class="op">(</span><span class="va">x</span><span class="op">)</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html">round</a></span><span class="op">(</span><span class="va">x</span>, <span class="fl">3</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 3 × 3
+  medida       aparente verdad
+  &lt;chr&gt;           &lt;dbl&gt;  &lt;dbl&gt;
+1 C de Harrell    0.799  0.786
+2 AUC a 2 años    0.838  0.824
+3 AUC a 4 años    0.817  0.818</code></pre>
+</div>
+</div>
+<p><strong>Qué vemos.</strong></p>
+<ul>
+<li>El <strong>C de Harrell</strong> es 0.80 en la cohorte (verdad: 0.79): de cada 100 parejas comparables, el modelo ordena bien unas 80.</li>
+<li>El <strong>AUC</strong> a 2 años es 0.84 (verdad 0.82) y a 4 años 0.82 (verdad 0.82). El modelo discrimina <strong>bien</strong> y algo mejor en el corto plazo.</li>
+<li>El valor aparente supera a la verdad en menos de 2 centésimos. Es poco <strong>optimismo</strong> (con 105 eventos por parámetro, 17.1) mezclado con la suerte del muestreo de esta cohorte; con menos eventos la brecha sería mayor.</li>
+<li>Por qué el 4 y no el 5: a los 60 meses casi nadie sigue <strong>observado</strong> (el seguimiento fue escalonado, entre 24 y 60 meses), y las medidas que corrigen la censura se vuelven inestables. Es una limitación real de muchas cohortes: <strong>mide el rendimiento a horizontes en que tengas seguimiento suficiente</strong>.</li>
+</ul></section><section id="paso-2-calibración-son-ciertos-los-porcentajes" class="level2"><h2 class="anchored" data-anchor-id="paso-2-calibración-son-ciertos-los-porcentajes">Paso 2: calibración, ¿son ciertos los porcentajes?</h2>
+<p>Un modelo está <strong>calibrado</strong> si, de los pacientes a quienes dijo “riesgo 30 %”, <strong>alrededor del 30 % tiene el evento</strong>. Se evalúa con un gráfico: ordenas a los pacientes por riesgo predicho, los divides en cinco grupos (quintiles) y comparas el riesgo <strong>predicho</strong> (eje horizontal) con el <strong>observado</strong> (eje vertical, la incidencia acumulada real del grupo con su IC). La diagonal es la calibración perfecta. Lo hacemos a 5 años, con las <strong>dos versiones</strong> del modelo de 17.2: la ingenua (1 − S, que ignora la muerte) y la que sí la considera.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="va">pred_ing</span> <span class="op">&lt;-</span> <span class="fu">riesgo_cox_ingenuo</span><span class="op">(</span><span class="va">mm</span><span class="op">$</span><span class="va">krt</span>, <span class="va">dev</span>, <span class="fl">60</span><span class="op">)</span></span>
+<span><span class="va">cal_cif</span> <span class="op">&lt;-</span> <span class="fu">tabla_calibracion</span><span class="op">(</span><span class="va">pred</span><span class="op">[[</span><span class="st">"60"</span><span class="op">]</span><span class="op">]</span>, <span class="va">dev</span><span class="op">$</span><span class="va">tiempo_meses</span>, <span class="va">dev</span><span class="op">$</span><span class="va">estado</span>, t <span class="op">=</span> <span class="fl">60</span>, g <span class="op">=</span> <span class="fl">5</span><span class="op">)</span></span>
+<span><span class="va">cal_ing</span> <span class="op">&lt;-</span> <span class="fu">tabla_calibracion</span><span class="op">(</span><span class="va">pred_ing</span>, <span class="va">dev</span><span class="op">$</span><span class="va">tiempo_meses</span>, <span class="va">dev</span><span class="op">$</span><span class="va">estado</span>, t <span class="op">=</span> <span class="fl">60</span>, g <span class="op">=</span> <span class="fl">5</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">g1</span> <span class="op">&lt;-</span> <span class="fu">grafico_calibracion</span><span class="op">(</span><span class="va">cal_ing</span>, <span class="st">"Ingenuo (1 − S): ignora la muerte"</span>, color <span class="op">=</span> <span class="st">"#D55E00"</span><span class="op">)</span></span>
+<span><span class="va">g2</span> <span class="op">&lt;-</span> <span class="fu">grafico_calibracion</span><span class="op">(</span><span class="va">cal_cif</span>, <span class="st">"Con la muerte como competidor"</span>, color <span class="op">=</span> <span class="st">"#0072B2"</span><span class="op">)</span></span>
+<span><span class="va">g1</span> <span class="op">+</span> <span class="va">g2</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure"><p><img src="Capítulo17.3_files/figure-html/calibracion-c173-1.png" class="img-fluid figure-img" width="816"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>Y los números que resumen cada gráfico:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="va">cal_resumen</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/dplyr/man/bind_rows.html">bind_rows</a></span><span class="op">(</span></span>
+<span>  `Ingenuo` <span class="op">=</span> <span class="fu">resumen_calibracion</span><span class="op">(</span><span class="va">pred_ing</span>, <span class="va">dev</span><span class="op">$</span><span class="va">tiempo_meses</span>, <span class="va">dev</span><span class="op">$</span><span class="va">estado</span>, <span class="fl">60</span><span class="op">)</span>,</span>
+<span>  `Con muerte` <span class="op">=</span> <span class="fu">resumen_calibracion</span><span class="op">(</span><span class="va">pred</span><span class="op">[[</span><span class="st">"60"</span><span class="op">]</span><span class="op">]</span>, <span class="va">dev</span><span class="op">$</span><span class="va">tiempo_meses</span>, <span class="va">dev</span><span class="op">$</span><span class="va">estado</span>, <span class="fl">60</span><span class="op">)</span>,</span>
+<span>  .id <span class="op">=</span> <span class="st">"version"</span><span class="op">)</span></span>
+<span><span class="va">cal_resumen</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/pkg/dplyr/man/mutate.html">mutate</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/dplyr/man/across.html">across</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/tidyselect/man/where.html">where</a></span><span class="op">(</span><span class="va">is.numeric</span><span class="op">)</span>, \<span class="op">(</span><span class="va">x</span><span class="op">)</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html">round</a></span><span class="op">(</span><span class="va">x</span>, <span class="fl">3</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 2 × 8
+  version    predicho_medio observado    oe intercepto ee_intercepto pendiente
+  &lt;chr&gt;               &lt;dbl&gt;     &lt;dbl&gt; &lt;dbl&gt;      &lt;dbl&gt;         &lt;dbl&gt;     &lt;dbl&gt;
+1 Ingenuo             0.388     0.341 0.879     -0.311         0.11      0.855
+2 Con muerte          0.343     0.341 0.995     -0.011         0.103     1.03 
+# ℹ 1 more variable: ee_pendiente &lt;dbl&gt;</code></pre>
+</div>
+</div>
+<p>Cómo leer la tabla:</p>
+<ul>
+<li>
+<code>predicho_medio</code> y <code>observado</code> son el riesgo promedio a 5 años predicho y el realmente observado. Su cociente es <strong>O/E</strong> (<em>observed/expected</em>): 1 es lo ideal; menos de 1 es que el modelo <strong>sobreestima</strong>.</li>
+<li>
+<code>intercepto</code> (la <strong>calibración “en grande”</strong>): 0 es lo ideal; negativo, el modelo da riesgos de más en promedio.</li>
+<li>
+<code>pendiente</code> (la <strong>pendiente de calibración</strong>): 1 es lo ideal; menos de 1 es que las predicciones son <strong>demasiado extremas</strong> (típico del sobreajuste, 17.1), y más de 1, demasiado tímidas.</li>
+</ul>
+<p><strong>Qué vemos.</strong></p>
+<ul>
+<li>La versión <strong>ingenua</strong> sobreestima: predice 39 % y observa 34 % (O/E = 0.88), y su gráfico queda <strong>por debajo de la diagonal</strong>, sobre todo en los grupos de mayor riesgo.</li>
+<li>La versión <strong>con la muerte</strong> acierta en promedio (O/E = 1.00) y su pendiente es 1.03 (error estándar 0.11): compatible con 1.</li>
+<li>Los IC de cada grupo son anchos porque a 5 años hay pocos pacientes aún observados. Mide siempre la calibración con <strong>IC</strong>; un punto fuera de la diagonal sin IC no significa nada.</li>
+</ul>
+<div class="callout callout-style-default callout-tip callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>💡 Con el paquete {riskRegression}: calibración sin escribir la función
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p><code><a href="https://rdrr.io/pkg/riskRegression/man/Score.html">Score()</a></code> puede guardar los datos del gráfico de calibración (<code>plots = "calibration"</code>) y <code><a href="https://rdrr.io/pkg/riskRegression/man/plotCalibration.html">plotCalibration()</a></code> lo dibuja. Es una alternativa a nuestra función (los argumentos pueden variar con la versión del paquete; aquí se ejecuta con la versión instalada).</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="va">sc_cal</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/riskRegression/man/Score.html">Score</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/list.html">list</a></span><span class="op">(</span>modelo <span class="op">=</span> <span class="va">pred</span><span class="op">[[</span><span class="st">"48"</span><span class="op">]</span><span class="op">]</span><span class="op">)</span>, formula <span class="op">=</span> <span class="fu">Hist</span><span class="op">(</span><span class="va">tiempo_meses</span>, <span class="va">estado</span><span class="op">)</span> <span class="op">~</span> <span class="fl">1</span>,</span>
+<span>                data <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/as.data.frame.html">as.data.frame</a></span><span class="op">(</span><span class="va">dev</span><span class="op">)</span>, times <span class="op">=</span> <span class="fl">48</span>, cause <span class="op">=</span> <span class="fl">1</span>, plots <span class="op">=</span> <span class="st">"calibration"</span>,</span>
+<span>                metrics <span class="op">=</span> <span class="cn">NULL</span>, null.model <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/pkg/riskRegression/man/plotCalibration.html">plotCalibration</a></span><span class="op">(</span><span class="va">sc_cal</span>, times <span class="op">=</span> <span class="fl">48</span>, method <span class="op">=</span> <span class="st">"quantile"</span>, q <span class="op">=</span> <span class="fl">5</span>, cens.method <span class="op">=</span> <span class="st">"local"</span><span class="op">)</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure"><p><img src="Capítulo17.3_files/figure-html/plotcalibration-c173-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section><section id="paso-3-brier-y-varianza-explicada" class="level2"><h2 class="anchored" data-anchor-id="paso-3-brier-y-varianza-explicada">Paso 3: Brier y varianza explicada</h2>
+<p>El <strong>puntaje de Brier</strong> (<em>Brier score</em>) es el <strong>error cuadrático medio de las probabilidades</strong>: para cada paciente, mide la distancia al cuadrado entre lo que el modelo dijo (por ejemplo, 0.30) y lo que pasó (1 si tuvo el evento, 0 si no). Vale 0 si el modelo fuera perfecto, y <strong>mezcla discriminación y calibración</strong>: un modelo que ordena bien pero da porcentajes falsos sale penalizado. Con censura se pondera para corregir (<code><a href="https://rdrr.io/pkg/riskRegression/man/Score.html">Score()</a></code> lo hace).</p>
+<p>Su valor depende de lo frecuente que sea el evento, por eso se compara con el <strong>modelo nulo</strong> (dar a todos el riesgo promedio). La resta relativa se llama <strong>índice de precisión predictiva</strong> (<em>index of prediction accuracy</em>, IPA, o “Brier escalado”): <span class="math inline">\(1 - \text{Brier}_\text{modelo} / \text{Brier}_\text{nulo}\)</span>. Funciona como un <strong><span class="math inline">\(R^2\)</span></strong>: 0 = no mejora al nulo.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="va">brier_aparente</span> <span class="op">&lt;-</span> <span class="va">sc</span><span class="op">$</span><span class="va">Brier</span><span class="op">$</span><span class="va">score</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/pkg/tibble/man/as_tibble.html">as_tibble</a></span><span class="op">(</span><span class="op">)</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/pkg/dplyr/man/select.html">select</a></span><span class="op">(</span>modelo <span class="op">=</span> <span class="va">model</span>, horizonte_meses <span class="op">=</span> <span class="va">times</span>, <span class="va">Brier</span>, <span class="va">IPA</span><span class="op">)</span></span>
+<span></span>
+<span><span class="co"># Verdad con el oráculo (sin censura, el Brier es el error cuadrático medio directo)</span></span>
+<span><span class="va">brier_verdad</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/purrr/man/map_dfr.html">map_dfr</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span><span class="fl">24</span>, <span class="fl">48</span><span class="op">)</span>, \<span class="op">(</span><span class="va">t</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="va">y</span> <span class="op">&lt;-</span> <span class="fu">real_or</span><span class="op">(</span><span class="va">t</span><span class="op">)</span>; <span class="va">p</span> <span class="op">&lt;-</span> <span class="va">pred_or</span><span class="op">[[</span><span class="fu"><a href="https://rdrr.io/r/base/character.html">as.character</a></span><span class="op">(</span><span class="va">t</span><span class="op">)</span><span class="op">]</span><span class="op">]</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/pkg/tibble/man/tibble.html">tibble</a></span><span class="op">(</span>horizonte_meses <span class="op">=</span> <span class="va">t</span>, Brier_verdad <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/mean.html">mean</a></span><span class="op">(</span><span class="op">(</span><span class="va">y</span> <span class="op">-</span> <span class="va">p</span><span class="op">)</span><span class="op">^</span><span class="fl">2</span><span class="op">)</span>, IPA_verdad <span class="op">=</span> <span class="fl">1</span> <span class="op">-</span> <span class="fu"><a href="https://rdrr.io/r/base/mean.html">mean</a></span><span class="op">(</span><span class="op">(</span><span class="va">y</span> <span class="op">-</span> <span class="va">p</span><span class="op">)</span><span class="op">^</span><span class="fl">2</span><span class="op">)</span> <span class="op">/</span> <span class="fu"><a href="https://rdrr.io/r/base/mean.html">mean</a></span><span class="op">(</span><span class="op">(</span><span class="va">y</span> <span class="op">-</span> <span class="fu"><a href="https://rdrr.io/r/base/mean.html">mean</a></span><span class="op">(</span><span class="va">y</span><span class="op">)</span><span class="op">)</span><span class="op">^</span><span class="fl">2</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="op">}</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">brier_aparente</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/pkg/dplyr/man/filter.html">filter</a></span><span class="op">(</span><span class="va">modelo</span> <span class="op">==</span> <span class="st">"modelo"</span><span class="op">)</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/pkg/dplyr/man/mutate-joins.html">left_join</a></span><span class="op">(</span><span class="va">brier_verdad</span>, by <span class="op">=</span> <span class="st">"horizonte_meses"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/pkg/dplyr/man/mutate.html">mutate</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/dplyr/man/across.html">across</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/tidyselect/man/where.html">where</a></span><span class="op">(</span><span class="va">is.numeric</span><span class="op">)</span>, \<span class="op">(</span><span class="va">x</span><span class="op">)</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html">round</a></span><span class="op">(</span><span class="va">x</span>, <span class="fl">3</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 2 × 6
+  modelo horizonte_meses Brier   IPA Brier_verdad IPA_verdad
+  &lt;fct&gt;            &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;        &lt;dbl&gt;      &lt;dbl&gt;
+1 modelo              24 0.126 0.281        0.125      0.273
+2 modelo              48 0.149 0.286        0.149      0.288</code></pre>
+</div>
+</div>
+<p>El <strong><span class="math inline">\(R^2\)</span></strong> (varianza explicada) tiene en los modelos de Cox varias versiones. La de <strong>Cox-Snell</strong> sale directo del estadístico de razón de verosimilitud (LR): <span class="math inline">\(R^2 = 1 - \exp(-\text{LR}/n)\)</span>. Su máximo es menor que 1 cuando el evento es poco frecuente, por eso se reescala a <strong>Nagelkerke</strong> (dividiéndolo por su máximo posible; Riley y cols., 17.1).</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="va">lr</span> <span class="op">&lt;-</span> <span class="fl">2</span> <span class="op">*</span> <span class="fu"><a href="https://rdrr.io/r/base/diff.html">diff</a></span><span class="op">(</span><span class="va">mm</span><span class="op">$</span><span class="va">krt</span><span class="op">$</span><span class="va">loglik</span><span class="op">)</span></span>
+<span><span class="va">r2_cox_snell</span> <span class="op">&lt;-</span> <span class="fl">1</span> <span class="op">-</span> <span class="fu"><a href="https://rdrr.io/r/base/Log.html">exp</a></span><span class="op">(</span><span class="op">-</span><span class="va">lr</span> <span class="op">/</span> <span class="fu"><a href="https://rdrr.io/r/base/nrow.html">nrow</a></span><span class="op">(</span><span class="va">dev</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="va">r2_max</span> <span class="op">&lt;-</span> <span class="fu">r2_cs_maximo</span><span class="op">(</span><span class="st">"supervivencia"</span>, eventos_por_persona <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/mean.html">mean</a></span><span class="op">(</span><span class="va">dev</span><span class="op">$</span><span class="va">krt</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span>R2_Cox_Snell <span class="op">=</span> <span class="va">r2_cox_snell</span>, R2_maximo <span class="op">=</span> <span class="va">r2_max</span>, R2_Nagelkerke <span class="op">=</span> <span class="va">r2_cox_snell</span> <span class="op">/</span> <span class="va">r2_max</span><span class="op">)</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html">round</a></span><span class="op">(</span><span class="fl">3</span><span class="op">)</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code> R2_Cox_Snell     R2_maximo R2_Nagelkerke 
+        0.286         0.720         0.398 </code></pre>
+</div>
+</div>
+<p><strong>Qué vemos.</strong></p>
+<ul>
+<li>A 2 años el modelo tiene un Brier de 0.126 frente a 0.175 del modelo nulo: un <strong>IPA de 0.28</strong>, es decir, reduce el error en cerca de <strong>28 %</strong> respecto de no saber nada. A 4 años, 0.29.</li>
+<li>Los valores aparentes y los verdaderos son parecidos (0.27 y 0.29).</li>
+<li>El <span class="math inline">\(R^2\)</span> de Cox-Snell es 0.29, el mismo valor que usamos como “<span class="math inline">\(R^2\)</span> esperado” en 17.1; el de Nagelkerke, 0.40.</li>
+<li>No hay un valor “bueno” universal para ninguna: dependen del problema. Lo informativo es compararlas con las de otros modelos (17.6) y con el modelo nulo.</li>
+</ul></section><section id="paso-4-discriminar-bien-y-calibrar-mal-a-la-vez" class="level2"><h2 class="anchored" data-anchor-id="paso-4-discriminar-bien-y-calibrar-mal-a-la-vez">Paso 4: discriminar bien y calibrar mal, a la vez</h2>
+<p>Para ver por qué las cuatro medidas hacen falta, fabricamos una <strong>calculadora B</strong> que ordena a los pacientes <strong>exactamente igual</strong> que nuestro modelo (A), pero con porcentajes <strong>inflados</strong> (suma 1.2 al logit de cada riesgo). Su discriminación no cambia (misma ordenación), pero su calibración sí:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="va">p_a</span> <span class="op">&lt;-</span> <span class="va">pred</span><span class="op">[[</span><span class="st">"24"</span><span class="op">]</span><span class="op">]</span></span>
+<span><span class="va">p_b</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Logistic.html">plogis</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/stats/Logistic.html">qlogis</a></span><span class="op">(</span><span class="va">p_a</span><span class="op">)</span> <span class="op">+</span> <span class="fl">1.2</span><span class="op">)</span>                   <span class="co"># misma ordenación, pero con todos los riesgos inflados</span></span>
+<span></span>
+<span><span class="va">sc_ab</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/riskRegression/man/Score.html">Score</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/list.html">list</a></span><span class="op">(</span>A <span class="op">=</span> <span class="va">p_a</span>, B <span class="op">=</span> <span class="va">p_b</span><span class="op">)</span>, formula <span class="op">=</span> <span class="fu">Hist</span><span class="op">(</span><span class="va">tiempo_meses</span>, <span class="va">estado</span><span class="op">)</span> <span class="op">~</span> <span class="fl">1</span>, data <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/as.data.frame.html">as.data.frame</a></span><span class="op">(</span><span class="va">dev</span><span class="op">)</span>,</span>
+<span>               times <span class="op">=</span> <span class="fl">24</span>, metrics <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span><span class="st">"AUC"</span>, <span class="st">"Brier"</span><span class="op">)</span>, cause <span class="op">=</span> <span class="fl">1</span>, null.model <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
+<span><span class="va">resumen_ab</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/dplyr/man/mutate-joins.html">left_join</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/tibble/man/as_tibble.html">as_tibble</a></span><span class="op">(</span><span class="va">sc_ab</span><span class="op">$</span><span class="va">AUC</span><span class="op">$</span><span class="va">score</span><span class="op">)</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/pkg/dplyr/man/select.html">select</a></span><span class="op">(</span><span class="va">model</span>, <span class="va">AUC</span><span class="op">)</span>, <span class="fu"><a href="https://rdrr.io/pkg/tibble/man/as_tibble.html">as_tibble</a></span><span class="op">(</span><span class="va">sc_ab</span><span class="op">$</span><span class="va">Brier</span><span class="op">$</span><span class="va">score</span><span class="op">)</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/pkg/dplyr/man/select.html">select</a></span><span class="op">(</span><span class="va">model</span>, <span class="va">Brier</span><span class="op">)</span>, by <span class="op">=</span> <span class="st">"model"</span><span class="op">)</span></span>
+<span><span class="va">resumen_ab</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/pkg/dplyr/man/mutate.html">mutate</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/dplyr/man/across.html">across</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/tidyselect/man/where.html">where</a></span><span class="op">(</span><span class="va">is.numeric</span><span class="op">)</span>, \<span class="op">(</span><span class="va">x</span><span class="op">)</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html">round</a></span><span class="op">(</span><span class="va">x</span>, <span class="fl">3</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 2 × 3
+  model   AUC Brier
+  &lt;fct&gt; &lt;dbl&gt; &lt;dbl&gt;
+1 A     0.838 0.126
+2 B     0.838 0.165</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="va">g_a</span> <span class="op">&lt;-</span> <span class="fu">grafico_calibracion</span><span class="op">(</span><span class="fu">tabla_calibracion</span><span class="op">(</span><span class="va">p_a</span>, <span class="va">dev</span><span class="op">$</span><span class="va">tiempo_meses</span>, <span class="va">dev</span><span class="op">$</span><span class="va">estado</span>, <span class="fl">24</span>, <span class="fl">5</span><span class="op">)</span>, <span class="st">"Calculadora A"</span>, <span class="st">"#0072B2"</span><span class="op">)</span></span>
+<span><span class="va">g_b</span> <span class="op">&lt;-</span> <span class="fu">grafico_calibracion</span><span class="op">(</span><span class="fu">tabla_calibracion</span><span class="op">(</span><span class="va">p_b</span>, <span class="va">dev</span><span class="op">$</span><span class="va">tiempo_meses</span>, <span class="va">dev</span><span class="op">$</span><span class="va">estado</span>, <span class="fl">24</span>, <span class="fl">5</span><span class="op">)</span>, <span class="st">"Calculadora B"</span>, <span class="st">"#D55E00"</span><span class="op">)</span></span>
+<span><span class="va">g_a</span> <span class="op">+</span> <span class="va">g_b</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure"><p><img src="Capítulo17.3_files/figure-html/calculadora-b-c173-1.png" class="img-fluid figure-img" width="816"></p>
+</figure>
+</div>
+</div>
+</div>
+<p><strong>Qué vemos.</strong> El <strong>AUC es idéntico</strong> (0.84) porque el AUC solo mira el <strong>orden</strong>. Pero la calculadora B tiene un Brier peor (0.165 frente a 0.126), y su gráfico de calibración queda <strong>por debajo de la diagonal</strong>: a la paciente de nuestro escenario, a quien A le dice 10 %, B le diría 27 %. <strong>Un AUC alto con mala calibración es peligroso</strong>: lleva a decisiones equivocadas aunque el modelo “ordene bien”. Y por eso <strong>un artículo que solo reporta el AUC reporta la mitad de la historia</strong> (Van Calster y cols., <em>BMC Med</em> 2019).</p>
+</section><section id="paso-5-resumen-de-las-cuatro-lentes" class="level2"><h2 class="anchored" data-anchor-id="paso-5-resumen-de-las-cuatro-lentes">Paso 5: resumen de las cuatro lentes</h2>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="co"># Calibración a 5 años en la verdad (oráculo; sin censura el cálculo es exacto)</span></span>
+<span><span class="va">cal_verdad</span> <span class="op">&lt;-</span> <span class="fu">resumen_calibracion</span><span class="op">(</span><span class="va">pred_or</span><span class="op">[[</span><span class="st">"60"</span><span class="op">]</span><span class="op">]</span>, <span class="va">oraculo</span><span class="op">$</span><span class="va">tiempo_meses</span>, <span class="va">oraculo</span><span class="op">$</span><span class="va">estado</span>, <span class="fl">60</span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/pkg/tibble/man/tribble.html">tribble</a></span><span class="op">(</span></span>
+<span>  <span class="op">~</span><span class="va">pregunta</span>, <span class="op">~</span><span class="va">medida</span>, <span class="op">~</span><span class="va">ideal</span>, <span class="op">~</span><span class="va">aparente</span>, <span class="op">~</span><span class="va">verdad</span>,</span>
+<span>  <span class="st">"¿Ordena bien?"</span>, <span class="st">"C de Harrell"</span>, <span class="st">"1"</span>, <span class="va">c_dev</span><span class="op">[[</span><span class="st">"C"</span><span class="op">]</span><span class="op">]</span>, <span class="va">c_verdad</span><span class="op">[[</span><span class="st">"C"</span><span class="op">]</span><span class="op">]</span>,</span>
+<span>  <span class="st">"¿Ordena bien a 2 años?"</span>, <span class="st">"AUC(2 años)"</span>, <span class="st">"1"</span>, <span class="va">sc</span><span class="op">$</span><span class="va">AUC</span><span class="op">$</span><span class="va">score</span><span class="op">$</span><span class="va">AUC</span><span class="op">[</span><span class="fl">1</span><span class="op">]</span>, <span class="va">auc_verdad</span><span class="op">[</span><span class="fl">1</span><span class="op">]</span>,</span>
+<span>  <span class="st">"¿Acierta el riesgo medio a 5 años?"</span>, <span class="st">"O/E (5 años)"</span>, <span class="st">"1"</span>, <span class="va">cal_resumen</span><span class="op">$</span><span class="va">oe</span><span class="op">[</span><span class="fl">2</span><span class="op">]</span>, <span class="va">cal_verdad</span><span class="op">$</span><span class="va">oe</span>,</span>
+<span>  <span class="st">"¿Los porcentajes son tan extremos como deben?"</span>, <span class="st">"Pendiente (5 años)"</span>, <span class="st">"1"</span>, <span class="va">cal_resumen</span><span class="op">$</span><span class="va">pendiente</span><span class="op">[</span><span class="fl">2</span><span class="op">]</span>, <span class="va">cal_verdad</span><span class="op">$</span><span class="va">pendiente</span>,</span>
+<span>  <span class="st">"¿Qué tan lejos queda de lo que pasa?"</span>, <span class="st">"Brier (2 años)"</span>, <span class="st">"0"</span>, <span class="va">brier_aparente</span><span class="op">$</span><span class="va">Brier</span><span class="op">[</span><span class="va">brier_aparente</span><span class="op">$</span><span class="va">modelo</span> <span class="op">==</span> <span class="st">"modelo"</span> <span class="op">&amp;</span> <span class="va">brier_aparente</span><span class="op">$</span><span class="va">horizonte_meses</span> <span class="op">==</span> <span class="fl">24</span><span class="op">]</span>, <span class="va">brier_verdad</span><span class="op">$</span><span class="va">Brier_verdad</span><span class="op">[</span><span class="fl">1</span><span class="op">]</span>,</span>
+<span>  <span class="st">"¿Cuánto mejora al modelo nulo?"</span>, <span class="st">"IPA (2 años)"</span>, <span class="st">"1"</span>, <span class="va">brier_aparente</span><span class="op">$</span><span class="va">IPA</span><span class="op">[</span><span class="va">brier_aparente</span><span class="op">$</span><span class="va">modelo</span> <span class="op">==</span> <span class="st">"modelo"</span> <span class="op">&amp;</span> <span class="va">brier_aparente</span><span class="op">$</span><span class="va">horizonte_meses</span> <span class="op">==</span> <span class="fl">24</span><span class="op">]</span>, <span class="va">brier_verdad</span><span class="op">$</span><span class="va">IPA_verdad</span><span class="op">[</span><span class="fl">1</span><span class="op">]</span></span>
+<span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/pkg/dplyr/man/mutate.html">mutate</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/dplyr/man/across.html">across</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span><span class="va">aparente</span>, <span class="va">verdad</span><span class="op">)</span>, \<span class="op">(</span><span class="va">x</span><span class="op">)</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html">round</a></span><span class="op">(</span><span class="va">x</span>, <span class="fl">3</span><span class="op">)</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu">knitr</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/pkg/knitr/man/kable.html">kable</a></span><span class="op">(</span>align <span class="op">=</span> <span class="st">"llrrr"</span><span class="op">)</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<table class="caption-top table table-sm table-striped small">
+<colgroup>
+<col style="width: 52%">
+<col style="width: 21%">
+<col style="width: 6%">
+<col style="width: 10%">
+<col style="width: 8%">
+</colgroup>
+<thead><tr class="header">
+<th style="text-align: left;">pregunta</th>
+<th style="text-align: left;">medida</th>
+<th style="text-align: right;">ideal</th>
+<th style="text-align: right;">aparente</th>
+<th style="text-align: right;">verdad</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">¿Ordena bien?</td>
+<td style="text-align: left;">C de Harrell</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">0.799</td>
+<td style="text-align: right;">0.786</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">¿Ordena bien a 2 años?</td>
+<td style="text-align: left;">AUC(2 años)</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">0.838</td>
+<td style="text-align: right;">0.824</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">¿Acierta el riesgo medio a 5 años?</td>
+<td style="text-align: left;">O/E (5 años)</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">0.995</td>
+<td style="text-align: right;">0.952</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">¿Los porcentajes son tan extremos como deben?</td>
+<td style="text-align: left;">Pendiente (5 años)</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">1.035</td>
+<td style="text-align: right;">0.940</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">¿Qué tan lejos queda de lo que pasa?</td>
+<td style="text-align: left;">Brier (2 años)</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">0.126</td>
+<td style="text-align: right;">0.125</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">¿Cuánto mejora al modelo nulo?</td>
+<td style="text-align: left;">IPA (2 años)</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">0.281</td>
+<td style="text-align: right;">0.273</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<p>La discriminación y la calibración del modelo con la muerte son buenas en la cohorte de desarrollo; con la verdad de por medio vemos además que <strong>el aparente es algo más optimista</strong>: lo cuantifica la validación interna (17.4) y se verifica en datos nuevos (17.5).</p>
+<div class="callout callout-style-default callout-important callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Importante</span>🎯 En resumen
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ul>
+<li>Un modelo de pronóstico se evalúa con <strong>cuatro lentes</strong>: discriminación (C, AUC), calibración (gráfico, O/E, pendiente), error global (Brier, IPA) y varianza explicada (<span class="math inline">\(R^2\)</span>).</li>
+<li>El <strong>C de Harrell</strong> es la probabilidad de ordenar bien una pareja comparable; con riesgos competitivos usa también el <strong>AUC a un horizonte</strong> corrigiendo la censura y contando la muerte como “sin evento”.</li>
+<li>La <strong>calibración</strong> es la lente que más se olvida y la que más importa para decidir: reporta el <strong>gráfico con IC</strong>, el <strong>O/E</strong> y la <strong>pendiente</strong> (ideal 1; menor que 1 = sobreajuste).</li>
+<li>Un modelo puede tener <strong>excelente AUC y pésima calibración</strong> (calculadora B); el Brier y el IPA mezclan ambas.</li>
+<li>Mide a horizontes en que <strong>haya seguimiento suficiente</strong>: más allá, las métricas con censura son inestables.</li>
+</ul>
+</div>
+</div>
+</section><section id="ejercicio" class="level2"><h2 class="anchored" data-anchor-id="ejercicio">Ejercicio</h2>
+<ol type="1">
+<li>Repite el gráfico de calibración a <strong>2 años</strong> con <strong>deciles</strong> en lugar de quintiles (<code>g = 10</code>). ¿Qué pasa con la anchura de los IC?</li>
+<li>Cambia la calculadora B por <code>plogis(0.6 * qlogis(p_a))</code> (porcentajes más <strong>tímidos</strong>). ¿Cómo cambia la pendiente de calibración (usa <code>resumen_calibracion()</code>)? ¿Y el AUC?</li>
+<li>Calcula el C de Harrell <strong>solo en los mayores de 75 años</strong>. ¿Es igual que en toda la cohorte? ¿Por qué un modelo suele discriminar peor en un grupo más homogéneo?</li>
+</ol>
+
+
+</section></main><!-- /main --><script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copiado");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copiado");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script><nav class="page-navigation"><div class="nav-page nav-page-previous">
+      <a href="../capitulos/Capítulo17.2.html" class="pagination-link" aria-label="Cómo desarrollar un modelo de pronóstico tipo KFRE">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-title">Cómo desarrollar un modelo de pronóstico tipo KFRE</span></span>
+      </a>          
+  </div>
+  <div class="nav-page nav-page-next">
+      <a href="../capitulos/Capítulo17.4.html" class="pagination-link" aria-label="Validación interna: cuánto optimismo hay en mi modelo">
+        <span class="nav-page-text"><span class="chapter-title">Validación interna: cuánto optimismo hay en mi modelo</span></span> <i class="bi bi-arrow-right-short"></i>
+      </a>
+  </div>
+</nav>
+</div> <!-- /content -->
+<footer class="footer"><div class="nav-footer">
+    <div class="nav-footer-left">
+<p>This book was built with 💕 and <a href="https://quarto.org/">Quarto</a>.</p>
+</div>   
+    <div class="nav-footer-center">
+      &nbsp;
+    </div>
+    <div class="nav-footer-right">
+<p>DataLab for causal inference</p>
+</div>
+  </div>
+</footer>
+
+
+</body></html>

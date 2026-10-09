@@ -1,0 +1,1833 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="es" xml:lang="es"><head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.10.18">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+<meta name="author" content="Daniel Fernandez">
+<title>Validación interna: cuánto optimismo hay en mi modelo – DataLab for causal inference</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<link href="../capitulos/Capítulo17.5.html" rel="next">
+<link href="../capitulos/Capítulo17.3.html" rel="prev">
+<link href="../cover.png" rel="icon" type="image/png">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-64a204ab8560d761af7679ceaba22944.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-7aae4c44033a76e9a4abd926a4c61ba3.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light"><script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No se han encontrado resultados",
+    "search-matching-documents-text": "documentos encontrados",
+    "search-copy-link-title": "Copiar el enlace en la búsqueda",
+    "search-hide-matches-text": "Ocultar resultados adicionales",
+    "search-more-match-text": "resultado adicional en este documento",
+    "search-more-matches-text": "resultados adicionales en este documento",
+    "search-clear-button-title": "Borrar",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancelar",
+    "search-submit-button-title": "Enviar",
+    "search-label": "Buscar"
+  }
+}</script><script>
+  if (window.location.hostname === "danielferguz.github.io") {
+    window.location.replace("https://datalabperu.cloudflareaccess.com/");
+  }
+</script><script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script><script defer="" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js" type="text/javascript"></script><script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script><link rel="stylesheet" href="../css/libro.css">
+</head>
+<body class="nav-sidebar floating quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top"><nav class="quarto-secondary-nav"><div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Alternar barra lateral" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../capitulos/Capítulo17.html">Capítulo 17: Análisis predictivos: pronóstico</a></li><li class="breadcrumb-item"><a href="../capitulos/Capítulo17.4.html"><span class="chapter-title">Validación interna: cuánto optimismo hay en mi modelo</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Alternar barra lateral" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+      <button type="button" class="btn quarto-search-button" aria-label="Buscar" onclick="window.quartoOpenSearch();">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+  </nav></header><!-- content --><div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto"><div class="pt-lg-2 mt-2 text-left sidebar-header">
+    <div class="sidebar-title mb-0 py-0">
+      <a href="../">DataLab for causal inference</a> 
+        <div class="sidebar-tools-main">
+  <a href="" class="quarto-reader-toggle quarto-navigation-tool px-1" onclick="window.quartoToggleReader(); return false;" title="Alternar modo lector">
+  <div class="quarto-reader-toggle-btn">
+  <i class="bi"></i>
+  </div>
+</a>
+</div>
+    </div>
+      </div>
+        <div class="mt-2 flex-shrink-0 align-items-center">
+        <div class="sidebar-search">
+        <div id="quarto-search" class="" title="Buscar"></div>
+        </div>
+        </div>
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Prefacio</span></a>
+  </div>
+</li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/intro.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Introducción</span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo1.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 1: Pregunta de investigación</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tipos de estudio: ¿generan datos nuevos o resumen lo que ya existe?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diseños de investigación: qué responde cada uno</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tareas científicas: describir, predecir o explicar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tareas descriptivas: contar bien y no prometer causas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tareas predictivas: anticipar, no explicar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tareas explicativas: la pregunta causal</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo2.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 2: Medidas en epidemiología</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo2.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Medidas de frecuencia: ¿cuántos tienen, cuántos se enferman y a qué velocidad?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo2.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Medidas de asociación: ¿cuántas veces más (o menos) frecuente?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo2.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Medidas de impacto: ¿a cuántos pacientes beneficia?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo2.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Entonces, ¿qué es "una asociación"? Describir, explicar o predecir</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo3.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 3: Casualidad vs. causalidad</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ensayos aleatorizados: por qué el azar permite hablar de causas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Resultados potenciales y estimandos: ¿qué es un efecto causal?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diagramas causales (DAG): qué ajustar y qué no</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">El análisis causal completo, paso a paso</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Simulaciones de DAG: ¿qué pasa si ajusto por…?</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo4.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 4: R y Quarto para el clínico</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Primeros pasos: instalar R y orientarte en RStudio</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Objetos, funciones y paquetes: tus primeras líneas de código</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo importar datos y revisar lo que llegó</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Quarto: tu análisis como un informe reproducible</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Errores, avisos y cómo pedir ayuda</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo5.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 5: Limpieza y manejo de datos</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-5" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Datos ordenados: la forma que R espera</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Manipular datos con `dplyr` y unificar categorías</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Fechas y tiempos</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Variables nefrológicas: unidades, TFGe y categorías KDIGO</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Control de calidad: duplicados, faltantes disfrazados y valores imposibles</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Unir tablas y construir la base final</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo6.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 6: Muestreo</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-6" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Población, marco y muestra</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diseños de muestreo: simple, estratificado y por conglomerados</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Muestras complejas con `survey`: del diseño al análisis</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de selección y no respuesta</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Caso integrado: prevalencia de ERC en la región y tamaño de muestra</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo7.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 7: Análisis descriptivo</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-7" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Cómo son mis pacientes? Variables y su distribución</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">La Tabla 1: ¿quiénes son y son comparables?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Gráficos que comunican</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Intervalos de confianza y *bootstrap*</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Estandarización por edad: comparar tasas con justicia</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo8.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 8: Asociación y regresión</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-8" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Dos variables: pruebas de hipótesis y correlación</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Regresión lineal: cuánto cambia el desenlace, en promedio</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Regresión logística y de Poisson: del OR al RR</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Interacción y modificación del efecto: ¿a quién beneficia más?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Supuestos, diagnóstico y no linealidad: ¿puedo creer mi modelo?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo reportar una regresión (y la *Table 2 fallacy*)</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Regresión ordinal, multinomial y binomial negativa</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo9.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 9: Análisis de supervivencia</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-9" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-9" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tiempo hasta evento y censura</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Kaplan-Meier y log-rank</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Regresión de Cox</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Riesgos proporcionales: cómo verificar y qué hacer</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Riesgos competitivos</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Supervivencia media restringida (RMST)</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo10.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 10: ¡¡¡No todo es confusión!!!</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-10" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-10" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de selección y colisionadores</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de tiempo inmortal</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de información y error de medición</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Causalidad inversa y sesgo de indicación</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de supervivencia y de pérdidas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo cuantificar un sesgo</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo11.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 11: Análisis inferencial en ensayos aleatorizados</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-11" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-11" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diseño del análisis: preespecificar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Comparación de dos grupos: intención de tratar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">ANCOVA: ajustar por el valor basal</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Mediciones repetidas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Subgrupos y heterogeneidad</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">No adherencia: por protocolo, *as-treated* y CACE</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Desenlaces compuestos y *win ratio*</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo12.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 12: Análisis inferencial en estudios observacionales</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-12" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-12" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Primero el protocolo: emular un ensayo objetivo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ajustar "a la antigua": estratificación y regresión</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Qué es el puntaje de propensión? Buscar al "gemelo clínico"</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Emparejamiento: formar parejas de pacientes comparables</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ponderación (IPW): dar más voz a los pacientes "raros"</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Fórmula g y estimadores doblemente robustos: predecir y promediar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Supervivencia: curvas ponderadas y riesgos a un tiempo fijo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.8.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Y si me falta algo? Análisis de sensibilidad</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.9.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diseñar para reducir la confusión: comparador activo y nuevo usuario</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.10.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Puntaje de propensión con encuestas, datos faltantes y más de dos tratamientos</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.11.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Aprendizaje automático y TMLE: modelos flexibles sin perder la inferencia</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo13.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 13: Datos faltantes</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-13" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-13" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Por qué faltan los datos? Los mecanismos MCAR, MAR y MNAR</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Mirar antes de imputar: ¿qué falta y en quiénes?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Casos completos: la opción por defecto (y cuándo es peligrosa)</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Imputación múltiple con `mice`: paso a paso</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Imputación en análisis causales y de supervivencia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Y si los que faltan son distintos? Sensibilidad a MNAR</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo14.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 14: Datos longitudinales y multinivel</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-14" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-14" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Por qué la independencia no se cumple?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Efectos aleatorios: pacientes dentro de unidades de diálisis</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Pendiente de TFGe con modelos mixtos</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">GEE vs. modelos mixtos: ¿cuál elegir?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ensayos por conglomerados e ICC</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Trayectorias y modelos conjuntos (*joint models*): visión general</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo15.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 15: Series de tiempo (y una mirada a los datos geoespaciales)</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-15" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-15" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Componentes de una serie de tiempo: tendencia, estacionalidad y ruido</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Modelos para conteos: tendencia, estacionalidad y población</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Serie temporal interrumpida: ¿cambió algo cuando empezó el programa?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Autocorrelación y estacionalidad: errores HAC y modelos ARIMA</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Series con grupo control: diferencias en diferencias y ITS controlada</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Datos geoespaciales: mapas, autocorrelación espacial y suavizado</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo16.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 16: Análisis predictivos: diagnóstico</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-16" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-16" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sensibilidad, especificidad, VPP y VPN: lo que la prevalencia cambia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">La curva ROC y el AUC: juzgar una prueba continua sin elegir un corte</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">El punto de corte: no hay uno "correcto", hay uno que sirve para algo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Un modelo diagnóstico multivariable: ¿qué añade el biomarcador?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Calibración: cuando el modelo dice "30 %", ¿de verdad es 30 %?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Curvas de decisión: ¿el modelo ayuda a decidir mejor?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de espectro, de verificación y *spin*: cuándo no creerle a un estudio diagnóstico</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo17.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 17: Análisis predictivos: pronóstico</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-17" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-17" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Cuántos pacientes necesito para construir un modelo de predicción?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo desarrollar un modelo de pronóstico tipo KFRE</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Qué tan bueno es mi modelo? Discriminación, calibración, Brier y R²</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.4.html" class="sidebar-item-text sidebar-link active"><span class="chapter-title">Validación interna: cuánto optimismo hay en mi modelo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Validación externa y recalibración: ¿funciona mi modelo en otro hospital?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Aporta el aprendizaje automático? LASSO, bosques y *boosting* frente a la regresión</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo reportar y evaluar un modelo: TRIPOD+AI y PROBAST</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo18.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 18: Análisis de mediación</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-18" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-18" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Efecto total, directo e indirecto: ¿por dónde actúa el fármaco?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Método de productos y de diferencias: dos regresiones y un bootstrap</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Los supuestos: las cuatro ausencias de confusión</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Mediación con interacción y desenlaces binarios o de supervivencia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Interpretación clínica: ¿la albuminuria media el efecto del iSGLT2?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Mediación moderada: ¿el camino indirecto es igual para todos?</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo19.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 19: Tratamientos que cambian en el tiempo y diseños cuasi-experimentales</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-19" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-19" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Confusión dependiente del tiempo: EPO y hemoglobina en hemodiálisis</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Modelos estructurales marginales: ponderar para romper el bucle</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Fórmula g paramétrica y estimación g: simular el mundo bajo cada estrategia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Variables instrumentales: la preferencia del nefrólogo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diferencias en diferencias y regresión discontinua</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Heterogeneidad del efecto: ¿a quién beneficia más?</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo20.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 20: Cálculo del tamaño de muestra</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-20" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-20" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">La lógica del tamaño de muestra: efecto, variabilidad, error y potencia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tamaño de muestra para diferencias de medias y de proporciones</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tamaño de muestra para tiempo hasta un evento: eventos y pacientes</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ensayos por conglomerados: efecto de diseño y número de unidades</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">La simulación como herramienta de potencia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tamaño de muestra por precisión: prevalencias, medias y pruebas diagnósticas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Pérdidas, análisis interinos y cómo reportar el tamaño de muestra</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-21" role="navigation" aria-expanded="true">
+ <span class="menu-text">Apéndices</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-21" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-21" class="collapse list-unstyled sidebar-section depth1 show">
+<li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Apéndice-resumen.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Apéndice: cuadros de resumen y plantillas</span></a>
+  </div>
+</li>
+      </ul>
+</li>
+    </ul>
+</div>
+</nav><div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active"><h2 id="toc-title">En esta página</h2>
+   
+  <ul>
+<li><a href="#paso-1-el-modelo-hambriento-de-una-cohorte-peque%C3%B1a" id="toc-paso-1-el-modelo-hambriento-de-una-cohorte-pequeña" class="nav-link active" data-scroll-target="#paso-1-el-modelo-hambriento-de-una-cohorte-peque%C3%B1a">Paso 1: el modelo “hambriento” de una cohorte pequeña</a></li>
+  <li><a href="#paso-2-el-bootstrap-de-harrell-a-mano" id="toc-paso-2-el-bootstrap-de-harrell-a-mano" class="nav-link" data-scroll-target="#paso-2-el-bootstrap-de-harrell-a-mano">Paso 2: el <em>bootstrap</em> de Harrell, a mano</a></li>
+  <li><a href="#paso-3-lo-mismo-con-rmsvalidate" id="toc-paso-3-lo-mismo-con-rmsvalidate" class="nav-link" data-scroll-target="#paso-3-lo-mismo-con-rmsvalidate">Paso 3: lo mismo con <code>rms::validate</code></a></li>
+  <li><a href="#paso-4-cu%C3%A1l-m%C3%A9todo-se-acerca-m%C3%A1s-a-la-verdad-un-experimento" id="toc-paso-4-cuál-método-se-acerca-más-a-la-verdad-un-experimento" class="nav-link" data-scroll-target="#paso-4-cu%C3%A1l-m%C3%A9todo-se-acerca-m%C3%A1s-a-la-verdad-un-experimento">Paso 4: ¿cuál método se acerca más a la verdad? Un experimento</a></li>
+  <li><a href="#paso-5-y-con-la-cohorte-completa-de-3-000" id="toc-paso-5-y-con-la-cohorte-completa-de-3-000" class="nav-link" data-scroll-target="#paso-5-y-con-la-cohorte-completa-de-3-000">Paso 5: ¿y con la cohorte completa de 3 000?</a></li>
+  <li><a href="#paso-6-la-fuga-de-informaci%C3%B3n-el-error-que-ning%C3%BAn-validate-te-salva" id="toc-paso-6-la-fuga-de-información-el-error-que-ningún-validate-te-salva" class="nav-link" data-scroll-target="#paso-6-la-fuga-de-informaci%C3%B3n-el-error-que-ning%C3%BAn-validate-te-salva">Paso 6: la fuga de información, el error que ningún <code>validate()</code> te salva</a></li>
+  <li><a href="#ejercicio" id="toc-ejercicio" class="nav-link" data-scroll-target="#ejercicio">Ejercicio</a></li>
+  </ul></nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../capitulos/Capítulo17.html">Capítulo 17: Análisis predictivos: pronóstico</a></li><li class="breadcrumb-item"><a href="../capitulos/Capítulo17.4.html"><span class="chapter-title">Validación interna: cuánto optimismo hay en mi modelo</span></a></li></ol></nav><div class="quarto-title">
+<h1 class="title"><span class="chapter-title">Validación interna: cuánto optimismo hay en mi modelo</span></h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header><div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Nota</span>🩺 Escenario
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Terminaste tu modelo con 400 pacientes de tu hospital y el índice C sale <strong>0.84</strong>. Un revisor pregunta: “¿y cuánto valdrá en pacientes nuevos?”. No tienes otra cohorte. Dividir los 400 en entrenamiento y prueba te deja con 280 y 120 pacientes: el modelo sale peor y la prueba, ruidosa. ¿Hay forma de <strong>usar todos los datos para construir el modelo y, a la vez, estimar con honestidad su rendimiento</strong>?</p>
+</div>
+</div>
+<p>El rendimiento medido en los <strong>mismos pacientes con que se construyó el modelo</strong> (el <strong>aparente</strong>) es siempre optimista: el modelo ya “vio” esos datos y aprendió también su ruido. La diferencia entre el rendimiento aparente y el que tendría en pacientes nuevos se llama <strong>optimismo</strong>. La <strong>validación interna</strong> estima ese optimismo usando solo los datos de desarrollo, para restarlo.</p>
+<p><strong>Lo que vamos a hacer</strong></p>
+<ul>
+<li>Estimar el optimismo con el <strong><em>bootstrap</em></strong> (primero <strong>a mano</strong> y luego con <code><a href="https://rdrr.io/pkg/rms/man/validate.html">rms::validate</a></code>) y dibujar la calibración corregida con <code><a href="https://rdrr.io/pkg/rms/man/calibrate.html">rms::calibrate</a></code>.</li>
+<li>Compararlo con la <strong>validación cruzada</strong> y con la <strong>división en entrenamiento y prueba</strong>, usando la <strong>verdad</strong> del oráculo.</li>
+<li>Ver la <strong>fuga de información</strong> (<em>data leakage</em>), la forma más sutil de engañarse a uno mismo.</li>
+</ul>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html">library</a></span><span class="op">(</span><span class="va"><a href="https://tidyverse.tidyverse.org">tidyverse</a></span><span class="op">)</span></span>
+<span><span class="kw"><a href="https://rdrr.io/r/base/library.html">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/therneau/survival">survival</a></span><span class="op">)</span></span>
+<span><span class="kw"><a href="https://rdrr.io/r/base/library.html">library</a></span><span class="op">(</span><span class="va"><a href="https://hbiostat.org/R/rms/">rms</a></span><span class="op">)</span></span>
+<span><span class="kw"><a href="https://rdrr.io/r/base/source.html">source</a></span><span class="op">(</span><span class="st">"R/funciones_extra_c17.R"</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/pkg/ggplot2/man/theme_get.html">theme_set</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/ggplot2/man/ggtheme.html">theme_minimal</a></span><span class="op">(</span>base_size <span class="op">=</span> <span class="fl">12</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="va">f2</span> <span class="op">&lt;-</span> \<span class="op">(</span><span class="va">x</span><span class="op">)</span> <span class="fu"><a href="https://rdrr.io/r/base/sprintf.html">sprintf</a></span><span class="op">(</span><span class="st">"%.2f"</span>, <span class="va">x</span><span class="op">)</span>                 <span class="co"># dos decimales para el texto</span></span>
+<span><span class="va">f3</span> <span class="op">&lt;-</span> \<span class="op">(</span><span class="va">x</span><span class="op">)</span> <span class="fu"><a href="https://rdrr.io/r/base/sprintf.html">sprintf</a></span><span class="op">(</span><span class="st">"%.3f"</span>, <span class="va">x</span><span class="op">)</span>                 <span class="co"># tres decimales</span></span>
+<span></span>
+<span><span class="va">dev</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/readr/man/read_delim.html">read_csv</a></span><span class="op">(</span><span class="st">"Bases/cohorte_pronostico.csv"</span>, show_col_types <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span> <span class="op">|&gt;</span> <span class="fu">preparar_pronostico</span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="va">oraculo</span> <span class="op">&lt;-</span> <span class="fu">oraculo_pronostico</span><span class="op">(</span><span class="fl">30000</span>, <span class="st">"desarrollo"</span>, semilla <span class="op">=</span> <span class="fl">99</span><span class="op">)</span>    <span class="co"># la verdad: 30 000 pacientes sin censura</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<section id="paso-1-el-modelo-hambriento-de-una-cohorte-pequeña" class="level2"><h2 class="anchored" data-anchor-id="paso-1-el-modelo-hambriento-de-una-cohorte-pequeña">Paso 1: el modelo “hambriento” de una cohorte pequeña</h2>
+<p>Para que el optimismo se vea, creamos el escenario del hospital pequeño: una <strong>muestra de 400 pacientes</strong> de nuestra cohorte y un modelo con <strong>15 parámetros</strong>: las 9 variables clínicas y <strong>6 variables de ruido</strong>, que no tienen nada que ver con el desenlace (17.1: pocos eventos por parámetro).</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="va">ruido</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/paste.html">paste0</a></span><span class="op">(</span><span class="st">"ruido"</span>, <span class="fl">1</span><span class="op">:</span><span class="fl">6</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/Random.html">set.seed</a></span><span class="op">(</span><span class="fl">2026</span><span class="op">)</span></span>
+<span><span class="va">chica</span> <span class="op">&lt;-</span> <span class="va">dev</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/sample.html">sample</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/nrow.html">nrow</a></span><span class="op">(</span><span class="va">dev</span><span class="op">)</span>, <span class="fl">400</span><span class="op">)</span>, <span class="op">]</span></span>
+<span><span class="kw">for</span> <span class="op">(</span><span class="va">v</span> <span class="kw">in</span> <span class="va">ruido</span><span class="op">)</span> <span class="va">chica</span><span class="op">[[</span><span class="va">v</span><span class="op">]</span><span class="op">]</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html">rnorm</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/nrow.html">nrow</a></span><span class="op">(</span><span class="va">chica</span><span class="op">)</span><span class="op">)</span>               <span class="co"># variables de ruido</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/Random.html">set.seed</a></span><span class="op">(</span><span class="fl">8</span><span class="op">)</span></span>
+<span><span class="kw">for</span> <span class="op">(</span><span class="va">v</span> <span class="kw">in</span> <span class="va">ruido</span><span class="op">)</span> <span class="va">oraculo</span><span class="op">[[</span><span class="va">v</span><span class="op">]</span><span class="op">]</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html">rnorm</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/nrow.html">nrow</a></span><span class="op">(</span><span class="va">oraculo</span><span class="op">)</span><span class="op">)</span>           <span class="co"># y lo mismo en el oráculo</span></span>
+<span></span>
+<span><span class="va">fml</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/survival/man/Surv.html">Surv</a></span><span class="op">(</span><span class="va">tiempo_meses</span>, <span class="va">krt</span><span class="op">)</span> <span class="op">~</span> <span class="va">edad</span> <span class="op">+</span> <span class="va">sexo</span> <span class="op">+</span> <span class="va">tfg</span> <span class="op">+</span> <span class="va">lu</span> <span class="op">+</span> <span class="va">albumina</span> <span class="op">+</span> <span class="va">fosforo</span> <span class="op">+</span> <span class="va">bicarbonato</span> <span class="op">+</span> <span class="va">dm</span> <span class="op">+</span> <span class="va">ecv</span> <span class="op">+</span></span>
+<span>  <span class="va">ruido1</span> <span class="op">+</span> <span class="va">ruido2</span> <span class="op">+</span> <span class="va">ruido3</span> <span class="op">+</span> <span class="va">ruido4</span> <span class="op">+</span> <span class="va">ruido5</span> <span class="op">+</span> <span class="va">ruido6</span></span>
+<span></span>
+<span><span class="va">m_chica</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/survival/man/coxph.html">coxph</a></span><span class="op">(</span><span class="va">fml</span>, data <span class="op">=</span> <span class="va">chica</span><span class="op">)</span></span>
+<span><span class="va">c_aparente</span> <span class="op">&lt;-</span> <span class="va">m_chica</span><span class="op">$</span><span class="va">concordance</span><span class="op">[[</span><span class="st">"concordance"</span><span class="op">]</span><span class="op">]</span></span>
+<span><span class="va">c_verdad</span> <span class="op">&lt;-</span> <span class="fu">c_harrell</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/stats/predict.html">predict</a></span><span class="op">(</span><span class="va">m_chica</span>, newdata <span class="op">=</span> <span class="va">oraculo</span><span class="op">)</span>, <span class="va">oraculo</span><span class="op">$</span><span class="va">tiempo_meses</span>, <span class="va">oraculo</span><span class="op">$</span><span class="va">krt</span><span class="op">)</span><span class="op">[[</span><span class="st">"C"</span><span class="op">]</span><span class="op">]</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span>eventos <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/sum.html">sum</a></span><span class="op">(</span><span class="va">chica</span><span class="op">$</span><span class="va">krt</span><span class="op">)</span>, parametros <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/length.html">length</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/stats/coef.html">coef</a></span><span class="op">(</span><span class="va">m_chica</span><span class="op">)</span><span class="op">)</span>, C_aparente <span class="op">=</span> <span class="va">c_aparente</span>, C_verdad <span class="op">=</span> <span class="va">c_verdad</span><span class="op">)</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html">round</a></span><span class="op">(</span><span class="fl">3</span><span class="op">)</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>   eventos parametros C_aparente   C_verdad 
+   110.000     15.000      0.843      0.766 </code></pre>
+</div>
+</div>
+<p><strong>Qué vemos.</strong> Con solo 110 eventos para 15 parámetros, el modelo parece tener un C de <strong>0.84</strong> en los datos con que se hizo, pero su rendimiento <strong>verdadero</strong> en pacientes nuevos (el oráculo) es <strong>0.77</strong>. Esos 7.8 centésimos son optimismo (más la suerte del muestreo). En la vida real no tendrías el oráculo: el <em>bootstrap</em> intenta adivinar esa diferencia.</p>
+</section><section id="paso-2-el-bootstrap-de-harrell-a-mano" class="level2"><h2 class="anchored" data-anchor-id="paso-2-el-bootstrap-de-harrell-a-mano">Paso 2: el <em>bootstrap</em> de Harrell, a mano</h2>
+<p>El <em>bootstrap</em> simula “nuevos estudios” <strong>remuestreando con reemplazo</strong> los propios datos. La idea, en cuatro pasos (Harrell, <em>Regression Modeling Strategies</em>):</p>
+<ol type="1">
+<li>Saca una muestra <em>bootstrap</em> (con reemplazo, del mismo tamaño) y <strong>repite en ella todo el proceso de modelado</strong>.</li>
+<li>Mide el rendimiento del modelo en esa misma muestra <em>bootstrap</em> (<strong>aparente del bootstrap</strong>).</li>
+<li>Mide su rendimiento en la <strong>muestra original</strong> (que hace de “datos nuevos”).</li>
+<li>La diferencia (2) − (3) es <strong>una estimación del optimismo</strong>. Repite 200 veces, promedia y <strong>réstale ese promedio al C aparente original</strong>.</li>
+</ol>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/Random.html">set.seed</a></span><span class="op">(</span><span class="fl">1</span><span class="op">)</span></span>
+<span><span class="va">B</span> <span class="op">&lt;-</span> <span class="fl">200</span></span>
+<span><span class="va">optimismo</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/purrr/man/map_dfr.html">map_dfr</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/seq.html">seq_len</a></span><span class="op">(</span><span class="va">B</span><span class="op">)</span>, \<span class="op">(</span><span class="va">b</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="va">i</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/sample.html">sample</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/nrow.html">nrow</a></span><span class="op">(</span><span class="va">chica</span><span class="op">)</span>, replace <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span>                       <span class="co"># 1. muestra bootstrap</span></span>
+<span>  <span class="va">mb</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/survival/man/coxph.html">coxph</a></span><span class="op">(</span><span class="va">fml</span>, data <span class="op">=</span> <span class="va">chica</span><span class="op">[</span><span class="va">i</span>, <span class="op">]</span><span class="op">)</span>                            <span class="co">#    se ajusta de nuevo todo el modelo</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/pkg/tibble/man/tibble.html">tibble</a></span><span class="op">(</span></span>
+<span>    aparente_boot <span class="op">=</span> <span class="va">mb</span><span class="op">$</span><span class="va">concordance</span><span class="op">[[</span><span class="st">"concordance"</span><span class="op">]</span><span class="op">]</span>,    <span class="co"># 2. rendimiento en la muestra bootstrap</span></span>
+<span>    en_original <span class="op">=</span> <span class="fu">c_harrell</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/stats/predict.html">predict</a></span><span class="op">(</span><span class="va">mb</span>, newdata <span class="op">=</span> <span class="va">chica</span><span class="op">)</span>, <span class="va">chica</span><span class="op">$</span><span class="va">tiempo_meses</span>, <span class="va">chica</span><span class="op">$</span><span class="va">krt</span><span class="op">)</span><span class="op">[[</span><span class="st">"C"</span><span class="op">]</span><span class="op">]</span>   <span class="co"># 3. en la original</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">}</span><span class="op">)</span></span>
+<span><span class="va">optimismo_medio</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/mean.html">mean</a></span><span class="op">(</span><span class="va">optimismo</span><span class="op">$</span><span class="va">aparente_boot</span> <span class="op">-</span> <span class="va">optimismo</span><span class="op">$</span><span class="va">en_original</span><span class="op">)</span>   <span class="co"># 4. optimismo promedio</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span>C_aparente <span class="op">=</span> <span class="va">c_aparente</span>, optimismo <span class="op">=</span> <span class="va">optimismo_medio</span>, C_corregido <span class="op">=</span> <span class="va">c_aparente</span> <span class="op">-</span> <span class="va">optimismo_medio</span>, C_verdad <span class="op">=</span> <span class="va">c_verdad</span><span class="op">)</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html">round</a></span><span class="op">(</span><span class="fl">3</span><span class="op">)</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code> C_aparente   optimismo C_corregido    C_verdad 
+      0.843       0.019       0.824       0.766 </code></pre>
+</div>
+</div>
+<p><strong>Qué vemos.</strong> El <em>bootstrap</em> estima un optimismo de 0.02 y corrige el C a <strong>0.82</strong>: se acerca a la verdad (0.77) pero <strong>no la alcanza</strong>. Es normal: el <em>bootstrap</em> estima el optimismo <strong>esperado</strong> de un modelo como este, no el de esta muestra en particular (que tuvo su propia suerte). Para saber si el método funciona en general hay que <strong>repetir el experimento muchas veces</strong>; lo hacemos en el paso 4.</p>
+</section><section id="paso-3-lo-mismo-con-rmsvalidate" class="level2"><h2 class="anchored" data-anchor-id="paso-3-lo-mismo-con-rmsvalidate">Paso 3: lo mismo con <code>rms::validate</code>
+</h2>
+<p>El paquete <code>rms</code> hace todo esto en una línea y para <strong>varios índices a la vez</strong> (<code><a href="https://rdrr.io/pkg/rms/man/validate.html">rms::validate()</a></code>). Hay que ajustar el modelo con <code>cph(..., x = TRUE, y = TRUE)</code> para que guarde los datos.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="va">dd</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/rms/man/datadist.html">datadist</a></span><span class="op">(</span><span class="va">chica</span><span class="op">)</span>; <span class="fu"><a href="https://rdrr.io/r/base/options.html">options</a></span><span class="op">(</span>datadist <span class="op">=</span> <span class="st">"dd"</span><span class="op">)</span></span>
+<span><span class="va">f_chica</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/rms/man/cph.html">cph</a></span><span class="op">(</span><span class="va">fml</span>, data <span class="op">=</span> <span class="va">chica</span>, x <span class="op">=</span> <span class="cn">TRUE</span>, y <span class="op">=</span> <span class="cn">TRUE</span>, surv <span class="op">=</span> <span class="cn">TRUE</span>, time.inc <span class="op">=</span> <span class="fl">24</span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/Random.html">set.seed</a></span><span class="op">(</span><span class="fl">1</span><span class="op">)</span></span>
+<span><span class="va">v_chica</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/warning.html">suppressWarnings</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/rms/man/validate.html">validate</a></span><span class="op">(</span><span class="va">f_chica</span>, B <span class="op">=</span> <span class="fl">200</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="va">v_chica</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>      index.orig training   test optimism index.corrected   n
+Dxy       0.6869   0.7066 0.6687   0.0379          0.6489 200
+R2        0.4015   0.4244 0.3770   0.0473          0.3541 200
+Slope     1.0000   1.0000 0.8745   0.1255          0.8745 200
+D         0.1547   0.1675 0.1428   0.0247          0.1301 200
+U        -0.0016  -0.0016 0.0039  -0.0056          0.0040 200
+Q         0.1563   0.1691 0.1389   0.0302          0.1261 200
+g         1.8834   2.0214 1.7616   0.2598          1.6236 200</code></pre>
+</div>
+</div>
+<p>Cómo leer la tabla (cada fila es un índice):</p>
+<ul>
+<li>
+<code>index.orig</code>: el valor <strong>aparente</strong>; <code>training</code>: el valor en las muestras <em>bootstrap</em>; <code>test</code>: el valor de esos modelos en la muestra original.</li>
+<li>
+<code>optimism</code> = <code>training</code> − <code>test</code>; <code>index.corrected</code> = <code>index.orig</code> − <code>optimism</code>: el valor <strong>corregido</strong>.</li>
+<li>
+<code>Dxy</code> es el índice de Somers; se convierte en C con <strong>C = (Dxy + 1) / 2</strong>. Aquí: aparente 0.84, corregido <strong>0.82</strong>.</li>
+<li>
+<code>Slope</code> es la <strong>pendiente de calibración</strong> (siempre vale 1 en los datos de desarrollo). Corregida baja a <strong>0.87</strong>: las predicciones son demasiado extremas, justo el sobreajuste de 17.1. El valor es también un <strong>factor de encogimiento</strong>: multiplicar los coeficientes por ~0.87 los dejaría mejor calibrados (<em>shrinkage</em>).</li>
+<li>
+<code>R2</code> es el <span class="math inline">\(R^2\)</span> (Cox-Snell ajustado) y <code>D</code>, <code>U</code>, <code>Q</code>, <code>g</code> son otras medidas de discriminación (poco usadas).</li>
+</ul></section><section id="paso-4-cuál-método-se-acerca-más-a-la-verdad-un-experimento" class="level2"><h2 class="anchored" data-anchor-id="paso-4-cuál-método-se-acerca-más-a-la-verdad-un-experimento">Paso 4: ¿cuál método se acerca más a la verdad? Un experimento</h2>
+<p>Comparemos ahora, <strong>repitiendo el experimento 30 veces</strong> (30 muestras distintas de 400 pacientes, cada una con su modelo de 15 parámetros), cuatro formas de estimar el C:</p>
+<ol type="1">
+<li>
+<strong>Aparente</strong>: medir en los mismos datos.</li>
+<li>
+<strong><em>Bootstrap</em></strong> con corrección de optimismo (<code><a href="https://rdrr.io/pkg/rms/man/validate.html">validate()</a></code>, 100 remuestras).</li>
+<li>
+<strong>Validación cruzada de 10 pliegues</strong>: se parte la muestra en 10; el modelo se entrena con 9 y se evalúa en el que falta; se repite 10 veces.</li>
+<li>
+<strong>Una sola división 70/30</strong>: entrenar con el 70 % y evaluar en el 30 % (la práctica ingenua).</li>
+</ol>
+<p>En cada repetición conocemos la verdad (el C del modelo en el oráculo).</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/Random.html">set.seed</a></span><span class="op">(</span><span class="fl">11</span><span class="op">)</span></span>
+<span><span class="va">comparacion</span> <span class="op">&lt;-</span> <span class="fu">comparar_validaciones</span><span class="op">(</span><span class="va">dev</span>, <span class="va">oraculo</span>, n <span class="op">=</span> <span class="fl">400</span>, R <span class="op">=</span> <span class="fl">30</span>, semilla <span class="op">=</span> <span class="fl">11</span><span class="op">)</span></span>
+<span></span>
+<span><span class="co"># Error de cada método = estimado - verdad. (Para la división, la verdad es la del modelo entrenado con el 70 %.)</span></span>
+<span><span class="va">errores</span> <span class="op">&lt;-</span> <span class="va">comparacion</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/pkg/dplyr/man/transmute.html">transmute</a></span><span class="op">(</span>`1. Aparente` <span class="op">=</span> <span class="va">aparente</span> <span class="op">-</span> <span class="va">verdad</span>, `2. Bootstrap` <span class="op">=</span> <span class="va">bootstrap</span> <span class="op">-</span> <span class="va">verdad</span>,</span>
+<span>            `3. Validación cruzada (10)` <span class="op">=</span> <span class="va">cv10</span> <span class="op">-</span> <span class="va">verdad</span>, `4. División 70/30` <span class="op">=</span> <span class="va">division</span> <span class="op">-</span> <span class="va">verdad_division</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">resumen_errores</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/tibble/man/tibble.html">tibble</a></span><span class="op">(</span></span>
+<span>  metodo <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/names.html">names</a></span><span class="op">(</span><span class="va">errores</span><span class="op">)</span>,</span>
+<span>  sesgo <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/colSums.html">colMeans</a></span><span class="op">(</span><span class="va">errores</span><span class="op">)</span>,               <span class="co"># promedio del error: ¿se pasa o se queda corto?</span></span>
+<span>  variabilidad <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/apply.html">apply</a></span><span class="op">(</span><span class="va">errores</span>, <span class="fl">2</span>, <span class="va">sd</span><span class="op">)</span>,    <span class="co"># cuánto varía de una muestra a otra</span></span>
+<span>  error_total <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/MathFun.html">sqrt</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/colSums.html">colMeans</a></span><span class="op">(</span><span class="va">errores</span><span class="op">^</span><span class="fl">2</span><span class="op">)</span><span class="op">)</span>  <span class="co"># raíz del error cuadrático medio</span></span>
+<span><span class="op">)</span></span>
+<span><span class="va">resumen_errores</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/pkg/dplyr/man/mutate.html">mutate</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/dplyr/man/across.html">across</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/tidyselect/man/where.html">where</a></span><span class="op">(</span><span class="va">is.numeric</span><span class="op">)</span>, \<span class="op">(</span><span class="va">x</span><span class="op">)</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html">round</a></span><span class="op">(</span><span class="va">x</span>, <span class="fl">3</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 4 × 4
+  metodo                     sesgo variabilidad error_total
+  &lt;chr&gt;                      &lt;dbl&gt;        &lt;dbl&gt;       &lt;dbl&gt;
+1 1. Aparente                0.04         0.018       0.044
+2 2. Bootstrap               0.018        0.02        0.027
+3 3. Validación cruzada (10) 0.016        0.02        0.025
+4 4. División 70/30          0.015        0.038       0.04 </code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="va">errores</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/pkg/tidyr/man/pivot_longer.html">pivot_longer</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/tidyselect/man/everything.html">everything</a></span><span class="op">(</span><span class="op">)</span>, names_to <span class="op">=</span> <span class="st">"metodo"</span>, values_to <span class="op">=</span> <span class="st">"error"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/pkg/ggplot2/man/ggplot.html">ggplot</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/ggplot2/man/aes.html">aes</a></span><span class="op">(</span><span class="va">error</span>, <span class="va">metodo</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/pkg/ggplot2/man/geom_abline.html">geom_vline</a></span><span class="op">(</span>xintercept <span class="op">=</span> <span class="fl">0</span>, linetype <span class="op">=</span> <span class="st">"dashed"</span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/pkg/ggplot2/man/geom_boxplot.html">geom_boxplot</a></span><span class="op">(</span>fill <span class="op">=</span> <span class="st">"#CFE3F4"</span>, outlier.alpha <span class="op">=</span> <span class="fl">0.5</span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/pkg/ggplot2/man/labs.html">labs</a></span><span class="op">(</span>x <span class="op">=</span> <span class="st">"Error del estimado respecto de la verdad (C estimado - C verdadero)"</span>, y <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>       caption <span class="op">=</span> <span class="st">"30 muestras de 400 pacientes, modelo de 15 parámetros. Datos simulados."</span><span class="op">)</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure"><p><img src="Capítulo17.4_files/figure-html/grafico-validaciones-c174-1.png" class="img-fluid figure-img" width="720"></p>
+</figure>
+</div>
+</div>
+</div>
+<p><strong>Qué vemos.</strong></p>
+<ul>
+<li>El <strong>aparente</strong> se pasa de optimista por 0.040 en promedio (error positivo = sobreestima).</li>
+<li>El <strong><em>bootstrap</em></strong> y la <strong>validación cruzada</strong> reducen el sesgo a 0.018 y 0.016: corrigen <strong>la mayor parte</strong> del optimismo, aunque no todo (con tan pocos eventos por parámetro, la corrección es difícil).</li>
+<li>La <strong>división 70/30</strong> tiene poco sesgo respecto de <strong>su</strong> verdad, pero una variabilidad de 0.038, <strong>el doble</strong> que las otras: una división afortunada o desafortunada cambia mucho el resultado. Además, esa verdad corresponde a un modelo entrenado con <strong>solo 280 pacientes</strong>, que es peor que el modelo con 400 que realmente usarías (C verdadero promedio de 0.769 frente a 0.775): <strong>dividir te cuesta datos y precisión</strong>.</li>
+<li>Por eso las guías recomiendan <strong>no dividir</strong> al desarrollar el modelo, sino usar todo y remuestrear (Collins y cols., <em>BMJ</em> 2024; lectura del autor). Con datos enormes la división puede ser aceptable; con los de un hospital, no.</li>
+</ul></section><section id="paso-5-y-con-la-cohorte-completa-de-3-000" class="level2"><h2 class="anchored" data-anchor-id="paso-5-y-con-la-cohorte-completa-de-3-000">Paso 5: ¿y con la cohorte completa de 3 000?</h2>
+<p>Ahora el modelo de 8 parámetros de 17.2, con 839 eventos. El optimismo debería ser <strong>mínimo</strong>:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="va">mm</span> <span class="op">&lt;-</span> <span class="fu">ajustar_modelos_pronostico</span><span class="op">(</span><span class="va">dev</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/pkg/Hmisc/man/units.html">units</a></span><span class="op">(</span><span class="va">dev</span><span class="op">$</span><span class="va">tiempo_meses</span><span class="op">)</span> <span class="op">&lt;-</span> <span class="st">"Month"</span></span>
+<span><span class="va">dd</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/rms/man/datadist.html">datadist</a></span><span class="op">(</span><span class="va">dev</span><span class="op">)</span>; <span class="fu"><a href="https://rdrr.io/r/base/options.html">options</a></span><span class="op">(</span>datadist <span class="op">=</span> <span class="st">"dd"</span><span class="op">)</span></span>
+<span><span class="va">f_completa</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/rms/man/cph.html">cph</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/survival/man/Surv.html">Surv</a></span><span class="op">(</span><span class="va">tiempo_meses</span>, <span class="va">krt</span><span class="op">)</span> <span class="op">~</span> <span class="va">edad</span> <span class="op">+</span> <span class="va">sexo</span> <span class="op">+</span> <span class="va">tfg</span> <span class="op">+</span> <span class="va">lu</span> <span class="op">+</span> <span class="va">albumina</span> <span class="op">+</span> <span class="va">fosforo</span> <span class="op">+</span> <span class="va">bicarbonato</span> <span class="op">+</span> <span class="va">dm</span>,</span>
+<span>                  data <span class="op">=</span> <span class="va">dev</span>, x <span class="op">=</span> <span class="cn">TRUE</span>, y <span class="op">=</span> <span class="cn">TRUE</span>, surv <span class="op">=</span> <span class="cn">TRUE</span>, time.inc <span class="op">=</span> <span class="fl">24</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/Random.html">set.seed</a></span><span class="op">(</span><span class="fl">1</span><span class="op">)</span></span>
+<span><span class="va">v_completa</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/rms/man/validate.html">validate</a></span><span class="op">(</span><span class="va">f_completa</span>, B <span class="op">=</span> <span class="fl">200</span><span class="op">)</span></span>
+<span><span class="va">v_completa</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span><span class="st">"Dxy"</span>, <span class="st">"R2"</span>, <span class="st">"Slope"</span><span class="op">)</span>, <span class="op">]</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>      index.orig  training      test    optimism index.corrected   n
+Dxy    0.5984557 0.6014845 0.5969173 0.004567205       0.5938885 200
+R2     0.2903863 0.2932043 0.2886210 0.004583333       0.2858030 200
+Slope  1.0000000 1.0000000 0.9876397 0.012360283       0.9876397 200</code></pre>
+</div>
+</div>
+<p><strong>Qué vemos.</strong> El optimismo del <code>Dxy</code> es de solo 0.005, es decir, el C pasa de 0.799 a <strong>0.797</strong>, y la pendiente corregida es 0.99: casi 1. Con 105 eventos por parámetro, el sobreajuste <strong>no</strong> es el problema. Aun así, <strong>reporta el valor corregido</strong>, no el aparente.</p>
+<p>La calibración también se corrige con <em>bootstrap</em>: <code><a href="https://rdrr.io/pkg/rms/man/calibrate.html">calibrate()</a></code> compara el riesgo <strong>predicho</strong> con el <strong>observado</strong> (Kaplan-Meier) por grupos y lo vuelve a calcular en 200 remuestras para dar la curva <strong>corregida por optimismo</strong>.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/Random.html">set.seed</a></span><span class="op">(</span><span class="fl">1</span><span class="op">)</span></span>
+<span><span class="va">cal</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/rms/man/calibrate.html">calibrate</a></span><span class="op">(</span><span class="va">f_completa</span>, u <span class="op">=</span> <span class="fl">24</span>, cmethod <span class="op">=</span> <span class="st">"KM"</span>, method <span class="op">=</span> <span class="st">"boot"</span>, B <span class="op">=</span> <span class="fl">200</span>, m <span class="op">=</span> <span class="fl">500</span><span class="op">)</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Using Cox survival estimates at 24 Months</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html">plot</a></span><span class="op">(</span><span class="va">cal</span>, xlab <span class="op">=</span> <span class="st">"Supervivencia sin falla renal a 2 años predicha"</span>, ylab <span class="op">=</span> <span class="st">"Supervivencia sin falla renal observada"</span>,</span>
+<span>     subtitles <span class="op">=</span> <span class="cn">FALSE</span>, xlim <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span><span class="fl">0.3</span>, <span class="fl">1</span><span class="op">)</span>, ylim <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span><span class="fl">0.3</span>, <span class="fl">1</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/graphics/abline.html">abline</a></span><span class="op">(</span><span class="fl">0</span>, <span class="fl">1</span>, lty <span class="op">=</span> <span class="fl">2</span>, col <span class="op">=</span> <span class="st">"grey40"</span><span class="op">)</span>        <span class="co"># calibración perfecta</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure"><p><img src="Capítulo17.4_files/figure-html/calibrate-c174-1.png" class="img-fluid figure-img" width="576"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>La curva queda sobre la diagonal: el modelo está bien calibrado <strong>a 2 años</strong> una vez corregido el optimismo.</p>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Advertencia</span>⚠️ <code><a href="https://rdrr.io/pkg/rms/man/calibrate.html">rms::calibrate</a></code> mide la calibración “sin muerte”
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p><code><a href="https://rdrr.io/pkg/rms/man/calibrate.html">calibrate()</a></code> compara con <strong>1 − Kaplan-Meier</strong>, que trata a los pacientes que <strong>mueren</strong> antes de la diálisis como censurados. Por eso valida el modelo de <strong>causa específica</strong> (el riesgo “si nadie muriera”) y <strong>no</strong> el riesgo absoluto real (que sí cuenta la muerte, 17.2). Para el riesgo con riesgos competitivos usa la calibración con incidencia acumulada de 17.3. Lo mismo vale para <code><a href="https://rdrr.io/pkg/rms/man/validate.html">validate()</a></code>: el C que reporta es el del modelo de Cox de la falla renal.</p>
+</div>
+</div>
+</section><section id="paso-6-la-fuga-de-información-el-error-que-ningún-validate-te-salva" class="level2"><h2 class="anchored" data-anchor-id="paso-6-la-fuga-de-información-el-error-que-ningún-validate-te-salva">Paso 6: la fuga de información, el error que ningún <code>validate()</code> te salva</h2>
+<p>La <strong>fuga de información</strong> (<em>data leakage</em>) ocurre cuando algo de los datos de <strong>prueba</strong> se usa, sin querer, al construir el modelo. Las validaciones se vuelven optimistas aunque se haga todo “bien”. Las formas más comunes:</p>
+<ul>
+<li>
+<strong>Preprocesar antes de dividir</strong>: seleccionar variables, imputar, normalizar o elegir puntos de corte con <strong>todos</strong> los datos y luego validar.</li>
+<li>
+<strong>Mismo paciente en entrenamiento y prueba</strong> (varias visitas por paciente en la misma base).</li>
+<li>
+<strong>Un predictor que “sabe” el desenlace</strong>: una variable medida después del evento, o parte de la definición del desenlace.</li>
+</ul>
+<p>Lo vemos con el ejemplo clásico (descrito en el libro de Hastie, Tibshirani y Friedman, <em>The Elements of Statistical Learning</em>): <strong>100 pacientes, 1 000 variables de puro ruido y un desenlace aleatorio</strong> (que no depende de nada). Ningún modelo debería lograr un AUC mejor que 0.5. Probamos dos formas de validar con 5 pliegues: elegir las 10 variables más asociadas con el desenlace <strong>con todos los datos</strong> (trampa) o <strong>dentro de cada pliegue, solo con el entrenamiento</strong> (correcta).</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html">library</a></span><span class="op">(</span><span class="va"><a href="https://xrobin.github.io/pROC/">pROC</a></span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/Random.html">set.seed</a></span><span class="op">(</span><span class="fl">2024</span><span class="op">)</span></span>
+<span><span class="va">n</span> <span class="op">&lt;-</span> <span class="fl">100</span>; <span class="va">p</span> <span class="op">&lt;-</span> <span class="fl">1000</span></span>
+<span><span class="va">X</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/matrix.html">matrix</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html">rnorm</a></span><span class="op">(</span><span class="va">n</span> <span class="op">*</span> <span class="va">p</span><span class="op">)</span>, <span class="va">n</span>, <span class="va">p</span><span class="op">)</span></span>
+<span><span class="va">y</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/Binomial.html">rbinom</a></span><span class="op">(</span><span class="va">n</span>, <span class="fl">1</span>, <span class="fl">0.5</span><span class="op">)</span>                                    <span class="co"># el desenlace no depende de ninguna variable</span></span>
+<span></span>
+<span><span class="va">mejores</span> <span class="op">&lt;-</span> \<span class="op">(</span><span class="va">X</span>, <span class="va">y</span>, <span class="va">k</span> <span class="op">=</span> <span class="fl">10</span><span class="op">)</span> <span class="fu"><a href="https://rdrr.io/r/base/order.html">order</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/MathFun.html">abs</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/stats/cor.html">cor</a></span><span class="op">(</span><span class="va">X</span>, <span class="va">y</span><span class="op">)</span><span class="op">)</span>, decreasing <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span><span class="op">[</span><span class="fl">1</span><span class="op">:</span><span class="va">k</span><span class="op">]</span>   <span class="co"># las k más asociadas con y</span></span>
+<span></span>
+<span><span class="va">auc_cv</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">X</span>, <span class="va">y</span>, <span class="va">honesto</span>, <span class="va">K</span> <span class="op">=</span> <span class="fl">5</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="va">pliegue</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/sample.html">sample</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/rep.html">rep</a></span><span class="op">(</span><span class="fl">1</span><span class="op">:</span><span class="va">K</span>, length.out <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/nrow.html">nrow</a></span><span class="op">(</span><span class="va">X</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span>
+<span>  <span class="va">pred</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/numeric.html">numeric</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/nrow.html">nrow</a></span><span class="op">(</span><span class="va">X</span><span class="op">)</span><span class="op">)</span></span>
+<span>  <span class="va">vars_trampa</span> <span class="op">&lt;-</span> <span class="fu">mejores</span><span class="op">(</span><span class="va">X</span>, <span class="va">y</span><span class="op">)</span>                            <span class="co"># TRAMPA: elegidas con TODOS los datos</span></span>
+<span>  <span class="kw">for</span> <span class="op">(</span><span class="va">f</span> <span class="kw">in</span> <span class="fl">1</span><span class="op">:</span><span class="va">K</span><span class="op">)</span> <span class="op">{</span></span>
+<span>    <span class="va">entrena</span> <span class="op">&lt;-</span> <span class="va">pliegue</span> <span class="op">!=</span> <span class="va">f</span></span>
+<span>    <span class="va">vars</span> <span class="op">&lt;-</span> <span class="kw">if</span> <span class="op">(</span><span class="va">honesto</span><span class="op">)</span> <span class="fu">mejores</span><span class="op">(</span><span class="va">X</span><span class="op">[</span><span class="va">entrena</span>, <span class="op">]</span>, <span class="va">y</span><span class="op">[</span><span class="va">entrena</span><span class="op">]</span><span class="op">)</span> <span class="kw">else</span> <span class="va">vars_trampa</span>   <span class="co"># CORRECTO: solo con el entrenamiento</span></span>
+<span>    <span class="va">m</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/warning.html">suppressWarnings</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/stats/glm.html">glm</a></span><span class="op">(</span><span class="va">y</span> <span class="op">~</span> <span class="va">.</span>, <span class="va">binomial</span>, <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html">data.frame</a></span><span class="op">(</span>y <span class="op">=</span> <span class="va">y</span><span class="op">[</span><span class="va">entrena</span><span class="op">]</span>, <span class="va">X</span><span class="op">[</span><span class="va">entrena</span>, <span class="va">vars</span><span class="op">]</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span>
+<span>    <span class="va">pred</span><span class="op">[</span><span class="op">!</span><span class="va">entrena</span><span class="op">]</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/stats/predict.html">predict</a></span><span class="op">(</span><span class="va">m</span>, <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html">data.frame</a></span><span class="op">(</span><span class="va">X</span><span class="op">[</span><span class="op">!</span><span class="va">entrena</span>, <span class="va">vars</span><span class="op">]</span><span class="op">)</span>, type <span class="op">=</span> <span class="st">"response"</span><span class="op">)</span></span>
+<span>  <span class="op">}</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/numeric.html">as.numeric</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/pROC/man/auc.html">auc</a></span><span class="op">(</span><span class="va">y</span>, <span class="va">pred</span>, quiet <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="op">}</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/Random.html">set.seed</a></span><span class="op">(</span><span class="fl">1</span><span class="op">)</span></span>
+<span><span class="va">auc_fuga</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span>trampa <span class="op">=</span> <span class="fu">auc_cv</span><span class="op">(</span><span class="va">X</span>, <span class="va">y</span>, honesto <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span>, correcto <span class="op">=</span> <span class="fu">auc_cv</span><span class="op">(</span><span class="va">X</span>, <span class="va">y</span>, honesto <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/Round.html">round</a></span><span class="op">(</span><span class="va">auc_fuga</span>, <span class="fl">2</span><span class="op">)</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>  trampa correcto 
+    0.88     0.53 </code></pre>
+</div>
+</div>
+<p><strong>Qué vemos.</strong> Con la selección hecha <strong>fuera</strong> del ciclo de validación, el modelo parece tener un AUC de <strong>0.88</strong> sobre un desenlace puramente aleatorio. Haciendo la selección <strong>dentro</strong> de cada pliegue, el AUC cae a 0.53, que es lo que corresponde (alrededor de 0.5, el azar). La regla: <strong>cualquier paso que use el desenlace</strong> (selección de variables, ajuste de hiperparámetros, elección de puntos de corte) debe repetirse <strong>dentro</strong> de cada pliegue o remuestra. Por eso en <code><a href="https://rdrr.io/pkg/rms/man/validate.html">rms::validate()</a></code> la opción <code>bw = TRUE</code> repite también la selección por pasos dentro del <em>bootstrap</em>; y por eso preprocesar antes de dividir es un error.</p>
+<div class="callout callout-style-default callout-tip callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>💡 Con el paquete {riskRegression}: validación por remuestreo con riesgos competitivos
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p><code><a href="https://rdrr.io/pkg/riskRegression/man/Score.html">Score()</a></code> puede estimar AUC y Brier con riesgos competitivos y validación por <em>bootstrap</em> (<code>split.method = "bootcv"</code>: ajusta el modelo en cada remuestra y lo evalúa en los pacientes que <strong>no</strong> entraron en ella). Sirve para el modelo de falla renal con la muerte como competidora (<code><a href="https://rdrr.io/pkg/riskRegression/man/CSC.html">CSC()</a></code>, 17.2).</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/tagteam/riskRegression">riskRegression</a></span><span class="op">)</span></span>
+<span><span class="va">csc</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/riskRegression/man/CSC.html">CSC</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/list.html">list</a></span><span class="op">(</span><span class="fu">Hist</span><span class="op">(</span><span class="va">tiempo_meses</span>, <span class="va">estado</span><span class="op">)</span> <span class="op">~</span> <span class="va">edad</span> <span class="op">+</span> <span class="va">sexo</span> <span class="op">+</span> <span class="va">tfg</span> <span class="op">+</span> <span class="va">lu</span> <span class="op">+</span> <span class="va">albumina</span> <span class="op">+</span> <span class="va">fosforo</span> <span class="op">+</span> <span class="va">bicarbonato</span> <span class="op">+</span> <span class="va">dm</span>,</span>
+<span>                <span class="fu">Hist</span><span class="op">(</span><span class="va">tiempo_meses</span>, <span class="va">estado</span><span class="op">)</span> <span class="op">~</span> <span class="va">edad</span> <span class="op">+</span> <span class="va">sexo</span> <span class="op">+</span> <span class="va">tfg</span> <span class="op">+</span> <span class="va">dm</span> <span class="op">+</span> <span class="va">ecv</span> <span class="op">+</span> <span class="va">albumina</span><span class="op">)</span>, data <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/as.data.frame.html">as.data.frame</a></span><span class="op">(</span><span class="va">dev</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/Random.html">set.seed</a></span><span class="op">(</span><span class="fl">5</span><span class="op">)</span></span>
+<span><span class="va">sc_boot</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/riskRegression/man/Score.html">Score</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/list.html">list</a></span><span class="op">(</span>CSC <span class="op">=</span> <span class="va">csc</span><span class="op">)</span>, formula <span class="op">=</span> <span class="fu">Hist</span><span class="op">(</span><span class="va">tiempo_meses</span>, <span class="va">estado</span><span class="op">)</span> <span class="op">~</span> <span class="fl">1</span>, data <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/as.data.frame.html">as.data.frame</a></span><span class="op">(</span><span class="va">dev</span><span class="op">)</span>,</span>
+<span>                 times <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span><span class="fl">24</span>, <span class="fl">48</span><span class="op">)</span>, cause <span class="op">=</span> <span class="fl">1</span>, metrics <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span><span class="st">"AUC"</span>, <span class="st">"Brier"</span><span class="op">)</span>, null.model <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>                 split.method <span class="op">=</span> <span class="st">"bootcv"</span>, B <span class="op">=</span> <span class="fl">30</span>, progress.bar <span class="op">=</span> <span class="cn">NULL</span>, summary <span class="op">=</span> <span class="st">"ipa"</span><span class="op">)</span></span>
+<span><span class="va">sc_boot</span><span class="op">$</span><span class="va">AUC</span><span class="op">$</span><span class="va">score</span><span class="op">[</span>, <span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span><span class="st">"times"</span>, <span class="st">"AUC"</span>, <span class="st">"lower"</span>, <span class="st">"upper"</span><span class="op">)</span><span class="op">]</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>   times       AUC     lower     upper
+1:    24 0.8344716 0.8066767 0.8575725
+2:    48 0.8149465 0.7880082 0.8457130</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="downlit sourceCode r code-with-copy"><code class="sourceCode R"><span><span class="va">sc_boot</span><span class="op">$</span><span class="va">Brier</span><span class="op">$</span><span class="va">score</span><span class="op">[</span>, <span class="fu"><a href="https://rdrr.io/r/base/c.html">c</a></span><span class="op">(</span><span class="st">"model"</span>, <span class="st">"times"</span>, <span class="st">"Brier"</span>, <span class="st">"IPA"</span><span class="op">)</span><span class="op">]</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>        model times     Brier       IPA
+1: Null model    24 0.1724953 0.0000000
+2: Null model    48 0.2080965 0.0000000
+3:        CSC    24 0.1255433 0.2721927
+4:        CSC    48 0.1501981 0.2782284</code></pre>
+</div>
+</div>
+<p>El AUC por <em>bootstrap</em> es prácticamente igual al aparente de 17.3: otra vez, con tantos eventos por parámetro, el optimismo es pequeño.</p>
+</div>
+</div>
+<div class="callout callout-style-default callout-important callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Importante</span>🎯 En resumen
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ul>
+<li>El rendimiento <strong>aparente</strong> (en los mismos datos del modelo) es <strong>optimista</strong>; la diferencia con el real es el <strong>optimismo</strong>.</li>
+<li>El <strong><em>bootstrap</em></strong> de Harrell (<code><a href="https://rdrr.io/pkg/rms/man/validate.html">rms::validate</a></code>) lo estima <strong>repitiendo todo el proceso de modelado</strong> en remuestras y corrige C, pendiente y <span class="math inline">\(R^2\)</span>; <code><a href="https://rdrr.io/pkg/rms/man/calibrate.html">rms::calibrate</a></code> hace lo mismo con la calibración.</li>
+<li>Con pocos eventos por parámetro el optimismo es grande y la pendiente corregida cae por debajo de 1; con muchos, desaparece.</li>
+<li>
+<strong>No dividas</strong> entrenamiento y prueba al desarrollar con pocos datos: pierdes datos y el resultado cambia mucho según el azar de la división.</li>
+<li>La <strong>fuga de información</strong> (preprocesar o seleccionar variables antes de validar) puede convertir ruido puro en un AUC de 0.88: todo paso que use el desenlace debe ir <strong>dentro</strong> de la validación.</li>
+</ul>
+</div>
+</div>
+</section><section id="ejercicio" class="level2"><h2 class="anchored" data-anchor-id="ejercicio">Ejercicio</h2>
+<ol type="1">
+<li>Repite <code>comparar_validaciones()</code> con <code>n = 1200</code> (en lugar de 400) y 15 repeticiones. ¿Qué pasa con el sesgo del aparente y con la variabilidad de la división 70/30?</li>
+<li>En el paso 6, cambia <code>k = 10</code> variables seleccionadas por <code>k = 2</code>. ¿La fuga de información es igual de grave? ¿Y con 5 000 variables en lugar de 1 000?</li>
+<li>Ajusta con <code><a href="https://rdrr.io/pkg/rms/man/cph.html">cph()</a></code> el modelo con las 9 variables clínicas (sin ruido) en la cohorte completa y compara su <code>Slope</code> corregido con el del modelo de 8 de 17.2. ¿Mejora la calibración al añadir la ECV?</li>
+</ol>
+
+
+</section></main><!-- /main --><script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copiado");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copiado");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script><nav class="page-navigation"><div class="nav-page nav-page-previous">
+      <a href="../capitulos/Capítulo17.3.html" class="pagination-link" aria-label="¿Qué tan bueno es mi modelo? Discriminación, calibración, Brier y R²">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-title">¿Qué tan bueno es mi modelo? Discriminación, calibración, Brier y R²</span></span>
+      </a>          
+  </div>
+  <div class="nav-page nav-page-next">
+      <a href="../capitulos/Capítulo17.5.html" class="pagination-link" aria-label="Validación externa y recalibración: ¿funciona mi modelo en otro hospital?">
+        <span class="nav-page-text"><span class="chapter-title">Validación externa y recalibración: ¿funciona mi modelo en otro hospital?</span></span> <i class="bi bi-arrow-right-short"></i>
+      </a>
+  </div>
+</nav>
+</div> <!-- /content -->
+<footer class="footer"><div class="nav-footer">
+    <div class="nav-footer-left">
+<p>This book was built with 💕 and <a href="https://quarto.org/">Quarto</a>.</p>
+</div>   
+    <div class="nav-footer-center">
+      &nbsp;
+    </div>
+    <div class="nav-footer-right">
+<p>DataLab for causal inference</p>
+</div>
+  </div>
+</footer>
+
+
+</body></html>

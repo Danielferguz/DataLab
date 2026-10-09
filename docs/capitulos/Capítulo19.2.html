@@ -1,0 +1,1881 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="es" xml:lang="es"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.10.18">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Daniel Fernandez">
+
+<title>Modelos estructurales marginales: ponderar para romper el bucle – DataLab for causal inference</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<link href="../capitulos/Capítulo19.3.html" rel="next">
+<link href="../capitulos/Capítulo19.1.html" rel="prev">
+<link href="../cover.png" rel="icon" type="image/png">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-64a204ab8560d761af7679ceaba22944.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-7aae4c44033a76e9a4abd926a4c61ba3.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No se han encontrado resultados",
+    "search-matching-documents-text": "documentos encontrados",
+    "search-copy-link-title": "Copiar el enlace en la búsqueda",
+    "search-hide-matches-text": "Ocultar resultados adicionales",
+    "search-more-match-text": "resultado adicional en este documento",
+    "search-more-matches-text": "resultados adicionales en este documento",
+    "search-clear-button-title": "Borrar",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancelar",
+    "search-submit-button-title": "Enviar",
+    "search-label": "Buscar"
+  }
+}</script>
+<script>
+  if (window.location.hostname === "danielferguz.github.io") {
+    window.location.replace("https://datalabperu.cloudflareaccess.com/");
+  }
+</script>
+
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script defer="" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+<link rel="stylesheet" href="../css/libro.css">
+</head>
+
+<body class="nav-sidebar floating quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Alternar barra lateral" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../capitulos/Capítulo19.html">Capítulo 19: Tratamientos que cambian en el tiempo y diseños cuasi-experimentales</a></li><li class="breadcrumb-item"><a href="../capitulos/Capítulo19.2.html"><span class="chapter-title">Modelos estructurales marginales: ponderar para romper el bucle</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Alternar barra lateral" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+      <button type="button" class="btn quarto-search-button" aria-label="Buscar" onclick="window.quartoOpenSearch();">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
+    <div class="pt-lg-2 mt-2 text-left sidebar-header">
+    <div class="sidebar-title mb-0 py-0">
+      <a href="../">DataLab for causal inference</a> 
+        <div class="sidebar-tools-main">
+  <a href="" class="quarto-reader-toggle quarto-navigation-tool px-1" onclick="window.quartoToggleReader(); return false;" title="Alternar modo lector">
+  <div class="quarto-reader-toggle-btn">
+  <i class="bi"></i>
+  </div>
+</a>
+</div>
+    </div>
+      </div>
+        <div class="mt-2 flex-shrink-0 align-items-center">
+        <div class="sidebar-search">
+        <div id="quarto-search" class="" title="Buscar"></div>
+        </div>
+        </div>
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Prefacio</span></a>
+  </div>
+</li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/intro.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Introducción</span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo1.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 1: Pregunta de investigación</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tipos de estudio: ¿generan datos nuevos o resumen lo que ya existe?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diseños de investigación: qué responde cada uno</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tareas científicas: describir, predecir o explicar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tareas descriptivas: contar bien y no prometer causas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tareas predictivas: anticipar, no explicar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tareas explicativas: la pregunta causal</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo2.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 2: Medidas en epidemiología</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo2.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Medidas de frecuencia: ¿cuántos tienen, cuántos se enferman y a qué velocidad?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo2.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Medidas de asociación: ¿cuántas veces más (o menos) frecuente?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo2.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Medidas de impacto: ¿a cuántos pacientes beneficia?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo2.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Entonces, ¿qué es “una asociación”? Describir, explicar o predecir</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo3.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 3: Casualidad vs. causalidad</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ensayos aleatorizados: por qué el azar permite hablar de causas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Resultados potenciales y estimandos: ¿qué es un efecto causal?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diagramas causales (DAG): qué ajustar y qué no</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">El análisis causal completo, paso a paso</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Simulaciones de DAG: ¿qué pasa si ajusto por…?</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo4.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 4: R y Quarto para el clínico</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Primeros pasos: instalar R y orientarte en RStudio</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Objetos, funciones y paquetes: tus primeras líneas de código</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo importar datos y revisar lo que llegó</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Quarto: tu análisis como un informe reproducible</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Errores, avisos y cómo pedir ayuda</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo5.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 5: Limpieza y manejo de datos</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-5" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Datos ordenados: la forma que R espera</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Manipular datos con <code>dplyr</code> y unificar categorías</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Fechas y tiempos</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Variables nefrológicas: unidades, TFGe y categorías KDIGO</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Control de calidad: duplicados, faltantes disfrazados y valores imposibles</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Unir tablas y construir la base final</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo6.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 6: Muestreo</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-6" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Población, marco y muestra</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diseños de muestreo: simple, estratificado y por conglomerados</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Muestras complejas con <code>survey</code>: del diseño al análisis</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de selección y no respuesta</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Caso integrado: prevalencia de ERC en la región y tamaño de muestra</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo7.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 7: Análisis descriptivo</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-7" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Cómo son mis pacientes? Variables y su distribución</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">La Tabla 1: ¿quiénes son y son comparables?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Gráficos que comunican</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Intervalos de confianza y <em>bootstrap</em></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Estandarización por edad: comparar tasas con justicia</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo8.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 8: Asociación y regresión</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-8" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Dos variables: pruebas de hipótesis y correlación</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Regresión lineal: cuánto cambia el desenlace, en promedio</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Regresión logística y de Poisson: del OR al RR</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Interacción y modificación del efecto: ¿a quién beneficia más?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Supuestos, diagnóstico y no linealidad: ¿puedo creer mi modelo?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo reportar una regresión (y la <em>Table 2 fallacy</em>)</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Regresión ordinal, multinomial y binomial negativa</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo9.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 9: Análisis de supervivencia</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-9" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-9" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tiempo hasta evento y censura</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Kaplan-Meier y log-rank</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Regresión de Cox</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Riesgos proporcionales: cómo verificar y qué hacer</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Riesgos competitivos</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Supervivencia media restringida (RMST)</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo10.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 10: ¡¡¡No todo es confusión!!!</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-10" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-10" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de selección y colisionadores</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de tiempo inmortal</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de información y error de medición</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Causalidad inversa y sesgo de indicación</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de supervivencia y de pérdidas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo cuantificar un sesgo</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo11.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 11: Análisis inferencial en ensayos aleatorizados</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-11" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-11" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diseño del análisis: preespecificar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Comparación de dos grupos: intención de tratar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">ANCOVA: ajustar por el valor basal</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Mediciones repetidas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Subgrupos y heterogeneidad</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">No adherencia: por protocolo, <em>as-treated</em> y CACE</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Desenlaces compuestos y <em>win ratio</em></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo12.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 12: Análisis inferencial en estudios observacionales</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-12" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-12" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Primero el protocolo: emular un ensayo objetivo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ajustar “a la antigua”: estratificación y regresión</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Qué es el puntaje de propensión? Buscar al “gemelo clínico”</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Emparejamiento: formar parejas de pacientes comparables</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ponderación (IPW): dar más voz a los pacientes “raros”</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Fórmula g y estimadores doblemente robustos: predecir y promediar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Supervivencia: curvas ponderadas y riesgos a un tiempo fijo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.8.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Y si me falta algo? Análisis de sensibilidad</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.9.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diseñar para reducir la confusión: comparador activo y nuevo usuario</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.10.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Puntaje de propensión con encuestas, datos faltantes y más de dos tratamientos</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.11.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Aprendizaje automático y TMLE: modelos flexibles sin perder la inferencia</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo13.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 13: Datos faltantes</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-13" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-13" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Por qué faltan los datos? Los mecanismos MCAR, MAR y MNAR</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Mirar antes de imputar: ¿qué falta y en quiénes?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Casos completos: la opción por defecto (y cuándo es peligrosa)</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Imputación múltiple con <code>mice</code>: paso a paso</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Imputación en análisis causales y de supervivencia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Y si los que faltan son distintos? Sensibilidad a MNAR</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo14.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 14: Datos longitudinales y multinivel</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-14" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-14" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Por qué la independencia no se cumple?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Efectos aleatorios: pacientes dentro de unidades de diálisis</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Pendiente de TFGe con modelos mixtos</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">GEE vs.&nbsp;modelos mixtos: ¿cuál elegir?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ensayos por conglomerados e ICC</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Trayectorias y modelos conjuntos (<em>joint models</em>): visión general</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo15.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 15: Series de tiempo (y una mirada a los datos geoespaciales)</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-15" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-15" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Componentes de una serie de tiempo: tendencia, estacionalidad y ruido</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Modelos para conteos: tendencia, estacionalidad y población</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Serie temporal interrumpida: ¿cambió algo cuando empezó el programa?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Autocorrelación y estacionalidad: errores HAC y modelos ARIMA</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Series con grupo control: diferencias en diferencias y ITS controlada</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Datos geoespaciales: mapas, autocorrelación espacial y suavizado</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo16.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 16: Análisis predictivos: diagnóstico</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-16" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-16" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sensibilidad, especificidad, VPP y VPN: lo que la prevalencia cambia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">La curva ROC y el AUC: juzgar una prueba continua sin elegir un corte</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">El punto de corte: no hay uno “correcto”, hay uno que sirve para algo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Un modelo diagnóstico multivariable: ¿qué añade el biomarcador?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Calibración: cuando el modelo dice “30 %”, ¿de verdad es 30 %?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Curvas de decisión: ¿el modelo ayuda a decidir mejor?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de espectro, de verificación y <em>spin</em>: cuándo no creerle a un estudio diagnóstico</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo17.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 17: Análisis predictivos: pronóstico</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-17" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-17" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Cuántos pacientes necesito para construir un modelo de predicción?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo desarrollar un modelo de pronóstico tipo KFRE</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Qué tan bueno es mi modelo? Discriminación, calibración, Brier y R²</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Validación interna: cuánto optimismo hay en mi modelo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Validación externa y recalibración: ¿funciona mi modelo en otro hospital?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Aporta el aprendizaje automático? LASSO, bosques y <em>boosting</em> frente a la regresión</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo reportar y evaluar un modelo: TRIPOD+AI y PROBAST</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo18.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 18: Análisis de mediación</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-18" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-18" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Efecto total, directo e indirecto: ¿por dónde actúa el fármaco?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Método de productos y de diferencias: dos regresiones y un bootstrap</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Los supuestos: las cuatro ausencias de confusión</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Mediación con interacción y desenlaces binarios o de supervivencia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Interpretación clínica: ¿la albuminuria media el efecto del iSGLT2?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Mediación moderada: ¿el camino indirecto es igual para todos?</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo19.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 19: Tratamientos que cambian en el tiempo y diseños cuasi-experimentales</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-19" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-19" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Confusión dependiente del tiempo: EPO y hemoglobina en hemodiálisis</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.2.html" class="sidebar-item-text sidebar-link active"><span class="chapter-title">Modelos estructurales marginales: ponderar para romper el bucle</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Fórmula g paramétrica y estimación g: simular el mundo bajo cada estrategia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Variables instrumentales: la preferencia del nefrólogo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diferencias en diferencias y regresión discontinua</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Heterogeneidad del efecto: ¿a quién beneficia más?</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo20.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 20: Cálculo del tamaño de muestra</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-20" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-20" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">La lógica del tamaño de muestra: efecto, variabilidad, error y potencia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tamaño de muestra para diferencias de medias y de proporciones</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tamaño de muestra para tiempo hasta un evento: eventos y pacientes</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ensayos por conglomerados: efecto de diseño y número de unidades</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">La simulación como herramienta de potencia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tamaño de muestra por precisión: prevalencias, medias y pruebas diagnósticas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Pérdidas, análisis interinos y cómo reportar el tamaño de muestra</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-21" role="navigation" aria-expanded="true">
+ <span class="menu-text">Apéndices</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-21" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-21" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Apéndice-resumen.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Apéndice: cuadros de resumen y plantillas</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">En esta página</h2>
+   
+  <ul>
+  <li><a href="#lo-que-vamos-a-hacer" id="toc-lo-que-vamos-a-hacer" class="nav-link active" data-scroll-target="#lo-que-vamos-a-hacer">Lo que vamos a hacer</a></li>
+  <li><a href="#paso-1.-la-idea-una-pseudo-población-sin-el-bucle" id="toc-paso-1.-la-idea-una-pseudo-población-sin-el-bucle" class="nav-link" data-scroll-target="#paso-1.-la-idea-una-pseudo-población-sin-el-bucle">Paso 1. La idea: una pseudo-población sin el bucle</a></li>
+  <li><a href="#paso-2.-los-modelos-del-numerador-y-del-denominador" id="toc-paso-2.-los-modelos-del-numerador-y-del-denominador" class="nav-link" data-scroll-target="#paso-2.-los-modelos-del-numerador-y-del-denominador">Paso 2. Los modelos del numerador y del denominador</a></li>
+  <li><a href="#paso-3.-un-peso-por-paciente-y-mes-y-su-producto" id="toc-paso-3.-un-peso-por-paciente-y-mes-y-su-producto" class="nav-link" data-scroll-target="#paso-3.-un-peso-por-paciente-y-mes-y-su-producto">Paso 3. Un peso por paciente y mes, y su producto</a></li>
+  <li><a href="#paso-4.-diagnóstico-de-los-pesos" id="toc-paso-4.-diagnóstico-de-los-pesos" class="nav-link" data-scroll-target="#paso-4.-diagnóstico-de-los-pesos">Paso 4. Diagnóstico de los pesos</a></li>
+  <li><a href="#paso-5.-el-msm-una-regresión-ponderada" id="toc-paso-5.-el-msm-una-regresión-ponderada" class="nav-link" data-scroll-target="#paso-5.-el-msm-una-regresión-ponderada">Paso 5. El MSM: una regresión ponderada</a></li>
+  <li><a href="#paso-6.-frente-a-la-regresión-ordinaria-y-a-la-verdad" id="toc-paso-6.-frente-a-la-regresión-ordinaria-y-a-la-verdad" class="nav-link" data-scroll-target="#paso-6.-frente-a-la-regresión-ordinaria-y-a-la-verdad">Paso 6. Frente a la regresión ordinaria y a la verdad</a></li>
+  <li><a href="#paso-7.-por-qué-estabilizar-los-pesos-un-experimento" id="toc-paso-7.-por-qué-estabilizar-los-pesos-un-experimento" class="nav-link" data-scroll-target="#paso-7.-por-qué-estabilizar-los-pesos-un-experimento">Paso 7. ¿Por qué estabilizar los pesos? Un experimento</a></li>
+  <li><a href="#paso-8.-cuando-la-intercambiabilidad-secuencial-se-rompe" id="toc-paso-8.-cuando-la-intercambiabilidad-secuencial-se-rompe" class="nav-link" data-scroll-target="#paso-8.-cuando-la-intercambiabilidad-secuencial-se-rompe">Paso 8. Cuando la intercambiabilidad secuencial se rompe</a></li>
+  <li><a href="#ejercicio" id="toc-ejercicio" class="nav-link" data-scroll-target="#ejercicio">Ejercicio</a></li>
+  <li><a href="#referencias" id="toc-referencias" class="nav-link" data-scroll-target="#referencias">Referencias</a></li>
+  </ul>
+</nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../capitulos/Capítulo19.html">Capítulo 19: Tratamientos que cambian en el tiempo y diseños cuasi-experimentales</a></li><li class="breadcrumb-item"><a href="../capitulos/Capítulo19.2.html"><span class="chapter-title">Modelos estructurales marginales: ponderar para romper el bucle</span></a></li></ol></nav>
+<div class="quarto-title">
+<h1 class="title"><span class="chapter-title">Modelos estructurales marginales: ponderar para romper el bucle</span></h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Nota</span>🩺 Escenario
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Seguimos con la cohorte de hemodiálisis de 19.1. Viste que ni la regresión sin Hb ni la regresión con Hb recuperan el efecto de seis meses de dosis alta de EPO. Imagina ahora que pudieras <strong>construir un registro en el que la Hb ya no influyera en la dosis</strong>, como si el nefrólogo hubiera asignado la dosis al azar cada mes. No necesitas un ensayo: <strong>ponderas</strong> a cada paciente para que el registro se parezca a ese ensayo. Eso es un <strong>modelo estructural marginal</strong> (MSM, <em>marginal structural model</em>).</p>
+</div>
+</div>
+<section id="lo-que-vamos-a-hacer" class="level2">
+<h2 class="anchored" data-anchor-id="lo-que-vamos-a-hacer">Lo que vamos a hacer</h2>
+<ul>
+<li>Calcular <strong>pesos estabilizados</strong> acumulados mes a mes (modelo del numerador y del denominador).</li>
+<li><strong>Diagnosticar</strong> los pesos: media, valores extremos, tamaño efectivo, truncamiento.</li>
+<li>Ajustar el MSM y calcular el error con <strong>errores robustos</strong> y con <strong><em>bootstrap</em> por paciente</strong>.</li>
+<li>Compararlo con la regresión ordinaria y con la <strong>verdad</strong>, y entender por qué se <strong>estabilizan</strong> los pesos.</li>
+</ul>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(tidyverse)</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(sandwich)</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(lmtest)</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"R/funciones_epi.R"</span>)</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"R/funciones_extra_a.R"</span>)        <span class="co"># num(), pct()</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"R/funciones_extra_cap1213.R"</span>)  <span class="co"># ess(), grafico_estimaciones()</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"R/simular_cap19_epo.R"</span>)</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"R/funciones_cap19.R"</span>)</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="fu">theme_set</span>(<span class="fu">theme_minimal</span>(<span class="at">base_size =</span> <span class="dv">12</span>) <span class="sc">+</span> <span class="fu">theme</span>(<span class="at">panel.grid.minor =</span> <span class="fu">element_blank</span>()))</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>hd   <span class="ot">&lt;-</span> <span class="fu">simular_hd_epo</span>(<span class="at">n =</span> <span class="dv">5000</span>, <span class="at">K =</span> <span class="dv">6</span>, <span class="at">semilla =</span> <span class="dv">2024</span>)    <span class="co"># la misma cohorte SIMULADA de 19.1</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>hd_l <span class="ot">&lt;-</span> <span class="fu">agregar_rezagos</span>(hd)                                <span class="co"># formato largo, con la dosis y la Hb del mes anterior</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>ancho <span class="ot">&lt;-</span> <span class="fu">a_ancho_hd</span>(hd)                                    <span class="co"># formato ancho, para la regresión ordinaria</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>efecto_verdad <span class="ot">&lt;-</span> <span class="fu">verdad_hd_epo</span>(<span class="at">n_mc =</span> <span class="dv">200000</span>) <span class="sc">|&gt;</span> <span class="fu">filter</span>(estrategia <span class="sc">==</span> <span class="st">"siempre"</span>) <span class="sc">|&gt;</span> <span class="fu">pull</span>(efecto_vs_nunca)   <span class="co"># verdad de 19.1: "siempre" frente a "nunca"</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</section>
+<section id="paso-1.-la-idea-una-pseudo-población-sin-el-bucle" class="level2">
+<h2 class="anchored" data-anchor-id="paso-1.-la-idea-una-pseudo-población-sin-el-bucle">Paso 1. La idea: una pseudo-población sin el bucle</h2>
+<p>El nefrólogo da dosis alta más a menudo a quien tiene Hb baja. Para deshacer ese sesgo, damos <strong>más peso a los pacientes cuya dosis fue “inesperada”</strong> (dosis estándar con Hb baja, dosis alta con Hb alta) y <strong>menos a los esperados</strong>. En esa <strong>pseudo-población</strong> la dosis de cada mes deja de depender de la Hb, pero se conserva el efecto de la dosis sobre la calidad de vida. Es el mismo principio del IPW de 3.2, aplicado a <strong>cada mes</strong> y multiplicado a lo largo del tiempo.</p>
+<p>El peso estabilizado de un paciente es el producto, mes a mes, de dos probabilidades de recibir <strong>la dosis que realmente recibió</strong>:</p>
+<p><span class="math display">\[
+sw_i = \prod_{t=1}^{6} \frac{P(A_t \mid \text{dosis previas, datos basales})}{P(A_t \mid \text{dosis previas, datos basales, } \mathbf{Hb \text{ hasta el mes } t})}
+\]</span></p>
+<ul>
+<li>El <strong>denominador</strong> es el que “ve” lo mismo que el nefrólogo: incluye la Hb. Es el que quita la confusión.</li>
+<li>El <strong>numerador</strong> no incluye la Hb. Solo sirve para <strong>estabilizar</strong>: mantiene los pesos cerca de 1 (lo vemos en el Paso 7).</li>
+</ul>
+</section>
+<section id="paso-2.-los-modelos-del-numerador-y-del-denominador" class="level2">
+<h2 class="anchored" data-anchor-id="paso-2.-los-modelos-del-numerador-y-del-denominador">Paso 2. Los modelos del numerador y del denominador</h2>
+<p>Son dos regresiones logísticas de la dosis del mes (alta = 1), ajustadas sobre <strong>todas</strong> las filas paciente-mes. Solo se diferencian en la Hb:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>f_den <span class="ot">&lt;-</span> dosis_alta <span class="sc">~</span> dosis_previa <span class="sc">+</span> hb <span class="sc">+</span> edad <span class="sc">+</span> dm <span class="sc">+</span> tiempo_hd <span class="sc">+</span> mes     <span class="co"># lo que miraba el nefrólogo</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>f_num <span class="ot">&lt;-</span> dosis_alta <span class="sc">~</span> dosis_previa <span class="sc">+</span> edad <span class="sc">+</span> dm <span class="sc">+</span> tiempo_hd <span class="sc">+</span> mes         <span class="co"># igual, sin la Hb</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>m_den <span class="ot">&lt;-</span> <span class="fu">glm</span>(f_den, <span class="at">data =</span> hd_l, <span class="at">family =</span> <span class="fu">binomial</span>())</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>m_num <span class="ot">&lt;-</span> <span class="fu">glm</span>(f_num, <span class="at">data =</span> hd_l, <span class="at">family =</span> <span class="fu">binomial</span>())</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="fu">round</span>(<span class="fu">exp</span>(<span class="fu">coef</span>(m_den)), <span class="dv">2</span>)        <span class="co"># odds ratio de recibir dosis alta</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code> (Intercept) dosis_previa           hb         edad           dm    tiempo_hd 
+      973.98         2.08         0.55         0.98         1.36         1.00 
+         mes 
+        1.00 </code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>or_hb <span class="ot">&lt;-</span> <span class="fu">unname</span>(<span class="fu">exp</span>(<span class="fu">coef</span>(m_den)[<span class="st">"hb"</span>]))</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>or_prev <span class="ot">&lt;-</span> <span class="fu">unname</span>(<span class="fu">exp</span>(<span class="fu">coef</span>(m_den)[<span class="st">"dosis_previa"</span>]))</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p><strong>Qué vemos:</strong> por cada <strong>1 g/dL más de Hb</strong>, los <em>odds</em> de recibir dosis alta se multiplican por 0.55 (la Hb baja empuja a subir la dosis), y haber recibido dosis alta el mes anterior los multiplica por 2.1 (la dosis tiende a mantenerse). Eso es justo la <strong>confusión que dependía del tiempo</strong>, ahora medida.</p>
+</section>
+<section id="paso-3.-un-peso-por-paciente-y-mes-y-su-producto" class="level2">
+<h2 class="anchored" data-anchor-id="paso-3.-un-peso-por-paciente-y-mes-y-su-producto">Paso 3. Un peso por paciente y mes, y su producto</h2>
+<p><code>pesos_msm()</code> (en <code>R/funciones_cap19.R</code>) calcula, para cada fila, la probabilidad de la dosis <strong>recibida</strong> con cada modelo y multiplica los cocientes a lo largo de los meses (<code>cumprod</code>). Mira al paciente 2, que recibió dosis alta con una Hb baja en el mes 1:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>hd_w <span class="ot">&lt;-</span> <span class="fu">pesos_msm</span>(hd_l, f_num, f_den)       <span class="co"># añade p_num, p_den, sw (estabilizado) y w_ns (sin estabilizar)</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>hd_w <span class="sc">|&gt;</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(id <span class="sc">==</span> <span class="dv">2</span>) <span class="sc">|&gt;</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">transmute</span>(mes, <span class="at">hb =</span> <span class="fu">round</span>(hb, <span class="dv">1</span>), dosis_alta, <span class="at">p_num =</span> <span class="fu">round</span>(p_num, <span class="dv">2</span>), <span class="at">p_den =</span> <span class="fu">round</span>(p_den, <span class="dv">2</span>),</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>            <span class="at">cociente =</span> <span class="fu">round</span>(p_num <span class="sc">/</span> p_den, <span class="dv">2</span>), <span class="at">sw =</span> <span class="fu">round</span>(sw, <span class="dv">2</span>))</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 6 × 7
+    mes    hb dosis_alta p_num p_den cociente    sw
+  &lt;int&gt; &lt;dbl&gt;      &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;    &lt;dbl&gt; &lt;dbl&gt;
+1     1  10.1          1  0.33  0.42     0.79  0.78
+2     2  11.6          1  0.38  0.39     0.97  0.76
+3     3  11.4          1  0.37  0.41     0.9   0.68
+4     4  10.7          1  0.36  0.5      0.72  0.48
+5     5  11.2          1  0.35  0.43     0.81  0.39
+6     6  12.5          0  0.66  0.74     0.89  0.35</code></pre>
+</div>
+</div>
+<p><strong>Qué vemos:</strong> <code>p_num</code> y <code>p_den</code> son la probabilidad de la dosis que <strong>sí</strong> recibió. Cuando <code>p_den</code> es menor que <code>p_num</code> (la dosis fue menos esperada de lo que sugiere la Hb), el cociente supera 1 y el paciente <strong>pesa más</strong>. El peso <code>sw</code> del mes 6 es el producto de los seis cocientes. En este paciente todos los cocientes son menores que 1 (sus dosis eran las esperadas según su Hb) y su peso final es bajo (0.35).</p>
+</section>
+<section id="paso-4.-diagnóstico-de-los-pesos" class="level2">
+<h2 class="anchored" data-anchor-id="paso-4.-diagnóstico-de-los-pesos">Paso 4. Diagnóstico de los pesos</h2>
+<p>Antes de usar los pesos hay que <strong>mirarlos</strong>. Resumimos el peso final de cada paciente (el del mes 6):</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>fin <span class="ot">&lt;-</span> <span class="fu">pesos_finales</span>(hd_w)                  <span class="co"># una fila por paciente: dosis acumulada, peso final, covariables y desenlace</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>diag_pesos <span class="ot">&lt;-</span> <span class="fu">tibble</span>(</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">peso =</span> <span class="fu">c</span>(<span class="st">"Estabilizado"</span>, <span class="st">"Sin estabilizar"</span>),</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">media =</span> <span class="fu">c</span>(<span class="fu">mean</span>(fin<span class="sc">$</span>sw), <span class="fu">mean</span>(fin<span class="sc">$</span>w_ns)),</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">minimo =</span> <span class="fu">c</span>(<span class="fu">min</span>(fin<span class="sc">$</span>sw), <span class="fu">min</span>(fin<span class="sc">$</span>w_ns)),</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">p99 =</span> <span class="fu">c</span>(<span class="fu">quantile</span>(fin<span class="sc">$</span>sw, <span class="fl">0.99</span>), <span class="fu">quantile</span>(fin<span class="sc">$</span>w_ns, <span class="fl">0.99</span>)),</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">maximo =</span> <span class="fu">c</span>(<span class="fu">max</span>(fin<span class="sc">$</span>sw), <span class="fu">max</span>(fin<span class="sc">$</span>w_ns)),</span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">tam_efectivo =</span> <span class="fu">c</span>(<span class="fu">ess</span>(fin<span class="sc">$</span>sw), <span class="fu">ess</span>(fin<span class="sc">$</span>w_ns))       <span class="co"># cuántos pacientes "valen" tras ponderar</span></span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>diag_pesos <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="fu">across</span>(<span class="fu">where</span>(is.numeric), \(x) <span class="fu">round</span>(x, <span class="dv">2</span>)))</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 2 × 6
+  peso            media minimo    p99 maximo tam_efectivo
+  &lt;chr&gt;           &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;        &lt;dbl&gt;
+1 Estabilizado      1     0.13   3.21   20.3        3521.
+2 Sin estabilizar  65.4   2.54 348.   6410.         1096.</code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(fin, <span class="fu">aes</span>(sw)) <span class="sc">+</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_histogram</span>(<span class="at">bins =</span> <span class="dv">50</span>, <span class="at">fill =</span> <span class="st">"#0072B2"</span>, <span class="at">color =</span> <span class="st">"white"</span>) <span class="sc">+</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_vline</span>(<span class="at">xintercept =</span> <span class="dv">1</span>, <span class="at">linetype =</span> <span class="st">"dashed"</span>) <span class="sc">+</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_x_log10</span>(<span class="at">breaks =</span> <span class="fu">c</span>(<span class="fl">0.1</span>, <span class="fl">0.3</span>, <span class="dv">1</span>, <span class="dv">3</span>, <span class="dv">10</span>, <span class="dv">30</span>)) <span class="sc">+</span></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"Peso estabilizado final (escala log)"</span>, <span class="at">y =</span> <span class="st">"Pacientes"</span>)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="Capítulo19.2_files/figure-html/c192-fig-pesos-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>Distribución del peso estabilizado final (escala logarítmica). Línea punteada: peso 1. Datos simulados.</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p><strong>Qué vemos:</strong> el peso estabilizado tiene <strong>media 0.996</strong> (debe ser cercana a 1: si no, algún modelo está mal) y va de 0.13 a 20.3. El tamaño efectivo es 3 521 de 5 000 pacientes: ponderar nos cuesta información, pero no la destruye. Sin estabilizar, el peso medio es <strong>65.5</strong> y el máximo, 6 410: pocos pacientes dominarían el análisis (tamaño efectivo de solo 1 096).</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>hd_w <span class="sc">|&gt;</span> <span class="fu">group_by</span>(mes) <span class="sc">|&gt;</span> <span class="fu">summarise</span>(<span class="at">media =</span> <span class="fu">mean</span>(sw), <span class="at">de =</span> <span class="fu">sd</span>(sw), <span class="at">maximo =</span> <span class="fu">max</span>(sw)) <span class="sc">|&gt;</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="fu">across</span>(<span class="fu">where</span>(is.numeric), \(x) <span class="fu">round</span>(x, <span class="dv">2</span>)))</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 6 × 4
+    mes media    de maximo
+  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt;
+1     1     1  0.28   2.93
+2     2     1  0.36   5.44
+3     3     1  0.47  10.0 
+4     4     1  0.5    8.29
+5     5     1  0.54  10.5 
+6     6     1  0.65  20.3 </code></pre>
+</div>
+</div>
+<p>La dispersión <strong>crece cada mes</strong> porque se multiplican más factores. Con seguimientos largos (2 o 3 años mensuales) los pesos se vuelven difíciles de manejar.</p>
+</section>
+<section id="paso-5.-el-msm-una-regresión-ponderada" class="level2">
+<h2 class="anchored" data-anchor-id="paso-5.-el-msm-una-regresión-ponderada">Paso 5. El MSM: una regresión ponderada</h2>
+<p>El modelo estructural es muy simple: la calidad de vida <strong>media</strong> que tendría toda la población según los meses de dosis alta. Se ajusta con una regresión lineal <strong>ponderada</strong> por <code>sw</code>. Como la comparación ya está “limpia”, <strong>no</strong> se incluye la Hb. Se incluyen las covariables basales porque están en el numerador:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>msm <span class="ot">&lt;-</span> <span class="fu">ajustar_msm</span>(fin, <span class="at">peso =</span> <span class="st">"sw"</span>)           <span class="co"># calidad_vida ~ dosis_acum + edad + dm + tiempo_hd, con pesos sw</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="fu">coeftest</span>(msm, <span class="at">vcov =</span> <span class="fu">vcovHC</span>(msm, <span class="at">type =</span> <span class="st">"HC1"</span>))[<span class="st">"dosis_acum"</span>, ] <span class="sc">|&gt;</span> <span class="fu">round</span>(<span class="dv">3</span>)   <span class="co"># errores robustos (sandwich)</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>  Estimate Std. Error    t value   Pr(&gt;|t|) 
+     0.718      0.141      5.103      0.000 </code></pre>
+</div>
+</div>
+<p>El coeficiente de <code>dosis_acum</code> es el efecto de <strong>un mes más</strong> de dosis alta. Multiplicado por 6, el de seis meses de dosis alta frente a ninguno. Los <strong>errores robustos</strong> (<code>sandwich</code>) son necesarios porque con pesos el error del <code>lm</code> común no es válido. Pero no incorporan que los pesos se <strong>estimaron</strong>; por eso repetimos <strong>todo</strong> (modelos de los pesos y MSM) en 200 remuestras de <strong>pacientes</strong> (<em>bootstrap</em>), manteniendo juntas todas las filas de cada paciente:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>est_msm <span class="ot">&lt;-</span> <span class="fu">efecto_msm</span>(hd_l, f_num, f_den)                                       <span class="co"># estimación puntual (x 6)</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>ic_boot <span class="ot">&lt;-</span> <span class="fu">bootstrap_pacientes</span>(hd_l, \(x) <span class="fu">efecto_msm</span>(x, f_num, f_den), <span class="at">B =</span> <span class="dv">200</span>, <span class="at">semilla =</span> <span class="dv">192</span>)</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>rb <span class="ot">&lt;-</span> <span class="fu">coeftest</span>(msm, <span class="at">vcov =</span> <span class="fu">vcovHC</span>(msm, <span class="at">type =</span> <span class="st">"HC1"</span>))[<span class="st">"dosis_acum"</span>, ]</span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a><span class="fu">c</span>(<span class="at">estimado =</span> est_msm, <span class="at">ee_robusto =</span> <span class="dv">6</span> <span class="sc">*</span> <span class="fu">unname</span>(rb[<span class="st">"Std. Error"</span>]), <span class="at">ee_bootstrap =</span> <span class="fu">unname</span>(ic_boot[<span class="st">"ee"</span>]),</span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">ic_inf =</span> <span class="fu">unname</span>(ic_boot[<span class="st">"inf"</span>]), <span class="at">ic_sup =</span> <span class="fu">unname</span>(ic_boot[<span class="st">"sup"</span>])) <span class="sc">|&gt;</span> <span class="fu">round</span>(<span class="dv">2</span>)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>    estimado   ee_robusto ee_bootstrap       ic_inf       ic_sup 
+        4.31         0.84         0.82         2.67         5.88 </code></pre>
+</div>
+</div>
+<p><strong>Qué vemos:</strong> el MSM estima <strong>4.31</strong> puntos por seis meses de dosis alta (IC 95 % por <em>bootstrap</em>: 2.67 a 5.88), frente a la verdad de <strong>4.83</strong>. El intervalo contiene la verdad. El error estándar robusto (0.84) y el del <em>bootstrap</em> (0.82) son del mismo orden. En un artículo, usa al menos 1 000 remuestras (aquí 200 para que se ejecute rápido).</p>
+</section>
+<section id="paso-6.-frente-a-la-regresión-ordinaria-y-a-la-verdad" class="level2">
+<h2 class="anchored" data-anchor-id="paso-6.-frente-a-la-regresión-ordinaria-y-a-la-verdad">Paso 6. Frente a la regresión ordinaria y a la verdad</h2>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>efecto_6m <span class="ot">&lt;-</span> <span class="cf">function</span>(modelo, <span class="at">k =</span> <span class="dv">6</span>) {</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>  b <span class="ot">&lt;-</span> <span class="fu">coef</span>(<span class="fu">summary</span>(modelo))[<span class="st">"dosis_acum"</span>, ]</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tibble</span>(<span class="at">estimado =</span> <span class="fu">unname</span>(k <span class="sc">*</span> b[<span class="dv">1</span>]), <span class="at">ic_inf =</span> <span class="fu">unname</span>(k <span class="sc">*</span> (b[<span class="dv">1</span>] <span class="sc">-</span> <span class="fl">1.96</span> <span class="sc">*</span> b[<span class="dv">2</span>])), <span class="at">ic_sup =</span> <span class="fu">unname</span>(k <span class="sc">*</span> (b[<span class="dv">1</span>] <span class="sc">+</span> <span class="fl">1.96</span> <span class="sc">*</span> b[<span class="dv">2</span>])))</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>basal <span class="ot">&lt;-</span> <span class="st">"dosis_acum + edad + dm + tiempo_hd"</span></span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>hb_todas <span class="ot">&lt;-</span> <span class="fu">paste0</span>(<span class="st">"hb_"</span>, <span class="dv">1</span><span class="sc">:</span><span class="dv">6</span>, <span class="at">collapse =</span> <span class="st">" + "</span>)</span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a>comparacion <span class="ot">&lt;-</span> <span class="fu">bind_rows</span>(</span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">Regresión sin Hb</span><span class="st">`</span>        <span class="ot">=</span> <span class="fu">efecto_6m</span>(<span class="fu">lm</span>(<span class="fu">as.formula</span>(<span class="fu">paste</span>(<span class="st">"calidad_vida ~"</span>, basal)), ancho)),</span>
+<span id="cb16-10"><a href="#cb16-10" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">Regresión con la Hb</span><span class="st">`</span>     <span class="ot">=</span> <span class="fu">efecto_6m</span>(<span class="fu">lm</span>(<span class="fu">as.formula</span>(<span class="fu">paste</span>(<span class="st">"calidad_vida ~"</span>, basal, <span class="st">"+"</span>, hb_todas)), ancho)),</span>
+<span id="cb16-11"><a href="#cb16-11" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">MSM (pesos estabilizados)</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">tibble</span>(<span class="at">estimado =</span> est_msm, <span class="at">ic_inf =</span> <span class="fu">unname</span>(ic_boot[<span class="st">"inf"</span>]), <span class="at">ic_sup =</span> <span class="fu">unname</span>(ic_boot[<span class="st">"sup"</span>])),</span>
+<span id="cb16-12"><a href="#cb16-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">.id =</span> <span class="st">"metodo"</span>)</span>
+<span id="cb16-13"><a href="#cb16-13" aria-hidden="true" tabindex="-1"></a>comparacion <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="fu">across</span>(<span class="fu">where</span>(is.numeric), \(x) <span class="fu">round</span>(x, <span class="dv">2</span>)))</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 3 × 4
+  metodo                    estimado ic_inf ic_sup
+  &lt;chr&gt;                        &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;
+1 Regresión sin Hb             -5.63  -6.75  -4.51
+2 Regresión con la Hb          -7.85  -8.79  -6.91
+3 MSM (pesos estabilizados)     4.31   2.67   5.88</code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="fu">grafico_estimaciones</span>(comparacion, efecto_verdad, <span class="at">etiqueta_x =</span> <span class="st">"Efecto sobre la calidad de vida (puntos, 0-100)"</span>)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="Capítulo19.2_files/figure-html/c192-fig-comparacion-1.png" class="img-fluid figure-img" width="720"></p>
+<figcaption>Efecto de 6 meses de dosis alta frente a estándar: regresión ordinaria frente a MSM. Línea naranja: verdad. Datos simulados.</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p><strong>Qué vemos:</strong> las dos regresiones quedan lejos de la verdad y del lado equivocado (-5.63 y -7.85); el MSM (4.31) se acerca a ella y recupera el <strong>signo y el orden de magnitud</strong> del efecto. Nota que el MSM es <strong>menos preciso</strong> que la regresión (intervalo más ancho): es el precio de ponderar.</p>
+</section>
+<section id="paso-7.-por-qué-estabilizar-los-pesos-un-experimento" class="level2">
+<h2 class="anchored" data-anchor-id="paso-7.-por-qué-estabilizar-los-pesos-un-experimento">Paso 7. ¿Por qué estabilizar los pesos? Un experimento</h2>
+<p>Una estimación aislada no demuestra nada. Repetimos el estudio <strong>40 veces</strong> con cohortes nuevas de 3 000 pacientes (semillas distintas) y comparamos cuatro formas de analizar: MSM con pesos estabilizados, MSM con pesos sin estabilizar, MSM con pesos estabilizados <strong>truncados</strong> a los percentiles 1 y 99, y la regresión cruda:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>una_cohorte <span class="ot">&lt;-</span> <span class="cf">function</span>(semilla) {</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>  d <span class="ot">&lt;-</span> <span class="fu">agregar_rezagos</span>(<span class="fu">simular_hd_epo</span>(<span class="at">n =</span> <span class="dv">3000</span>, <span class="at">K =</span> <span class="dv">6</span>, <span class="at">semilla =</span> semilla))</span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a>  f <span class="ot">&lt;-</span> <span class="fu">pesos_finales</span>(<span class="fu">pesos_msm</span>(d, f_num, f_den))</span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">c</span>(<span class="st">`</span><span class="at">Estabilizado</span><span class="st">`</span>       <span class="ot">=</span> <span class="dv">6</span> <span class="sc">*</span> <span class="fu">coef</span>(<span class="fu">ajustar_msm</span>(f, <span class="st">"sw"</span>))[[<span class="st">"dosis_acum"</span>]],</span>
+<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a>    <span class="st">`</span><span class="at">Sin estabilizar</span><span class="st">`</span>    <span class="ot">=</span> <span class="dv">6</span> <span class="sc">*</span> <span class="fu">coef</span>(<span class="fu">ajustar_msm</span>(f, <span class="st">"w_ns"</span>, <span class="at">covariables =</span> <span class="fu">character</span>()))[[<span class="st">"dosis_acum"</span>]],   <span class="co"># sin numerador, el MSM va sin covariables</span></span>
+<span id="cb19-6"><a href="#cb19-6" aria-hidden="true" tabindex="-1"></a>    <span class="st">`</span><span class="at">Estabilizado truncado (1-99)</span><span class="st">`</span> <span class="ot">=</span> <span class="dv">6</span> <span class="sc">*</span> <span class="fu">coef</span>(<span class="fu">ajustar_msm</span>(f, <span class="st">"sw"</span>, <span class="at">truncar =</span> <span class="fu">c</span>(<span class="fl">0.01</span>, <span class="fl">0.99</span>)))[[<span class="st">"dosis_acum"</span>]],</span>
+<span id="cb19-7"><a href="#cb19-7" aria-hidden="true" tabindex="-1"></a>    <span class="st">`</span><span class="at">Regresión cruda</span><span class="st">`</span>    <span class="ot">=</span> <span class="dv">6</span> <span class="sc">*</span> <span class="fu">coef</span>(<span class="fu">lm</span>(calidad_vida <span class="sc">~</span> dosis_acum, f))[[<span class="st">"dosis_acum"</span>]])</span>
+<span id="cb19-8"><a href="#cb19-8" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb19-9"><a href="#cb19-9" aria-hidden="true" tabindex="-1"></a>exper <span class="ot">&lt;-</span> <span class="fu">map</span>(<span class="dv">1000</span> <span class="sc">+</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">40</span>, una_cohorte) <span class="sc">|&gt;</span> <span class="fu">bind_rows</span>()</span>
+<span id="cb19-10"><a href="#cb19-10" aria-hidden="true" tabindex="-1"></a>resumen_exper <span class="ot">&lt;-</span> exper <span class="sc">|&gt;</span></span>
+<span id="cb19-11"><a href="#cb19-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">pivot_longer</span>(<span class="fu">everything</span>(), <span class="at">names_to =</span> <span class="st">"metodo"</span>, <span class="at">values_to =</span> <span class="st">"estimado"</span>) <span class="sc">|&gt;</span></span>
+<span id="cb19-12"><a href="#cb19-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">group_by</span>(metodo) <span class="sc">|&gt;</span></span>
+<span id="cb19-13"><a href="#cb19-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarise</span>(<span class="at">media =</span> <span class="fu">mean</span>(estimado), <span class="at">de =</span> <span class="fu">sd</span>(estimado), <span class="at">sesgo =</span> <span class="fu">mean</span>(estimado) <span class="sc">-</span> efecto_verdad) <span class="sc">|&gt;</span></span>
+<span id="cb19-14"><a href="#cb19-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">arrange</span>(<span class="fu">desc</span>(metodo))</span>
+<span id="cb19-15"><a href="#cb19-15" aria-hidden="true" tabindex="-1"></a>resumen_exper <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="fu">across</span>(<span class="fu">where</span>(is.numeric), \(x) <span class="fu">round</span>(x, <span class="dv">2</span>)))</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 4 × 4
+  metodo                       media    de  sesgo
+  &lt;chr&gt;                        &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt;
+1 Sin estabilizar               4.51  1.53  -0.32
+2 Regresión cruda              -5.56  0.74 -10.4 
+3 Estabilizado truncado (1-99)  3.59  0.81  -1.25
+4 Estabilizado                  4.82  0.88  -0.01</code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>g <span class="ot">&lt;-</span> \(m, col) resumen_exper[[col]][resumen_exper<span class="sc">$</span>metodo <span class="sc">==</span> m]</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p><strong>Qué vemos</strong> (verdad: 4.83):</p>
+<ul>
+<li>El MSM con pesos <strong>estabilizados</strong> promedia 4.82 (sesgo -0.01) con una desviación entre estudios de 0.88.</li>
+<li><strong>Sin estabilizar</strong> el promedio es parecido (4.51), pero la desviación sube a 1.53: el mismo método, más ruido, porque unos pocos pacientes pesan muchísimo.</li>
+<li><strong>Truncar</strong> reduce la variabilidad (0.81), pero <strong>introduce sesgo</strong> (-1.25): recorta a los pacientes con los pesos más grandes (los de trayectorias menos esperadas), que dejan de representar a todos los pacientes parecidos que no aparecen en la base. Es un compromiso sesgo-varianza, no una mejora gratuita.</li>
+<li>La regresión cruda promedia -5.56: sesgada siempre, no por azar.</li>
+</ul>
+<p>Si vas a truncar, <strong>dilo</strong> y repite el análisis sin truncar: el lector debe poder ver cuánto cambia.</p>
+</section>
+<section id="paso-8.-cuando-la-intercambiabilidad-secuencial-se-rompe" class="level2">
+<h2 class="anchored" data-anchor-id="paso-8.-cuando-la-intercambiabilidad-secuencial-se-rompe">Paso 8. Cuando la intercambiabilidad secuencial se rompe</h2>
+<p>Todo lo anterior funciona porque el nefrólogo simulado decide <strong>solo</strong> con lo registrado. Supón ahora que además <strong>mira la inflamación</strong> (por ejemplo, por una PCR que no queda en la base de datos) y sube la dosis cuando la ve alta, aunque la Hb sea la misma. Los pesos solo conocen la Hb, así que no pueden corregirlo:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>hd_u <span class="ot">&lt;-</span> <span class="fu">agregar_rezagos</span>(<span class="fu">simular_hd_epo</span>(<span class="at">n =</span> <span class="dv">5000</span>, <span class="at">K =</span> <span class="dv">6</span>, <span class="at">semilla =</span> <span class="dv">2024</span>, <span class="at">efecto_u_en_a =</span> <span class="fl">0.5</span>))   <span class="co"># la inflamación influye en la dosis</span></span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>est_u <span class="ot">&lt;-</span> <span class="fu">efecto_msm</span>(hd_u, f_num, f_den)</span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a><span class="fu">tibble</span>(<span class="at">escenario =</span> <span class="fu">c</span>(<span class="st">"El nefrólogo decide solo con lo registrado"</span>, <span class="st">"El nefrólogo también mira la inflamación (no registrada)"</span>),</span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>       <span class="at">MSM =</span> <span class="fu">c</span>(est_msm, est_u), <span class="at">verdad =</span> efecto_verdad) <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="fu">across</span>(<span class="fu">where</span>(is.numeric), \(x) <span class="fu">round</span>(x, <span class="dv">2</span>)))</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 2 × 3
+  escenario                                                  MSM verdad
+  &lt;chr&gt;                                                    &lt;dbl&gt;  &lt;dbl&gt;
+1 El nefrólogo decide solo con lo registrado                4.31   4.83
+2 El nefrólogo también mira la inflamación (no registrada) -2.69   4.83</code></pre>
+</div>
+</div>
+<p>El MSM pasa de 4.31 a <strong>-2.69</strong> (verdad: 4.83). Los pacientes más inflamados reciben más dosis alta y tienen peor calidad de vida, y los pesos no lo ven. Ningún diagnóstico de los pesos (media, extremos, balance) lo habría delatado: los pesos siguen “bien portados”. Es un confusor no medido <strong>dependiente del tiempo</strong>.</p>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Advertencia</span>⚠️ Pesos extremos y positividad
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Pesos enormes suelen indicar <strong>violación de la positividad</strong>: combinaciones de pasado en las que casi nadie recibe una de las dos dosis. Truncar los baja, pero cambia lo que estimas (Paso 7). Antes de truncar, revisa los modelos (¿falta alguna interacción?), acorta el seguimiento o redefine la estrategia. Y recuerda que el MSM de <strong>dosis acumulada</strong> supone que cada mes de dosis alta suma lo mismo; en estos datos el efecto del primer mes es mayor que el del último (lo verás en 19.3), así que <code>dosis_acum</code> es un <strong>resumen</strong> razonable pero aproximado.</p>
+</div>
+</div>
+<p><strong>Con el paquete <code>ipw</code></strong> (código no verificado en el entorno de pruebas del libro), el mismo cálculo de pesos acumulados se hace con <code>ipwtm()</code>. El argumento <code>type = "all"</code> indica que el tratamiento puede cambiar en cualquier visita:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(ipw)</span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>pesos_ipw <span class="ot">&lt;-</span> <span class="fu">ipwtm</span>(<span class="at">exposure =</span> dosis_alta, <span class="at">family =</span> <span class="st">"binomial"</span>, <span class="at">link =</span> <span class="st">"logit"</span>,</span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>                   <span class="at">numerator =</span> <span class="sc">~</span> dosis_previa <span class="sc">+</span> edad <span class="sc">+</span> dm <span class="sc">+</span> tiempo_hd,</span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>                   <span class="at">denominator =</span> <span class="sc">~</span> dosis_previa <span class="sc">+</span> hb <span class="sc">+</span> edad <span class="sc">+</span> dm <span class="sc">+</span> tiempo_hd,</span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a>                   <span class="at">id =</span> id, <span class="at">timevar =</span> mes, <span class="at">type =</span> <span class="st">"all"</span>, <span class="at">data =</span> <span class="fu">as.data.frame</span>(hd_l))</span>
+<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(pesos_ipw<span class="sc">$</span>ipw.weights)     <span class="co"># debería parecerse al peso estabilizado "sw" de esta página</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div class="callout callout-style-default callout-important callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Importante</span>🎯 En resumen
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ul>
+<li>El <strong>MSM con pesos</strong> construye una pseudo-población en la que la Hb ya no decide la dosis: peso = producto, mes a mes, de P(dosis | pasado de tratamiento) / P(dosis | pasado de tratamiento y Hb).</li>
+<li>Los pesos <strong>estabilizados</strong> deben tener <strong>media ≈ 1</strong> (aquí 1.00); revisa extremos y tamaño efectivo. Sin estabilizar, la media fue 65 y la variabilidad entre estudios, mayor.</li>
+<li>El MSM recupera el efecto (4.31 frente a la verdad 4.83) donde la regresión ordinaria falla (-5.63 y -7.85), a cambio de <strong>menos precisión</strong>.</li>
+<li>Los errores se calculan con <strong>errores robustos</strong> o con <strong><em>bootstrap</em> de pacientes</strong> que repita los modelos de los pesos.</li>
+<li>Truncar los pesos es un compromiso sesgo-varianza. Y ningún diagnóstico detecta un confusor <strong>no registrado</strong>.</li>
+</ul>
+</div>
+</div>
+</section>
+<section id="ejercicio" class="level2">
+<h2 class="anchored" data-anchor-id="ejercicio">Ejercicio</h2>
+<ol type="1">
+<li>Calcula el peso estabilizado <strong>solo con el modelo del denominador</strong> (sin numerador) y vuelve a estimar el MSM con <code>ajustar_msm(fin, "w_ns", covariables = character())</code>. Compara con el estabilizado.</li>
+<li>Usa <code>truncar = c(0.001, 0.999)</code> y <code>c(0.05, 0.95)</code> en <code>ajustar_msm()</code>. ¿Cómo cambian la estimación y su incertidumbre?</li>
+<li>Cambia <code>efecto_u_en_a</code> a 0.2 en el Paso 8. ¿A partir de qué valor el MSM deja de contener la verdad dentro de ±1 punto?</li>
+</ol>
+</section>
+<section id="referencias" class="level2">
+<h2 class="anchored" data-anchor-id="referencias">Referencias</h2>
+<ul>
+<li>Robins JM, Hernán MA, Brumback B. Marginal structural models and causal inference in epidemiology. <em>Epidemiology</em>. 2000;11:550-560.</li>
+<li>Hernán MA, Robins JM. <em>Causal Inference: What If</em>. Chapman &amp; Hall/CRC; 2020. (Caps. 12 y 14-15).</li>
+<li>Cole SR, Hernán MA. Constructing inverse probability weights for marginal structural models. <em>Am J Epidemiol</em>. 2008;168:656-664.</li>
+<li>Daniel RM, Cousens SN, De Stavola BL, Kenward MG, Sterne JA. Methods for dealing with time-dependent confounding. <em>Stat Med</em>. 2013;32:1584-1618.</li>
+<li>Thoemmes F, Ong AD. A primer on inverse probability of treatment weighting and marginal structural models. <em>Emerging Adulthood</em>. 2016;4:40-59.</li>
+<li>Heiss A. (blog), <a href="https://www.andrewheiss.com/blog/" class="uri">https://www.andrewheiss.com/blog/</a> (lectura recomendada por el autor; la idea de pesos acumulados y modelos estructurales marginales con datos de panel sigue sus entradas sobre el tema; el caso, la simulación y el código de este subcapítulo son propios).</li>
+</ul>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copiado");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copiado");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+<nav class="page-navigation">
+  <div class="nav-page nav-page-previous">
+      <a href="../capitulos/Capítulo19.1.html" class="pagination-link" aria-label="Confusión dependiente del tiempo: EPO y hemoglobina en hemodiálisis">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-title">Confusión dependiente del tiempo: EPO y hemoglobina en hemodiálisis</span></span>
+      </a>          
+  </div>
+  <div class="nav-page nav-page-next">
+      <a href="../capitulos/Capítulo19.3.html" class="pagination-link" aria-label="Fórmula g paramétrica y estimación g: simular el mundo bajo cada estrategia">
+        <span class="nav-page-text"><span class="chapter-title">Fórmula g paramétrica y estimación g: simular el mundo bajo cada estrategia</span></span> <i class="bi bi-arrow-right-short"></i>
+      </a>
+  </div>
+</nav>
+</div> <!-- /content -->
+<footer class="footer">
+  <div class="nav-footer">
+    <div class="nav-footer-left">
+<p>This book was built with 💕 and <a href="https://quarto.org/">Quarto</a>.</p>
+</div>   
+    <div class="nav-footer-center">
+      &nbsp;
+    </div>
+    <div class="nav-footer-right">
+<p>DataLab for causal inference</p>
+</div>
+  </div>
+</footer>
+
+
+
+
+</body></html>

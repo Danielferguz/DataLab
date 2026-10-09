@@ -1,0 +1,2127 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="es" xml:lang="es"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.10.18">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Daniel Fernandez">
+
+<title>Puntaje de propensión con encuestas, datos faltantes y más de dos tratamientos – DataLab for causal inference</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<link href="../capitulos/Capítulo12.11.html" rel="next">
+<link href="../capitulos/Capítulo12.9.html" rel="prev">
+<link href="../cover.png" rel="icon" type="image/png">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-64a204ab8560d761af7679ceaba22944.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-7aae4c44033a76e9a4abd926a4c61ba3.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No se han encontrado resultados",
+    "search-matching-documents-text": "documentos encontrados",
+    "search-copy-link-title": "Copiar el enlace en la búsqueda",
+    "search-hide-matches-text": "Ocultar resultados adicionales",
+    "search-more-match-text": "resultado adicional en este documento",
+    "search-more-matches-text": "resultados adicionales en este documento",
+    "search-clear-button-title": "Borrar",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancelar",
+    "search-submit-button-title": "Enviar",
+    "search-label": "Buscar"
+  }
+}</script>
+<script>
+  if (window.location.hostname === "danielferguz.github.io") {
+    window.location.replace("https://datalabperu.cloudflareaccess.com/");
+  }
+</script>
+
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script defer="" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+<link rel="stylesheet" href="../css/libro.css">
+</head>
+
+<body class="nav-sidebar floating quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Alternar barra lateral" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../capitulos/Capítulo12.html">Capítulo 12: Análisis inferencial en estudios observacionales</a></li><li class="breadcrumb-item"><a href="../capitulos/Capítulo12.10.html"><span class="chapter-title">Puntaje de propensión con encuestas, datos faltantes y más de dos tratamientos</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Alternar barra lateral" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+      <button type="button" class="btn quarto-search-button" aria-label="Buscar" onclick="window.quartoOpenSearch();">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
+    <div class="pt-lg-2 mt-2 text-left sidebar-header">
+    <div class="sidebar-title mb-0 py-0">
+      <a href="../">DataLab for causal inference</a> 
+        <div class="sidebar-tools-main">
+  <a href="" class="quarto-reader-toggle quarto-navigation-tool px-1" onclick="window.quartoToggleReader(); return false;" title="Alternar modo lector">
+  <div class="quarto-reader-toggle-btn">
+  <i class="bi"></i>
+  </div>
+</a>
+</div>
+    </div>
+      </div>
+        <div class="mt-2 flex-shrink-0 align-items-center">
+        <div class="sidebar-search">
+        <div id="quarto-search" class="" title="Buscar"></div>
+        </div>
+        </div>
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Prefacio</span></a>
+  </div>
+</li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/intro.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Introducción</span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo1.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 1: Pregunta de investigación</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tipos de estudio: ¿generan datos nuevos o resumen lo que ya existe?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diseños de investigación: qué responde cada uno</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tareas científicas: describir, predecir o explicar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tareas descriptivas: contar bien y no prometer causas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tareas predictivas: anticipar, no explicar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo1.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tareas explicativas: la pregunta causal</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo2.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 2: Medidas en epidemiología</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo2.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Medidas de frecuencia: ¿cuántos tienen, cuántos se enferman y a qué velocidad?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo2.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Medidas de asociación: ¿cuántas veces más (o menos) frecuente?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo2.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Medidas de impacto: ¿a cuántos pacientes beneficia?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo2.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Entonces, ¿qué es “una asociación”? Describir, explicar o predecir</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo3.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 3: Casualidad vs. causalidad</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ensayos aleatorizados: por qué el azar permite hablar de causas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Resultados potenciales y estimandos: ¿qué es un efecto causal?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diagramas causales (DAG): qué ajustar y qué no</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">El análisis causal completo, paso a paso</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo3.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Simulaciones de DAG: ¿qué pasa si ajusto por…?</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo4.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 4: R y Quarto para el clínico</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Primeros pasos: instalar R y orientarte en RStudio</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Objetos, funciones y paquetes: tus primeras líneas de código</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo importar datos y revisar lo que llegó</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Quarto: tu análisis como un informe reproducible</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo4.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Errores, avisos y cómo pedir ayuda</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo5.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 5: Limpieza y manejo de datos</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-5" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Datos ordenados: la forma que R espera</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Manipular datos con <code>dplyr</code> y unificar categorías</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Fechas y tiempos</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Variables nefrológicas: unidades, TFGe y categorías KDIGO</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Control de calidad: duplicados, faltantes disfrazados y valores imposibles</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo5.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Unir tablas y construir la base final</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo6.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 6: Muestreo</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-6" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Población, marco y muestra</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diseños de muestreo: simple, estratificado y por conglomerados</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Muestras complejas con <code>survey</code>: del diseño al análisis</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de selección y no respuesta</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo6.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Caso integrado: prevalencia de ERC en la región y tamaño de muestra</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo7.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 7: Análisis descriptivo</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-7" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Cómo son mis pacientes? Variables y su distribución</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">La Tabla 1: ¿quiénes son y son comparables?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Gráficos que comunican</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Intervalos de confianza y <em>bootstrap</em></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo7.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Estandarización por edad: comparar tasas con justicia</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo8.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 8: Asociación y regresión</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-8" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Dos variables: pruebas de hipótesis y correlación</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Regresión lineal: cuánto cambia el desenlace, en promedio</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Regresión logística y de Poisson: del OR al RR</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Interacción y modificación del efecto: ¿a quién beneficia más?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Supuestos, diagnóstico y no linealidad: ¿puedo creer mi modelo?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo reportar una regresión (y la <em>Table 2 fallacy</em>)</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo8.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Regresión ordinal, multinomial y binomial negativa</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo9.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 9: Análisis de supervivencia</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-9" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-9" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tiempo hasta evento y censura</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Kaplan-Meier y log-rank</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Regresión de Cox</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Riesgos proporcionales: cómo verificar y qué hacer</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Riesgos competitivos</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo9.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Supervivencia media restringida (RMST)</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo10.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 10: ¡¡¡No todo es confusión!!!</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-10" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-10" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de selección y colisionadores</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de tiempo inmortal</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de información y error de medición</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Causalidad inversa y sesgo de indicación</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de supervivencia y de pérdidas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo10.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo cuantificar un sesgo</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo11.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 11: Análisis inferencial en ensayos aleatorizados</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-11" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-11" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diseño del análisis: preespecificar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Comparación de dos grupos: intención de tratar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">ANCOVA: ajustar por el valor basal</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Mediciones repetidas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Subgrupos y heterogeneidad</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">No adherencia: por protocolo, <em>as-treated</em> y CACE</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo11.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Desenlaces compuestos y <em>win ratio</em></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo12.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 12: Análisis inferencial en estudios observacionales</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-12" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-12" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Primero el protocolo: emular un ensayo objetivo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ajustar “a la antigua”: estratificación y regresión</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Qué es el puntaje de propensión? Buscar al “gemelo clínico”</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Emparejamiento: formar parejas de pacientes comparables</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ponderación (IPW): dar más voz a los pacientes “raros”</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Fórmula g y estimadores doblemente robustos: predecir y promediar</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Supervivencia: curvas ponderadas y riesgos a un tiempo fijo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.8.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Y si me falta algo? Análisis de sensibilidad</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.9.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diseñar para reducir la confusión: comparador activo y nuevo usuario</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.10.html" class="sidebar-item-text sidebar-link active"><span class="chapter-title">Puntaje de propensión con encuestas, datos faltantes y más de dos tratamientos</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo12.11.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Aprendizaje automático y TMLE: modelos flexibles sin perder la inferencia</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo13.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 13: Datos faltantes</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-13" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-13" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Por qué faltan los datos? Los mecanismos MCAR, MAR y MNAR</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Mirar antes de imputar: ¿qué falta y en quiénes?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Casos completos: la opción por defecto (y cuándo es peligrosa)</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Imputación múltiple con <code>mice</code>: paso a paso</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Imputación en análisis causales y de supervivencia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo13.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Y si los que faltan son distintos? Sensibilidad a MNAR</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo14.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 14: Datos longitudinales y multinivel</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-14" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-14" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Por qué la independencia no se cumple?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Efectos aleatorios: pacientes dentro de unidades de diálisis</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Pendiente de TFGe con modelos mixtos</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">GEE vs.&nbsp;modelos mixtos: ¿cuál elegir?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ensayos por conglomerados e ICC</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo14.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Trayectorias y modelos conjuntos (<em>joint models</em>): visión general</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo15.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 15: Series de tiempo (y una mirada a los datos geoespaciales)</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-15" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-15" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Componentes de una serie de tiempo: tendencia, estacionalidad y ruido</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Modelos para conteos: tendencia, estacionalidad y población</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Serie temporal interrumpida: ¿cambió algo cuando empezó el programa?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Autocorrelación y estacionalidad: errores HAC y modelos ARIMA</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Series con grupo control: diferencias en diferencias y ITS controlada</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo15.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Datos geoespaciales: mapas, autocorrelación espacial y suavizado</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo16.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 16: Análisis predictivos: diagnóstico</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-16" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-16" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sensibilidad, especificidad, VPP y VPN: lo que la prevalencia cambia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">La curva ROC y el AUC: juzgar una prueba continua sin elegir un corte</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">El punto de corte: no hay uno “correcto”, hay uno que sirve para algo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Un modelo diagnóstico multivariable: ¿qué añade el biomarcador?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Calibración: cuando el modelo dice “30 %”, ¿de verdad es 30 %?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Curvas de decisión: ¿el modelo ayuda a decidir mejor?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo16.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Sesgo de espectro, de verificación y <em>spin</em>: cuándo no creerle a un estudio diagnóstico</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo17.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 17: Análisis predictivos: pronóstico</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-17" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-17" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Cuántos pacientes necesito para construir un modelo de predicción?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo desarrollar un modelo de pronóstico tipo KFRE</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Qué tan bueno es mi modelo? Discriminación, calibración, Brier y R²</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Validación interna: cuánto optimismo hay en mi modelo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Validación externa y recalibración: ¿funciona mi modelo en otro hospital?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">¿Aporta el aprendizaje automático? LASSO, bosques y <em>boosting</em> frente a la regresión</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo17.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cómo reportar y evaluar un modelo: TRIPOD+AI y PROBAST</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo18.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 18: Análisis de mediación</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-18" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-18" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Efecto total, directo e indirecto: ¿por dónde actúa el fármaco?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Método de productos y de diferencias: dos regresiones y un bootstrap</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Los supuestos: las cuatro ausencias de confusión</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Mediación con interacción y desenlaces binarios o de supervivencia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Interpretación clínica: ¿la albuminuria media el efecto del iSGLT2?</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo18.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Mediación moderada: ¿el camino indirecto es igual para todos?</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo19.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 19: Tratamientos que cambian en el tiempo y diseños cuasi-experimentales</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-19" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-19" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Confusión dependiente del tiempo: EPO y hemoglobina en hemodiálisis</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Modelos estructurales marginales: ponderar para romper el bucle</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Fórmula g paramétrica y estimación g: simular el mundo bajo cada estrategia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Variables instrumentales: la preferencia del nefrólogo</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Diferencias en diferencias y regresión discontinua</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo19.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Heterogeneidad del efecto: ¿a quién beneficia más?</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../capitulos/Capítulo20.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Capítulo 20: Cálculo del tamaño de muestra</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-20" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-20" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.1.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">La lógica del tamaño de muestra: efecto, variabilidad, error y potencia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.2.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tamaño de muestra para diferencias de medias y de proporciones</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.3.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tamaño de muestra para tiempo hasta un evento: eventos y pacientes</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.4.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Ensayos por conglomerados: efecto de diseño y número de unidades</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.5.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">La simulación como herramienta de potencia</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.6.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Tamaño de muestra por precisión: prevalencias, medias y pruebas diagnósticas</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Capítulo20.7.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Pérdidas, análisis interinos y cómo reportar el tamaño de muestra</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-21" role="navigation" aria-expanded="true">
+ <span class="menu-text">Apéndices</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-21" role="navigation" aria-expanded="true" aria-label="Alternar sección">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-21" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../capitulos/Apéndice-resumen.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Apéndice: cuadros de resumen y plantillas</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">En esta página</h2>
+   
+  <ul>
+  <li><a href="#parte-1.-ps-con-una-encuesta-de-diseño-complejo" id="toc-parte-1.-ps-con-una-encuesta-de-diseño-complejo" class="nav-link active" data-scroll-target="#parte-1.-ps-con-una-encuesta-de-diseño-complejo">Parte 1. PS con una encuesta de diseño complejo</a>
+  <ul class="collapse">
+  <li><a href="#paso-1-qué-efecto-quieres-el-de-la-muestra-o-el-de-la-población" id="toc-paso-1-qué-efecto-quieres-el-de-la-muestra-o-el-de-la-población" class="nav-link" data-scroll-target="#paso-1-qué-efecto-quieres-el-de-la-muestra-o-el-de-la-población">Paso 1: ¿qué efecto quieres, el de la muestra o el de la población?</a></li>
+  <li><a href="#paso-2-dos-formas-de-usar-los-pesos-muestrales" id="toc-paso-2-dos-formas-de-usar-los-pesos-muestrales" class="nav-link" data-scroll-target="#paso-2-dos-formas-de-usar-los-pesos-muestrales">Paso 2: dos formas de usar los pesos muestrales</a></li>
+  <li><a href="#paso-3-es-azar-o-es-sesgo-repetir-la-encuesta" id="toc-paso-3-es-azar-o-es-sesgo-repetir-la-encuesta" class="nav-link" data-scroll-target="#paso-3-es-azar-o-es-sesgo-repetir-la-encuesta">Paso 3: ¿es azar o es sesgo? Repetir la encuesta</a></li>
+  <li><a href="#paso-4-subpoblaciones-subset-sobre-el-diseño" id="toc-paso-4-subpoblaciones-subset-sobre-el-diseño" class="nav-link" data-scroll-target="#paso-4-subpoblaciones-subset-sobre-el-diseño">Paso 4: subpoblaciones, <code>subset()</code> sobre el diseño</a></li>
+  </ul></li>
+  <li><a href="#parte-2.-ps-con-imputación-múltiple" id="toc-parte-2.-ps-con-imputación-múltiple" class="nav-link" data-scroll-target="#parte-2.-ps-con-imputación-múltiple">Parte 2. PS con imputación múltiple</a>
+  <ul class="collapse">
+  <li><a href="#paso-5-una-cohorte-con-faltantes-que-dependen-del-desenlace" id="toc-paso-5-una-cohorte-con-faltantes-que-dependen-del-desenlace" class="nav-link" data-scroll-target="#paso-5-una-cohorte-con-faltantes-que-dependen-del-desenlace">Paso 5: una cohorte con faltantes que dependen del desenlace</a></li>
+  <li><a href="#paso-6-imputar-con-el-tratamiento-y-el-desenlace-y-el-feo-sin-desenlace" id="toc-paso-6-imputar-con-el-tratamiento-y-el-desenlace-y-el-feo-sin-desenlace" class="nav-link" data-scroll-target="#paso-6-imputar-con-el-tratamiento-y-el-desenlace-y-el-feo-sin-desenlace">Paso 6: imputar con el tratamiento y el desenlace (y el “feo” sin desenlace)</a></li>
+  <li><a href="#paso-7-enfoque-within-el-ps-dentro-de-cada-imputación" id="toc-paso-7-enfoque-within-el-ps-dentro-de-cada-imputación" class="nav-link" data-scroll-target="#paso-7-enfoque-within-el-ps-dentro-de-cada-imputación">Paso 7: enfoque <em>within</em>, el PS dentro de cada imputación</a></li>
+  <li><a href="#paso-8-enfoque-promediar-el-ps" id="toc-paso-8-enfoque-promediar-el-ps" class="nav-link" data-scroll-target="#paso-8-enfoque-promediar-el-ps">Paso 8: enfoque “promediar el PS”</a></li>
+  <li><a href="#paso-9-comparar-todo-con-la-verdad" id="toc-paso-9-comparar-todo-con-la-verdad" class="nav-link" data-scroll-target="#paso-9-comparar-todo-con-la-verdad">Paso 9: comparar todo con la verdad</a></li>
+  </ul></li>
+  <li><a href="#parte-3.-tres-niveles-de-exposición" id="toc-parte-3.-tres-niveles-de-exposición" class="nav-link" data-scroll-target="#parte-3.-tres-niveles-de-exposición">Parte 3. Tres niveles de exposición</a>
+  <ul class="collapse">
+  <li><a href="#paso-10-el-ps-multinomial" id="toc-paso-10-el-ps-multinomial" class="nav-link" data-scroll-target="#paso-10-el-ps-multinomial">Paso 10: el PS multinomial</a></li>
+  <li><a href="#paso-11-solapamiento-con-tres-grupos" id="toc-paso-11-solapamiento-con-tres-grupos" class="nav-link" data-scroll-target="#paso-11-solapamiento-con-tres-grupos">Paso 11: solapamiento con tres grupos</a></li>
+  <li><a href="#paso-12-pesos-generalizados-y-balance-entre-grupos" id="toc-paso-12-pesos-generalizados-y-balance-entre-grupos" class="nav-link" data-scroll-target="#paso-12-pesos-generalizados-y-balance-entre-grupos">Paso 12: pesos generalizados y balance entre grupos</a></li>
+  <li><a href="#paso-13-efectos-por-pares" id="toc-paso-13-efectos-por-pares" class="nav-link" data-scroll-target="#paso-13-efectos-por-pares">Paso 13: efectos por pares</a></li>
+  </ul></li>
+  <li><a href="#tabla-resumen" id="toc-tabla-resumen" class="nav-link" data-scroll-target="#tabla-resumen">Tabla-resumen</a></li>
+  <li><a href="#ejercicio" id="toc-ejercicio" class="nav-link" data-scroll-target="#ejercicio">Ejercicio</a></li>
+  <li><a href="#referencias" id="toc-referencias" class="nav-link" data-scroll-target="#referencias">Referencias</a></li>
+  </ul>
+</nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../capitulos/Capítulo12.html">Capítulo 12: Análisis inferencial en estudios observacionales</a></li><li class="breadcrumb-item"><a href="../capitulos/Capítulo12.10.html"><span class="chapter-title">Puntaje de propensión con encuestas, datos faltantes y más de dos tratamientos</span></a></li></ol></nav>
+<div class="quarto-title">
+<h1 class="title"><span class="chapter-title">Puntaje de propensión con encuestas, datos faltantes y más de dos tratamientos</span></h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Nota</span>🩺 Escenario
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Tres situaciones que arruinan el PS “de manual”. <strong>(1)</strong> Quieres el efecto del iSGLT2 en <em>toda la región</em>, pero tus datos vienen de una <strong>encuesta</strong> que sobremuestreó las zonas rurales, con pesos y comunidades. <strong>(2)</strong> En tu cohorte falta la UACR en un tercio de los pacientes, y faltan más justo en quienes evolucionan peor. <strong>(3)</strong> Tus pacientes no eligen entre dos opciones sino entre <strong>tres</strong>: nada, un aGLP-1 o un iSGLT2. En los tres casos el PS sigue siendo la herramienta, pero hay que adaptarlo.</p>
+</div>
+</div>
+<p>Este subcapítulo asume que ya conoces el PS (12.3), el emparejamiento (12.4) y la ponderación (12.5). Para el diseño muestral te remitimos al Cap. 6.3 y para la imputación al Cap. 13.4-13.5. Las tres secciones son independientes y cada una tiene <strong>verdad conocida y sin confusión no medida</strong>: si un método falla, el culpable es el método.</p>
+<p><strong>Lo que vamos a hacer</strong></p>
+<ul>
+<li><strong>Encuestas</strong>: qué población representa el efecto y cómo combinar el peso muestral con el peso del PS.</li>
+<li><strong>Faltantes</strong>: estimar el PS dentro de cada base imputada (<em>within</em>) o promediarlo, frente a casos completos.</li>
+<li><strong>Tres niveles</strong>: PS multinomial, pesos generalizados, balance entre varios grupos y efectos por pares.</li>
+</ul>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(tidyverse)</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(survey)</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(mice)</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(mitools)</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(sandwich)</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(nnet)</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(marginaleffects)</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"R/funciones_epi.R"</span>)</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"R/funciones_extra_cap1213.R"</span>)</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"R/simular_encuesta_erc.R"</span>)</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"R/simular_cap1210.R"</span>)</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"R/funciones_cap1210.R"</span>)</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>f2 <span class="ot">&lt;-</span> \(x) <span class="fu">sprintf</span>(<span class="st">"%.2f"</span>, x)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<section id="parte-1.-ps-con-una-encuesta-de-diseño-complejo" class="level2">
+<h2 class="anchored" data-anchor-id="parte-1.-ps-con-una-encuesta-de-diseño-complejo">Parte 1. PS con una encuesta de diseño complejo</h2>
+<section id="paso-1-qué-efecto-quieres-el-de-la-muestra-o-el-de-la-población" class="level3">
+<h3 class="anchored" data-anchor-id="paso-1-qué-efecto-quieres-el-de-la-muestra-o-el-de-la-población">Paso 1: ¿qué efecto quieres, el de la muestra o el de la población?</h3>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>enc <span class="ot">&lt;-</span> <span class="fu">read_csv</span>(<span class="st">"Bases/ps_encuesta_erc.csv"</span>, <span class="at">show_col_types =</span> <span class="cn">FALSE</span>)   <span class="co"># encuesta simulada</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>pob <span class="ot">&lt;-</span> <span class="fu">simular_poblacion_ps</span>()                                            <span class="co"># la región completa (solo en simulación)</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>Nuestra encuesta (simulada) tiene <strong>2 400 adultos con diabetes y ERC</strong> de 60 comunidades: 20 urbanas y 40 rurales. Las zonas rurales están <strong>sobremuestreadas</strong>: son el 67 % de la muestra y el 31 % de la región. Además, el iSGLT2 beneficia más en las zonas rurales. Como conocemos toda la región, calculamos los efectos verdaderos:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>pate <span class="ot">&lt;-</span> <span class="fu">mean</span>(pob<span class="sc">$</span>ite)                                      <span class="co"># efecto verdadero en la POBLACIÓN</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>sate <span class="ot">&lt;-</span> <span class="fu">mean</span>(pob<span class="sc">$</span>ite[<span class="fu">match</span>(enc<span class="sc">$</span>id, pob<span class="sc">$</span>id)])               <span class="co"># efecto verdadero en las personas de la MUESTRA</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="fu">c</span>(<span class="at">urbano =</span> <span class="fu">mean</span>(pob<span class="sc">$</span>ite[pob<span class="sc">$</span>area <span class="sc">==</span> <span class="st">"Urbano"</span>]), <span class="at">rural =</span> <span class="fu">mean</span>(pob<span class="sc">$</span>ite[pob<span class="sc">$</span>area <span class="sc">==</span> <span class="st">"Rural"</span>]),</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">poblacion =</span> pate, <span class="at">muestra =</span> sate) <span class="sc">|&gt;</span> <span class="fu">round</span>(<span class="dv">2</span>)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>   urbano     rural poblacion   muestra 
+     0.71      1.62      0.99      1.36 </code></pre>
+</div>
+</div>
+<p><strong>Qué vemos:</strong> el efecto de la <strong>población</strong> es 0.99 mL/min/1.73 m²/año, pero el de las <strong>personas encuestadas</strong> es 1.36: la muestra tiene demasiada gente rural, donde el efecto es mayor. Un análisis que ignore el diseño responde a la pregunta sobre <em>esta muestra</em>; para hablar de la región hay que usar los pesos. Esto es el <strong>PATE</strong> (efecto en la población) frente al <strong>SATE</strong> (efecto en la muestra).</p>
+</section>
+<section id="paso-2-dos-formas-de-usar-los-pesos-muestrales" class="level3">
+<h3 class="anchored" data-anchor-id="paso-2-dos-formas-de-usar-los-pesos-muestrales">Paso 2: dos formas de usar los pesos muestrales</h3>
+<p>El <strong>peso muestral</strong> (<code>peso</code>) dice a cuántos adultos representa cada encuestado. Hay dos decisiones, que conviene separar:</p>
+<ul>
+<li><strong>¿Entra el peso muestral en el modelo del PS?</strong> Dos opciones habituales: PS <strong>sin pesos</strong> (logística común) o PS <strong>con pesos</strong> (<code>svyglm</code>, que estima el PS de la <em>población</em>).</li>
+<li><strong>¿Entra en el análisis del desenlace?</strong> Sí, siempre, si quieres el efecto poblacional. El peso final es el <strong>producto</strong>: <span class="math inline">\(w_i = \text{peso muestral}_i \times \text{peso del PS}_i\)</span>.</li>
+</ul>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>f_ps <span class="ot">&lt;-</span> isglt2 <span class="sc">~</span> <span class="fu">I</span>(edad <span class="sc">/</span> <span class="dv">10</span>) <span class="sc">+</span> sexo <span class="sc">+</span> tfg <span class="sc">+</span> luacr <span class="sc">+</span> area</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>dis  <span class="ot">&lt;-</span> <span class="fu">svydesign</span>(<span class="at">ids =</span> <span class="sc">~</span>cluster, <span class="at">strata =</span> <span class="sc">~</span>area, <span class="at">weights =</span> <span class="sc">~</span>peso, <span class="at">data =</span> enc, <span class="at">nest =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>enc<span class="sc">$</span>ps_sin <span class="ot">&lt;-</span> <span class="fu">fitted</span>(<span class="fu">glm</span>(f_ps, <span class="at">data =</span> enc, <span class="at">family =</span> binomial))             <span class="co"># PS sin pesos muestrales</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>enc<span class="sc">$</span>ps_con <span class="ot">&lt;-</span> <span class="fu">fitted</span>(<span class="fu">svyglm</span>(f_ps, <span class="at">design =</span> dis, <span class="at">family =</span> quasibinomial))   <span class="co"># PS con pesos muestrales</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>enc <span class="ot">&lt;-</span> enc <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">w_sin =</span> <span class="fu">peso_ipw</span>(ps_sin, isglt2), <span class="at">w_con =</span> <span class="fu">peso_ipw</span>(ps_con, isglt2))</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>Ahora el efecto con cuatro análisis. El primero ignora el diseño (el “feo”); el segundo usa solo el peso del PS pero <strong>sí</strong> declara conglomerados; el tercero y el cuarto multiplican por el peso muestral:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>fit_ing <span class="ot">&lt;-</span> <span class="fu">lm</span>(pendiente_tfg <span class="sc">~</span> isglt2, <span class="at">data =</span> enc, <span class="at">weights =</span> w_sin)</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>ee_ing  <span class="ot">&lt;-</span> <span class="fu">sqrt</span>(<span class="fu">vcovHC</span>(fit_ing, <span class="st">"HC1"</span>)[<span class="st">"isglt2"</span>, <span class="st">"isglt2"</span>])</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>res_enc <span class="ot">&lt;-</span> <span class="fu">bind_rows</span>(</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tibble</span>(<span class="at">metodo =</span> <span class="st">"1. Ignorar el diseño"</span>, <span class="at">estimado =</span> <span class="fu">coef</span>(fit_ing)[[<span class="st">"isglt2"</span>]], <span class="at">ee =</span> ee_ing,</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>         <span class="at">ic_inf =</span> estimado <span class="sc">-</span> <span class="fl">1.96</span> <span class="sc">*</span> ee, <span class="at">ic_sup =</span> estimado <span class="sc">+</span> <span class="fl">1.96</span> <span class="sc">*</span> ee),</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">efecto_diseno</span>(enc, enc<span class="sc">$</span>w_sin)             <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">metodo =</span> <span class="st">"2. Peso del PS, sin peso muestral"</span>),</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">efecto_diseno</span>(enc, enc<span class="sc">$</span>peso <span class="sc">*</span> enc<span class="sc">$</span>w_sin)  <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">metodo =</span> <span class="st">"3. Peso muestral x PS (PS sin pesos)"</span>),</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">efecto_diseno</span>(enc, enc<span class="sc">$</span>peso <span class="sc">*</span> enc<span class="sc">$</span>w_con)  <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">metodo =</span> <span class="st">"4. Peso muestral x PS (PS con pesos)"</span>)</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>res_enc <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="fu">across</span>(<span class="fu">where</span>(is.numeric), \(x) <span class="fu">round</span>(x, <span class="dv">2</span>)))</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 4 × 5
+  metodo                               estimado    ee ic_inf ic_sup
+  &lt;chr&gt;                                   &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;
+1 1. Ignorar el diseño                     1.39  0.06   1.27   1.51
+2 2. Peso del PS, sin peso muestral        1.39  0.09   1.22   1.57
+3 3. Peso muestral x PS (PS sin pesos)     1.09  0.1    0.89   1.29
+4 4. Peso muestral x PS (PS con pesos)     1.09  0.1    0.89   1.29</code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">grafico_estimaciones</span>(res_enc, pate) <span class="sc">+</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_vline</span>(<span class="at">xintercept =</span> sate, <span class="at">linetype =</span> <span class="st">"dashed"</span>, <span class="at">color =</span> <span class="st">"#009E73"</span>) <span class="sc">+</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">annotate</span>(<span class="st">"text"</span>, <span class="at">x =</span> sate, <span class="at">y =</span> <span class="fl">0.6</span>, <span class="at">label =</span> <span class="st">"efecto en la muestra"</span>, <span class="at">color =</span> <span class="st">"#009E73"</span>, <span class="at">hjust =</span> <span class="fl">1.05</span>, <span class="at">size =</span> <span class="fl">3.3</span>)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="Capítulo12.10_files/figure-html/c1210-fig-enc-1.png" class="img-fluid figure-img" width="768"></p>
+</figure>
+</div>
+</div>
+</div>
+<p><strong>Qué vemos:</strong> los análisis 1 y 2 caen sobre el <strong>efecto de la muestra</strong> (1.39 y 1.39; línea verde discontinua), no sobre el poblacional (0.99). Los análisis 3 y 4, con el peso muestral, dan 1.09 y 1.09, y sus IC contienen el valor verdadero. También cambia el <strong>error estándar</strong>: 0.06 si ignoras el diseño y 0.10 con conglomerados y estratos (1.65 veces mayor). Ignorar el diseño da un IC más estrecho y para la pregunta equivocada.</p>
+</section>
+<section id="paso-3-es-azar-o-es-sesgo-repetir-la-encuesta" class="level3">
+<h3 class="anchored" data-anchor-id="paso-3-es-azar-o-es-sesgo-repetir-la-encuesta">Paso 3: ¿es azar o es sesgo? Repetir la encuesta</h3>
+<p>Una sola muestra puede salir lejos o cerca por casualidad. Repetimos la encuesta 100 veces (misma región, otras comunidades) y promediamos:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>una_encuesta <span class="ot">&lt;-</span> <span class="cf">function</span>(s) {</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  m <span class="ot">&lt;-</span> <span class="fu">muestrear_bietapico</span>(pob, <span class="at">conglom =</span> <span class="fu">c</span>(<span class="at">Urbano =</span> <span class="dv">20</span>, <span class="at">Rural =</span> <span class="dv">40</span>), <span class="at">por_cluster =</span> <span class="dv">40</span>, <span class="at">semilla =</span> s) <span class="sc">|&gt;</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>    <span class="fu">select</span>(<span class="sc">-</span><span class="fu">all_of</span>(cols_oraculo_ps))</span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>  dis_s <span class="ot">&lt;-</span> <span class="fu">svydesign</span>(<span class="at">ids =</span> <span class="sc">~</span>cluster, <span class="at">strata =</span> <span class="sc">~</span>area, <span class="at">weights =</span> <span class="sc">~</span>peso, <span class="at">data =</span> m, <span class="at">nest =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>  w_s <span class="ot">&lt;-</span> <span class="fu">peso_ipw</span>(<span class="fu">fitted</span>(<span class="fu">glm</span>(f_ps, <span class="at">data =</span> m, <span class="at">family =</span> binomial)), m<span class="sc">$</span>isglt2)</span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>  w_c <span class="ot">&lt;-</span> <span class="fu">peso_ipw</span>(<span class="fu">fitted</span>(<span class="fu">svyglm</span>(f_ps, <span class="at">design =</span> dis_s, <span class="at">family =</span> quasibinomial)), m<span class="sc">$</span>isglt2)</span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>  b <span class="ot">&lt;-</span> \(w) <span class="fu">coef</span>(<span class="fu">lm</span>(pendiente_tfg <span class="sc">~</span> isglt2, <span class="at">data =</span> m, <span class="at">weights =</span> w))[[<span class="st">"isglt2"</span>]]</span>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">c</span>(<span class="st">`</span><span class="at">1. Ignorar el diseño</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">b</span>(w_s), <span class="st">`</span><span class="at">3. Peso muestral x PS (PS sin pesos)</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">b</span>(m<span class="sc">$</span>peso <span class="sc">*</span> w_s),</span>
+<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a>    <span class="st">`</span><span class="at">4. Peso muestral x PS (PS con pesos)</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">b</span>(m<span class="sc">$</span>peso <span class="sc">*</span> w_c))</span>
+<span id="cb9-10"><a href="#cb9-10" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb9-11"><a href="#cb9-11" aria-hidden="true" tabindex="-1"></a>rep_enc <span class="ot">&lt;-</span> <span class="fu">map_dfr</span>(<span class="dv">1</span><span class="sc">:</span><span class="dv">100</span>, \(s) <span class="fu">as.list</span>(<span class="fu">una_encuesta</span>(s)))</span>
+<span id="cb9-12"><a href="#cb9-12" aria-hidden="true" tabindex="-1"></a><span class="fu">tibble</span>(<span class="at">metodo =</span> <span class="fu">names</span>(rep_enc), <span class="at">media =</span> <span class="fu">colMeans</span>(rep_enc), <span class="at">de =</span> <span class="fu">apply</span>(rep_enc, <span class="dv">2</span>, sd)) <span class="sc">|&gt;</span></span>
+<span id="cb9-13"><a href="#cb9-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">sesgo_vs_poblacion =</span> media <span class="sc">-</span> pate, <span class="fu">across</span>(<span class="fu">where</span>(is.numeric), \(x) <span class="fu">round</span>(x, <span class="dv">2</span>)))</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 3 × 4
+  metodo                               media    de sesgo_vs_poblacion
+  &lt;chr&gt;                                &lt;dbl&gt; &lt;dbl&gt;              &lt;dbl&gt;
+1 1. Ignorar el diseño                  1.31  0.08               0.32
+2 3. Peso muestral x PS (PS sin pesos)  0.98  0.11              -0.01
+3 4. Peso muestral x PS (PS con pesos)  0.98  0.11              -0.01</code></pre>
+</div>
+</div>
+<p><strong>Qué vemos:</strong> ignorar el diseño sobreestima el efecto poblacional de forma <strong>sistemática</strong> (media 1.31 frente a 0.99). Con el peso muestral, las dos versiones son <strong>prácticamente insesgadas</strong> (0.98 y 0.98) y entre ellas no hay diferencia apreciable aquí: el modelo del PS ya incluye el área, la variable de diseño. Lo que <strong>no</strong> es opcional es el peso muestral en el análisis final.</p>
+</section>
+<section id="paso-4-subpoblaciones-subset-sobre-el-diseño" class="level3">
+<h3 class="anchored" data-anchor-id="paso-4-subpoblaciones-subset-sobre-el-diseño">Paso 4: subpoblaciones, <code>subset()</code> sobre el diseño</h3>
+<p>¿Y el efecto en mayores de 70 años? Igual que en el Cap. 6.3: se filtra el <strong>diseño</strong>, no la base. El PS se estima con toda la muestra (más información) y el diseño se recorta después:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>enc <span class="ot">&lt;-</span> enc <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">w_final =</span> peso <span class="sc">*</span> w_con)</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>dis_f  <span class="ot">&lt;-</span> <span class="fu">svydesign</span>(<span class="at">ids =</span> <span class="sc">~</span>cluster, <span class="at">strata =</span> <span class="sc">~</span>area, <span class="at">weights =</span> <span class="sc">~</span>w_final, <span class="at">data =</span> enc, <span class="at">nest =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>sub_ok <span class="ot">&lt;-</span> <span class="fu">svyglm</span>(pendiente_tfg <span class="sc">~</span> isglt2, <span class="fu">subset</span>(dis_f, edad <span class="sc">&gt;=</span> <span class="dv">70</span>))        <span class="co"># correcto</span></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>dis_mal <span class="ot">&lt;-</span> <span class="fu">svydesign</span>(<span class="at">ids =</span> <span class="sc">~</span>cluster, <span class="at">strata =</span> <span class="sc">~</span>area, <span class="at">weights =</span> <span class="sc">~</span>w_final, <span class="at">nest =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>                     <span class="at">data =</span> <span class="fu">filter</span>(enc, edad <span class="sc">&gt;=</span> <span class="dv">70</span>))                      <span class="co"># lo que NO se debe hacer</span></span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>sub_mal <span class="ot">&lt;-</span> <span class="fu">svyglm</span>(pendiente_tfg <span class="sc">~</span> isglt2, dis_mal)</span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a><span class="fu">tibble</span>(<span class="at">analisis =</span> <span class="fu">c</span>(<span class="st">"subset() del diseño"</span>, <span class="st">"Filtrar la base"</span>, <span class="st">"Verdad (región)"</span>),</span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a>       <span class="at">estimado =</span> <span class="fu">c</span>(<span class="fu">coef</span>(sub_ok)[[<span class="st">"isglt2"</span>]], <span class="fu">coef</span>(sub_mal)[[<span class="st">"isglt2"</span>]], <span class="fu">mean</span>(pob<span class="sc">$</span>ite[pob<span class="sc">$</span>edad <span class="sc">&gt;=</span> <span class="dv">70</span>])),</span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a>       <span class="at">ee =</span> <span class="fu">c</span>(<span class="fu">SE</span>(sub_ok)[[<span class="st">"isglt2"</span>]], <span class="fu">SE</span>(sub_mal)[[<span class="st">"isglt2"</span>]], <span class="cn">NA</span>)) <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="fu">across</span>(<span class="fu">where</span>(is.numeric), \(x) <span class="fu">round</span>(x, <span class="dv">3</span>)))</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 3 × 3
+  analisis            estimado     ee
+  &lt;chr&gt;                  &lt;dbl&gt;  &lt;dbl&gt;
+1 subset() del diseño    0.917  0.129
+2 Filtrar la base        0.917  0.129
+3 Verdad (región)        0.942 NA    </code></pre>
+</div>
+</div>
+<p><strong>Qué vemos:</strong> el efecto en mayores de 70 años es 0.92 (verdad 0.94), con un EE de 0.129. Aquí filtrar la base da casi lo mismo (EE 0.129) porque hay mayores de 70 años en 60 de las 60 comunidades. No es una garantía: con subgrupos raros, filtrar la base cambia el EE y a veces R ni puede calcular la varianza. Por eso la regla es siempre <code>subset()</code> sobre el diseño.</p>
+<p>Con los paquetes <code>WeightIt</code> y <code>cobalt</code> (código no verificado en el entorno de pruebas del libro; el análisis anterior es la versión propia ejecutable):</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(WeightIt); <span class="fu">library</span>(cobalt)</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>w_enc <span class="ot">&lt;-</span> <span class="fu">weightit</span>(isglt2 <span class="sc">~</span> <span class="fu">I</span>(edad <span class="sc">/</span> <span class="dv">10</span>) <span class="sc">+</span> sexo <span class="sc">+</span> tfg <span class="sc">+</span> luacr <span class="sc">+</span> area, <span class="at">data =</span> enc,</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>                  <span class="at">method =</span> <span class="st">"glm"</span>, <span class="at">estimand =</span> <span class="st">"ATE"</span>, <span class="at">s.weights =</span> <span class="st">"peso"</span>)   <span class="co"># s.weights: peso muestral</span></span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a><span class="fu">bal.tab</span>(w_enc, <span class="at">un =</span> <span class="cn">TRUE</span>, <span class="at">thresholds =</span> <span class="fu">c</span>(<span class="at">m =</span> <span class="fl">0.1</span>))                          <span class="co"># balance ponderado</span></span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>enc<span class="sc">$</span>w_wi <span class="ot">&lt;-</span> enc<span class="sc">$</span>peso <span class="sc">*</span> w_enc<span class="sc">$</span>weights                                        <span class="co"># peso final = muestral x PS</span></span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>dis_wi <span class="ot">&lt;-</span> <span class="fu">svydesign</span>(<span class="at">ids =</span> <span class="sc">~</span>cluster, <span class="at">strata =</span> <span class="sc">~</span>area, <span class="at">weights =</span> <span class="sc">~</span>w_wi, <span class="at">data =</span> enc, <span class="at">nest =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a><span class="fu">svyglm</span>(pendiente_tfg <span class="sc">~</span> isglt2, dis_wi)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</section>
+</section>
+<section id="parte-2.-ps-con-imputación-múltiple" class="level2">
+<h2 class="anchored" data-anchor-id="parte-2.-ps-con-imputación-múltiple">Parte 2. PS con imputación múltiple</h2>
+<section id="paso-5-una-cohorte-con-faltantes-que-dependen-del-desenlace" class="level3">
+<h3 class="anchored" data-anchor-id="paso-5-una-cohorte-con-faltantes-que-dependen-del-desenlace">Paso 5: una cohorte con faltantes que dependen del desenlace</h3>
+<p>Cohorte simulada de 3 000 pacientes (sin confusión no medida). Con un mecanismo <strong>MAR</strong>, la UACR falta en un tercio y la HbA1c en cerca de un 10 % (cifras exactas abajo): la falta depende de edad, TFGe, tratamiento y <strong>del propio desenlace</strong> (falta más en los tratados y en quienes evolucionan peor). Conocemos el ATE verdadero y, además, el análisis con la base completa (la referencia que una base con faltantes intenta alcanzar):</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>comp <span class="ot">&lt;-</span> <span class="fu">simular_ps_completa</span>()                                  <span class="co"># base completa (oráculo)</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>dat  <span class="ot">&lt;-</span> <span class="fu">con_faltantes</span>(comp) <span class="sc">|&gt;</span> <span class="fu">select</span>(<span class="sc">-</span>id, <span class="sc">-</span>ite) <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">sexo =</span> <span class="fu">factor</span>(sexo))</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>comp <span class="ot">&lt;-</span> comp <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">sexo =</span> <span class="fu">factor</span>(sexo))</span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>f_ps2 <span class="ot">&lt;-</span> isglt2 <span class="sc">~</span> <span class="fu">I</span>(edad <span class="sc">/</span> <span class="dv">10</span>) <span class="sc">+</span> sexo <span class="sc">+</span> hba1c <span class="sc">+</span> tfg_basal <span class="sc">+</span> luacr <span class="sc">+</span> ecv</span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>ate2 <span class="ot">&lt;-</span> <span class="fu">mean</span>(comp<span class="sc">$</span>ite)</span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a>ref  <span class="ot">&lt;-</span> <span class="fu">ipw_una_base</span>(comp, f_ps2)                               <span class="co"># IPW con la base completa</span></span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a>cc   <span class="ot">&lt;-</span> <span class="fu">ipw_una_base</span>(<span class="fu">na.omit</span>(dat), f_ps2)                       <span class="co"># IPW con casos completos</span></span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a><span class="fu">c</span>(<span class="at">faltan_luacr =</span> <span class="fu">mean</span>(<span class="fu">is.na</span>(dat<span class="sc">$</span>luacr)), <span class="at">faltan_hba1c =</span> <span class="fu">mean</span>(<span class="fu">is.na</span>(dat<span class="sc">$</span>hba1c)),</span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">pacientes_completos =</span> <span class="fu">nrow</span>(<span class="fu">na.omit</span>(dat)) <span class="sc">/</span> <span class="fu">nrow</span>(dat)) <span class="sc">|&gt;</span> <span class="fu">round</span>(<span class="dv">2</span>)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>       faltan_luacr        faltan_hba1c pacientes_completos 
+               0.36                0.11                0.59 </code></pre>
+</div>
+</div>
+<p>Con <strong>casos completos</strong> quedan 1 760 pacientes y el ATE sale en <strong>0.83</strong>; con la base completa, 0.93; la verdad es 0.90. Los casos completos no son una muestra al azar: entre ellos el 48 % está tratado (en toda la cohorte, el 45 %) y su pendiente media es -1.45 (en toda la cohorte, -1.98).</p>
+</section>
+<section id="paso-6-imputar-con-el-tratamiento-y-el-desenlace-y-el-feo-sin-desenlace" class="level3">
+<h3 class="anchored" data-anchor-id="paso-6-imputar-con-el-tratamiento-y-el-desenlace-y-el-feo-sin-desenlace">Paso 6: imputar con el tratamiento y el desenlace (y el “feo” sin desenlace)</h3>
+<p>El modelo de imputación debe contener <strong>todo lo que usarás después</strong>: el tratamiento, el desenlace y los confusores. Por defecto, <code>mice</code> usa todas las columnas como predictores; aquí lo hacemos explícito para poder <strong>quitar</strong> el desenlace y ver qué pasa:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>pm <span class="ot">&lt;-</span> <span class="fu">make.predictorMatrix</span>(dat)                  <span class="co"># todos predicen a todos (incluye isglt2 y pendiente_tfg)</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>imp <span class="ot">&lt;-</span> <span class="fu">mice</span>(dat, <span class="at">m =</span> <span class="dv">20</span>, <span class="at">maxit =</span> <span class="dv">10</span>, <span class="at">method =</span> <span class="st">"pmm"</span>, <span class="at">predictorMatrix =</span> pm, <span class="at">printFlag =</span> <span class="cn">FALSE</span>, <span class="at">seed =</span> <span class="dv">1</span>)</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>pm0 <span class="ot">&lt;-</span> pm; pm0[, <span class="st">"pendiente_tfg"</span>] <span class="ot">&lt;-</span> <span class="dv">0</span>           <span class="co"># el "feo": el desenlace NO ayuda a imputar</span></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>imp0 <span class="ot">&lt;-</span> <span class="fu">mice</span>(dat, <span class="at">m =</span> <span class="dv">20</span>, <span class="at">maxit =</span> <span class="dv">10</span>, <span class="at">method =</span> <span class="st">"pmm"</span>, <span class="at">predictorMatrix =</span> pm0, <span class="at">printFlag =</span> <span class="cn">FALSE</span>, <span class="at">seed =</span> <span class="dv">1</span>)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</section>
+<section id="paso-7-enfoque-within-el-ps-dentro-de-cada-imputación" class="level3">
+<h3 class="anchored" data-anchor-id="paso-7-enfoque-within-el-ps-dentro-de-cada-imputación">Paso 7: enfoque <em>within</em>, el PS dentro de cada imputación</h3>
+<p>El orden del Cap. 13.5: (1) imputar <span class="math inline">\(m\)</span> bases; (2) <strong>en cada base</strong>, estimar el PS, ponderar y estimar el efecto; (3) combinar las <span class="math inline">\(m\)</span> estimaciones con las <strong>reglas de Rubin</strong>. Usamos <code>ipw_una_base()</code> (ver <code>R/funciones_cap1210.R</code>), que devuelve el estimado y su varianza robusta, y <code>mitools::MIcombine()</code> para combinar:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>combinar <span class="ot">&lt;-</span> <span class="cf">function</span>(imputacion) {</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>  res <span class="ot">&lt;-</span> <span class="fu">map</span>(<span class="fu">complete</span>(imputacion, <span class="st">"all"</span>), ipw_una_base, <span class="at">formula_ps =</span> f_ps2)    <span class="co"># PS + pesos + efecto en cada base</span></span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>  mi  <span class="ot">&lt;-</span> <span class="fu">MIcombine</span>(<span class="fu">map</span>(res, <span class="st">"estimado"</span>), <span class="fu">map</span>(res, <span class="st">"varianza"</span>))                  <span class="co"># reglas de Rubin</span></span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">res =</span> res, <span class="at">estimado =</span> <span class="fu">coef</span>(mi)[[<span class="dv">1</span>]], <span class="at">ee =</span> <span class="fu">sqrt</span>(<span class="fu">vcov</span>(mi)[<span class="dv">1</span>, <span class="dv">1</span>]))</span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a>within  <span class="ot">&lt;-</span> <span class="fu">combinar</span>(imp)</span>
+<span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a>sin_y   <span class="ot">&lt;-</span> <span class="fu">combinar</span>(imp0)</span>
+<span id="cb17-8"><a href="#cb17-8" aria-hidden="true" tabindex="-1"></a>por_base <span class="ot">&lt;-</span> <span class="fu">map_dbl</span>(within<span class="sc">$</span>res, <span class="st">"estimado"</span>)                                   <span class="co"># un ATE por cada base imputada</span></span>
+<span id="cb17-9"><a href="#cb17-9" aria-hidden="true" tabindex="-1"></a><span class="fu">c</span>(<span class="at">within =</span> within<span class="sc">$</span>estimado, <span class="at">ee =</span> within<span class="sc">$</span>ee, <span class="at">minimo_base =</span> <span class="fu">min</span>(por_base), <span class="at">maximo_base =</span> <span class="fu">max</span>(por_base)) <span class="sc">|&gt;</span> <span class="fu">round</span>(<span class="dv">3</span>)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>     within          ee minimo_base maximo_base 
+      0.942       0.055       0.897       0.961 </code></pre>
+</div>
+</div>
+<p>Cada una de las 20 bases da un ATE algo distinto (de 0.90 a 0.96). Rubin los combina y suma esa variación entre bases al error estándar. Con <code>mice</code> el equivalente es <code>pool()</code>, pero con una restricción importante:</p>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Advertencia</span>⚠️ <code>with(imp, ...)</code> no ve una fórmula guardada fuera
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Si escribes la fórmula en un objeto y la pasas a <code>with()</code>, falla, porque la fórmula “recuerda” el entorno global y no las columnas de cada base imputada. La fórmula debe ir <strong>dentro</strong> de la llamada, o usa una función aplicada a <code>complete(imp, "all")</code> como arriba.</p>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>f_externa <span class="ot">&lt;-</span> isglt2 <span class="sc">~</span> <span class="fu">I</span>(edad <span class="sc">/</span> <span class="dv">10</span>) <span class="sc">+</span> luacr</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a><span class="fu">with</span>(imp, <span class="fu">glm</span>(f_externa, <span class="at">family =</span> binomial))                       <span class="co"># falla</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-error">
+<pre><code>Error in eval(predvars, data, env): object 'isglt2' not found</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>res_ok <span class="ot">&lt;-</span> <span class="fu">with</span>(imp, <span class="fu">glm</span>(isglt2 <span class="sc">~</span> <span class="fu">I</span>(edad <span class="sc">/</span> <span class="dv">10</span>) <span class="sc">+</span> luacr, <span class="at">family =</span> binomial))   <span class="co"># fórmula inline: funciona</span></span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a><span class="fu">class</span>(res_ok)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>[1] "mira"   "matrix"</code></pre>
+</div>
+</div>
+</section>
+<section id="paso-8-enfoque-promediar-el-ps" class="level3">
+<h3 class="anchored" data-anchor-id="paso-8-enfoque-promediar-el-ps">Paso 8: enfoque “promediar el PS”</h3>
+<p>La alternativa es estimar el PS en cada base, <strong>promediarlo</strong> por paciente y hacer <strong>un solo</strong> análisis con ese PS promedio:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a>ps_prom <span class="ot">&lt;-</span> <span class="fu">Reduce</span>(<span class="st">`</span><span class="at">+</span><span class="st">`</span>, <span class="fu">map</span>(within<span class="sc">$</span>res, <span class="st">"ps"</span>)) <span class="sc">/</span> <span class="fu">length</span>(within<span class="sc">$</span>res)         <span class="co"># PS promedio por paciente</span></span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>promedio <span class="ot">&lt;-</span> <span class="fu">ipw_una_base</span>(<span class="fu">complete</span>(imp, <span class="dv">1</span>), f_ps2, <span class="at">ps =</span> ps_prom)            <span class="co"># un solo análisis (la base 1)</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>Su error estándar sale de un solo análisis y <strong>no recoge</strong> la incertidumbre de la imputación (Rubin sí).</p>
+</section>
+<section id="paso-9-comparar-todo-con-la-verdad" class="level3">
+<h3 class="anchored" data-anchor-id="paso-9-comparar-todo-con-la-verdad">Paso 9: comparar todo con la verdad</h3>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>res_mi <span class="ot">&lt;-</span> <span class="fu">tibble</span>(</span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">metodo =</span> <span class="fu">c</span>(<span class="st">"Base completa (referencia)"</span>, <span class="st">"Casos completos"</span>, <span class="st">"Imputar SIN desenlace"</span>, <span class="st">"Imputación: within"</span>, <span class="st">"Imputación: promediar PS"</span>),</span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">estimado =</span> <span class="fu">c</span>(ref<span class="sc">$</span>estimado, cc<span class="sc">$</span>estimado, sin_y<span class="sc">$</span>estimado, within<span class="sc">$</span>estimado, promedio<span class="sc">$</span>estimado),</span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">ee =</span> <span class="fu">sqrt</span>(<span class="fu">c</span>(ref<span class="sc">$</span>varianza, cc<span class="sc">$</span>varianza, sin_y<span class="sc">$</span>ee<span class="sc">^</span><span class="dv">2</span>, within<span class="sc">$</span>ee<span class="sc">^</span><span class="dv">2</span>, promedio<span class="sc">$</span>varianza))</span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a>) <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">ic_inf =</span> estimado <span class="sc">-</span> <span class="fl">1.96</span> <span class="sc">*</span> ee, <span class="at">ic_sup =</span> estimado <span class="sc">+</span> <span class="fl">1.96</span> <span class="sc">*</span> ee)</span>
+<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a><span class="fu">grafico_estimaciones</span>(res_mi, ate2)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="Capítulo12.10_files/figure-html/c1210-comparar-mi-1.png" class="img-fluid figure-img" width="768"></p>
+</figure>
+</div>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a>res_mi <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="fu">across</span>(<span class="fu">where</span>(is.numeric), \(x) <span class="fu">round</span>(x, <span class="dv">3</span>)))</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 5 × 5
+  metodo                     estimado    ee ic_inf ic_sup
+  &lt;chr&gt;                         &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;
+1 Base completa (referencia)    0.931 0.053  0.828  1.03 
+2 Casos completos               0.827 0.061  0.708  0.947
+3 Imputar SIN desenlace         0.815 0.058  0.701  0.929
+4 Imputación: within            0.942 0.055  0.833  1.05 
+5 Imputación: promediar PS      0.937 0.051  0.837  1.04 </code></pre>
+</div>
+</div>
+<p><strong>Qué vemos:</strong> <em>within</em> (0.94) y promediar el PS (0.94) quedan cerca de la referencia (0.93) y de la verdad (0.90). Los casos completos (0.83) y, sobre todo, imputar <strong>sin el desenlace</strong> (0.81) se alejan. El error estándar de <em>within</em> (0.055) es mayor que el de promediar (0.051), como debe ser: suma la incertidumbre de imputar.</p>
+<p>Una sola base puede engañar (la referencia misma no coincide con la verdad: es una muestra). Repetimos la cohorte 40 veces, con m = 5 imputaciones para ir rápido:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb27"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a>una_cohorte <span class="ot">&lt;-</span> <span class="cf">function</span>(s) {</span>
+<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a>  cm <span class="ot">&lt;-</span> <span class="fu">simular_ps_completa</span>(<span class="at">semilla =</span> s) <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">sexo =</span> <span class="fu">factor</span>(sexo))</span>
+<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a>  d  <span class="ot">&lt;-</span> <span class="fu">con_faltantes</span>(cm, <span class="at">semilla =</span> s <span class="sc">+</span> <span class="dv">500</span>) <span class="sc">|&gt;</span> <span class="fu">select</span>(<span class="sc">-</span>id, <span class="sc">-</span>ite)</span>
+<span id="cb27-4"><a href="#cb27-4" aria-hidden="true" tabindex="-1"></a>  pm1 <span class="ot">&lt;-</span> <span class="fu">make.predictorMatrix</span>(d); pm2 <span class="ot">&lt;-</span> pm1; pm2[, <span class="st">"pendiente_tfg"</span>] <span class="ot">&lt;-</span> <span class="dv">0</span></span>
+<span id="cb27-5"><a href="#cb27-5" aria-hidden="true" tabindex="-1"></a>  i1 <span class="ot">&lt;-</span> <span class="fu">complete</span>(<span class="fu">mice</span>(d, <span class="at">m =</span> <span class="dv">5</span>, <span class="at">maxit =</span> <span class="dv">5</span>, <span class="at">method =</span> <span class="st">"pmm"</span>, <span class="at">predictorMatrix =</span> pm1, <span class="at">printFlag =</span> <span class="cn">FALSE</span>, <span class="at">seed =</span> s), <span class="st">"all"</span>)</span>
+<span id="cb27-6"><a href="#cb27-6" aria-hidden="true" tabindex="-1"></a>  i2 <span class="ot">&lt;-</span> <span class="fu">complete</span>(<span class="fu">mice</span>(d, <span class="at">m =</span> <span class="dv">5</span>, <span class="at">maxit =</span> <span class="dv">5</span>, <span class="at">method =</span> <span class="st">"pmm"</span>, <span class="at">predictorMatrix =</span> pm2, <span class="at">printFlag =</span> <span class="cn">FALSE</span>, <span class="at">seed =</span> s), <span class="st">"all"</span>)</span>
+<span id="cb27-7"><a href="#cb27-7" aria-hidden="true" tabindex="-1"></a>  ps <span class="ot">&lt;-</span> <span class="fu">Reduce</span>(<span class="st">`</span><span class="at">+</span><span class="st">`</span>, <span class="fu">map</span>(i1, \(b) <span class="fu">ipw_una_base</span>(b, f_ps2)<span class="sc">$</span>ps)) <span class="sc">/</span> <span class="dv">5</span></span>
+<span id="cb27-8"><a href="#cb27-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">c</span>(<span class="at">verdad =</span> <span class="fu">mean</span>(cm<span class="sc">$</span>ite), <span class="st">`</span><span class="at">Base completa</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">ipw_una_base</span>(cm, f_ps2)<span class="sc">$</span>estimado,</span>
+<span id="cb27-9"><a href="#cb27-9" aria-hidden="true" tabindex="-1"></a>    <span class="st">`</span><span class="at">Casos completos</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">ipw_una_base</span>(<span class="fu">na.omit</span>(d), f_ps2)<span class="sc">$</span>estimado,</span>
+<span id="cb27-10"><a href="#cb27-10" aria-hidden="true" tabindex="-1"></a>    <span class="st">`</span><span class="at">Imputar SIN desenlace</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">mean</span>(<span class="fu">map_dbl</span>(i2, \(b) <span class="fu">ipw_una_base</span>(b, f_ps2)<span class="sc">$</span>estimado)),</span>
+<span id="cb27-11"><a href="#cb27-11" aria-hidden="true" tabindex="-1"></a>    <span class="st">`</span><span class="at">Within</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">mean</span>(<span class="fu">map_dbl</span>(i1, \(b) <span class="fu">ipw_una_base</span>(b, f_ps2)<span class="sc">$</span>estimado)),</span>
+<span id="cb27-12"><a href="#cb27-12" aria-hidden="true" tabindex="-1"></a>    <span class="st">`</span><span class="at">Promediar PS</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">ipw_una_base</span>(i1[[<span class="dv">1</span>]], f_ps2, <span class="at">ps =</span> ps)<span class="sc">$</span>estimado)</span>
+<span id="cb27-13"><a href="#cb27-13" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb27-14"><a href="#cb27-14" aria-hidden="true" tabindex="-1"></a>rep_mi <span class="ot">&lt;-</span> <span class="fu">map_dfr</span>(<span class="dv">1</span><span class="sc">:</span><span class="dv">40</span>, \(s) <span class="fu">as.list</span>(<span class="fu">una_cohorte</span>(s)), <span class="at">.progress =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb27-15"><a href="#cb27-15" aria-hidden="true" tabindex="-1"></a><span class="fu">tibble</span>(<span class="at">metodo =</span> <span class="fu">names</span>(rep_mi)[<span class="sc">-</span><span class="dv">1</span>], <span class="at">media =</span> <span class="fu">colMeans</span>(rep_mi[<span class="sc">-</span><span class="dv">1</span>]), <span class="at">de =</span> <span class="fu">apply</span>(rep_mi[<span class="sc">-</span><span class="dv">1</span>], <span class="dv">2</span>, sd),</span>
+<span id="cb27-16"><a href="#cb27-16" aria-hidden="true" tabindex="-1"></a>       <span class="at">sesgo =</span> <span class="fu">colMeans</span>(rep_mi[<span class="sc">-</span><span class="dv">1</span>]) <span class="sc">-</span> <span class="fu">mean</span>(rep_mi<span class="sc">$</span>verdad)) <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="fu">across</span>(<span class="fu">where</span>(is.numeric), \(x) <span class="fu">round</span>(x, <span class="dv">3</span>)))</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 5 × 4
+  metodo                media    de  sesgo
+  &lt;chr&gt;                 &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt;
+1 Base completa         0.902 0.047  0.001
+2 Casos completos       0.828 0.061 -0.073
+3 Imputar SIN desenlace 0.817 0.047 -0.083
+4 Within                0.907 0.05   0.006
+5 Promediar PS          0.907 0.049  0.007</code></pre>
+</div>
+</div>
+<p><strong>Qué vemos:</strong> en promedio, la base completa, <em>within</em> y promediar el PS están a menos de 0.01 de la verdad; los casos completos sesgan -0.07 y la imputación sin desenlace -0.08. <strong>Entre <em>within</em> y promediar el PS no hay diferencia en el punto</strong> en este escenario sencillo; lo que sí cambia es el error estándar (en la cohorte de arriba, 0.055 frente a 0.051). Leyrat y colaboradores (2019) compararon ambos enfoques con simulaciones y recomiendan <em>within</em>, que además es el que respeta las reglas de Rubin. (Con el paquete <code>MatchThem</code>, <code>weightthem()</code> automatiza el flujo <em>within</em>; ver Cap. 13.5.)</p>
+</section>
+</section>
+<section id="parte-3.-tres-niveles-de-exposición" class="level2">
+<h2 class="anchored" data-anchor-id="parte-3.-tres-niveles-de-exposición">Parte 3. Tres niveles de exposición</h2>
+<section id="paso-10-el-ps-multinomial" class="level3">
+<h3 class="anchored" data-anchor-id="paso-10-el-ps-multinomial">Paso 10: el PS multinomial</h3>
+<p>Con tres grupos (<strong>Ninguno, aGLP-1, iSGLT2</strong>) cada paciente tiene <strong>tres</strong> probabilidades que suman 1: <span class="math inline">\(e_k(X) = P(A = k \mid X)\)</span>. Se estiman con una regresión logística <strong>multinomial</strong> (<code>nnet::multinom</code>; <code>VGAM::vglm</code> da lo mismo). Simulamos 4 000 pacientes (datos simulados) con efectos distintos para cada fármaco:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb29"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a>d3 <span class="ot">&lt;-</span> <span class="fu">simular_tres_trat</span>() <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">sexo =</span> <span class="fu">factor</span>(sexo), <span class="at">hombre =</span> <span class="fu">as.integer</span>(sexo <span class="sc">==</span> <span class="st">"Hombre"</span>))</span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a>verdad3 <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">`</span><span class="at">aGLP-1 - Ninguno</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">mean</span>(d3<span class="sc">$</span>y_glp1 <span class="sc">-</span> d3<span class="sc">$</span>y_ninguno), <span class="st">`</span><span class="at">iSGLT2 - Ninguno</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">mean</span>(d3<span class="sc">$</span>y_isglt2 <span class="sc">-</span> d3<span class="sc">$</span>y_ninguno),</span>
+<span id="cb29-3"><a href="#cb29-3" aria-hidden="true" tabindex="-1"></a>             <span class="st">`</span><span class="at">iSGLT2 - aGLP-1</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">mean</span>(d3<span class="sc">$</span>y_isglt2 <span class="sc">-</span> d3<span class="sc">$</span>y_glp1))</span>
+<span id="cb29-4"><a href="#cb29-4" aria-hidden="true" tabindex="-1"></a>f_ps3 <span class="ot">&lt;-</span> trat <span class="sc">~</span> <span class="fu">I</span>(edad <span class="sc">/</span> <span class="dv">10</span>) <span class="sc">+</span> sexo <span class="sc">+</span> imc <span class="sc">+</span> hba1c <span class="sc">+</span> tfg_basal <span class="sc">+</span> luacr <span class="sc">+</span> ecv</span>
+<span id="cb29-5"><a href="#cb29-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb29-6"><a href="#cb29-6" aria-hidden="true" tabindex="-1"></a>m_multi <span class="ot">&lt;-</span> <span class="fu">multinom</span>(f_ps3, <span class="at">data =</span> d3, <span class="at">trace =</span> <span class="cn">FALSE</span>, <span class="at">maxit =</span> <span class="dv">500</span>)</span>
+<span id="cb29-7"><a href="#cb29-7" aria-hidden="true" tabindex="-1"></a>P <span class="ot">&lt;-</span> <span class="fu">predict</span>(m_multi, <span class="at">type =</span> <span class="st">"probs"</span>)                    <span class="co"># matriz n x 3: P(Ninguno), P(aGLP-1), P(iSGLT2)</span></span>
+<span id="cb29-8"><a href="#cb29-8" aria-hidden="true" tabindex="-1"></a><span class="fu">round</span>(verdad3, <span class="dv">2</span>)        <span class="co"># efectos verdaderos por pares (solo en simulación)</span></span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>aGLP-1 - Ninguno iSGLT2 - Ninguno  iSGLT2 - aGLP-1 
+            0.40             0.92             0.51 </code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb31"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="fu">table</span>(d3<span class="sc">$</span>trat)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>
+Ninguno  aGLP-1  iSGLT2 
+   1868     839    1293 </code></pre>
+</div>
+</div>
+</section>
+<section id="paso-11-solapamiento-con-tres-grupos" class="level3">
+<h3 class="anchored" data-anchor-id="paso-11-solapamiento-con-tres-grupos">Paso 11: solapamiento con tres grupos</h3>
+<p>La positividad se mira <strong>nivel por nivel</strong>: para cada una de las tres probabilidades, los tres grupos deberían tener representantes en todo el rango.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb33"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a><span class="fu">as_tibble</span>(P) <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">recibio =</span> d3<span class="sc">$</span>trat) <span class="sc">|&gt;</span></span>
+<span id="cb33-2"><a href="#cb33-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">pivot_longer</span>(<span class="sc">-</span>recibio, <span class="at">names_to =</span> <span class="st">"probabilidad_de"</span>, <span class="at">values_to =</span> <span class="st">"p"</span>) <span class="sc">|&gt;</span></span>
+<span id="cb33-3"><a href="#cb33-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">probabilidad_de =</span> <span class="fu">factor</span>(<span class="fu">paste0</span>(<span class="st">"P("</span>, probabilidad_de, <span class="st">")"</span>), <span class="fu">paste0</span>(<span class="st">"P("</span>, <span class="fu">levels</span>(d3<span class="sc">$</span>trat), <span class="st">")"</span>))) <span class="sc">|&gt;</span></span>
+<span id="cb33-4"><a href="#cb33-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(p, <span class="at">fill =</span> recibio)) <span class="sc">+</span></span>
+<span id="cb33-5"><a href="#cb33-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_density</span>(<span class="at">alpha =</span> <span class="fl">0.5</span>, <span class="at">color =</span> <span class="cn">NA</span>) <span class="sc">+</span></span>
+<span id="cb33-6"><a href="#cb33-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span>probabilidad_de, <span class="at">scales =</span> <span class="st">"free_y"</span>) <span class="sc">+</span></span>
+<span id="cb33-7"><a href="#cb33-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="at">Ninguno =</span> <span class="st">"#999999"</span>, <span class="st">`</span><span class="at">aGLP-1</span><span class="st">`</span> <span class="ot">=</span> <span class="st">"#E69F00"</span>, <span class="at">iSGLT2 =</span> <span class="st">"#0072B2"</span>), <span class="at">name =</span> <span class="st">"Recibió"</span>) <span class="sc">+</span></span>
+<span id="cb33-8"><a href="#cb33-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"Probabilidad estimada"</span>, <span class="at">y =</span> <span class="st">"Densidad"</span>, <span class="at">caption =</span> <span class="st">"Datos simulados."</span>) <span class="sc">+</span></span>
+<span id="cb33-9"><a href="#cb33-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>(<span class="at">base_size =</span> <span class="dv">11</span>) <span class="sc">+</span> <span class="fu">theme</span>(<span class="at">legend.position =</span> <span class="st">"bottom"</span>)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="Capítulo12.10_files/figure-html/c1210-fig-solape3-1.png" class="img-fluid figure-img" width="864"></p>
+</figure>
+</div>
+</div>
+</div>
+<p><strong>Qué vemos:</strong> en cada panel, el grupo que <strong>sí</strong> recibió ese nivel tiene probabilidades más altas, pero los tres se solapan. No hay zonas donde un grupo desaparezca: la probabilidad mínima de recibir el tratamiento <strong>efectivamente recibido</strong> es 0.052.</p>
+</section>
+<section id="paso-12-pesos-generalizados-y-balance-entre-grupos" class="level3">
+<h3 class="anchored" data-anchor-id="paso-12-pesos-generalizados-y-balance-entre-grupos">Paso 12: pesos generalizados y balance entre grupos</h3>
+<p>La generalización del IPW es directa: cada paciente recibe <span class="math inline">\(1/P(\text{su tratamiento}\mid X)\)</span>, la inversa de la probabilidad <strong>del nivel que recibió</strong>. Eso da una pseudopoblación en la que los tres grupos se parecen y que representa a <strong>todos</strong> los pacientes (ATE entre los tres).</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb34"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a>d3<span class="sc">$</span>ps_recibido <span class="ot">&lt;-</span> P[<span class="fu">cbind</span>(<span class="dv">1</span><span class="sc">:</span><span class="fu">nrow</span>(P), <span class="fu">as.integer</span>(d3<span class="sc">$</span>trat))]       <span class="co"># probabilidad del nivel que recibió</span></span>
+<span id="cb34-2"><a href="#cb34-2" aria-hidden="true" tabindex="-1"></a>d3<span class="sc">$</span>w <span class="ot">&lt;-</span> <span class="dv">1</span> <span class="sc">/</span> d3<span class="sc">$</span>ps_recibido</span>
+<span id="cb34-3"><a href="#cb34-3" aria-hidden="true" tabindex="-1"></a>d3 <span class="sc">|&gt;</span> <span class="fu">group_by</span>(trat) <span class="sc">|&gt;</span> <span class="fu">summarise</span>(<span class="at">n =</span> <span class="fu">n</span>(), <span class="at">peso_medio =</span> <span class="fu">mean</span>(w), <span class="at">peso_maximo =</span> <span class="fu">max</span>(w), <span class="at">ESS =</span> <span class="fu">ess</span>(w)) <span class="sc">|&gt;</span></span>
+<span id="cb34-4"><a href="#cb34-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="fu">across</span>(<span class="fu">where</span>(is.numeric), \(x) <span class="fu">round</span>(x, <span class="dv">1</span>)))</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 3 × 5
+  trat        n peso_medio peso_maximo   ESS
+  &lt;fct&gt;   &lt;dbl&gt;      &lt;dbl&gt;       &lt;dbl&gt; &lt;dbl&gt;
+1 Ninguno  1868        2.1         7.7 1653.
+2 aGLP-1    839        4.8        17.7  662.
+3 iSGLT2   1293        3.1        19.1  956.</code></pre>
+</div>
+</div>
+<p>Para el balance se necesita una DEM entre <strong>más de dos grupos</strong>. Usamos la <strong>DEM máxima entre todos los pares</strong> (<code>dem_max_pares()</code>): si la peor pareja está por debajo de 0.10, todas lo están.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb36"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a>vars3 <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"edad"</span>, <span class="st">"hombre"</span>, <span class="st">"imc"</span>, <span class="st">"hba1c"</span>, <span class="st">"tfg_basal"</span>, <span class="st">"luacr"</span>, <span class="st">"ecv"</span>)</span>
+<span id="cb36-2"><a href="#cb36-2" aria-hidden="true" tabindex="-1"></a>bal3 <span class="ot">&lt;-</span> <span class="fu">tibble</span>(<span class="at">variable =</span> vars3,</span>
+<span id="cb36-3"><a href="#cb36-3" aria-hidden="true" tabindex="-1"></a>               <span class="st">`</span><span class="at">Sin ajustar</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">map_dbl</span>(vars3, \(v) <span class="fu">dem_max_pares</span>(d3[[v]], d3<span class="sc">$</span>trat)),</span>
+<span id="cb36-4"><a href="#cb36-4" aria-hidden="true" tabindex="-1"></a>               <span class="st">`</span><span class="at">Con pesos</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">map_dbl</span>(vars3, \(v) <span class="fu">dem_max_pares</span>(d3[[v]], d3<span class="sc">$</span>trat, d3<span class="sc">$</span>w)))</span>
+<span id="cb36-5"><a href="#cb36-5" aria-hidden="true" tabindex="-1"></a>bal3 <span class="sc">|&gt;</span> <span class="fu">pivot_longer</span>(<span class="sc">-</span>variable, <span class="at">names_to =</span> <span class="st">"ajuste"</span>, <span class="at">values_to =</span> <span class="st">"dem_max"</span>) <span class="sc">|&gt;</span></span>
+<span id="cb36-6"><a href="#cb36-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">variable =</span> <span class="fu">fct_reorder</span>(variable, dem_max, <span class="at">.fun =</span> max)) <span class="sc">|&gt;</span></span>
+<span id="cb36-7"><a href="#cb36-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(dem_max, variable, <span class="at">color =</span> ajuste)) <span class="sc">+</span></span>
+<span id="cb36-8"><a href="#cb36-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_vline</span>(<span class="at">xintercept =</span> <span class="fl">0.1</span>, <span class="at">linetype =</span> <span class="st">"dashed"</span>) <span class="sc">+</span> <span class="fu">geom_point</span>(<span class="at">size =</span> <span class="dv">3</span>) <span class="sc">+</span></span>
+<span id="cb36-9"><a href="#cb36-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_color_brewer</span>(<span class="at">palette =</span> <span class="st">"Dark2"</span>, <span class="at">name =</span> <span class="cn">NULL</span>) <span class="sc">+</span></span>
+<span id="cb36-10"><a href="#cb36-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"|DEM| máxima entre pares de grupos"</span>, <span class="at">y =</span> <span class="cn">NULL</span>, <span class="at">caption =</span> <span class="st">"Línea punteada: 0.10. Datos simulados."</span>) <span class="sc">+</span></span>
+<span id="cb36-11"><a href="#cb36-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>(<span class="at">base_size =</span> <span class="dv">11</span>) <span class="sc">+</span> <span class="fu">theme</span>(<span class="at">legend.position =</span> <span class="st">"bottom"</span>)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="Capítulo12.10_files/figure-html/c1210-fig-balance3-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+<p><strong>Qué vemos:</strong> sin ajustar, la peor DEM entre pares llega a 0.52 (variable luacr: el iSGLT2 se da a quien más albuminuria tiene). Con los pesos, la máxima baja a 0.04. Los pesos llegan a 19.1, pero el tamaño efectivo de muestra es 2 840 de 4 000.</p>
+</section>
+<section id="paso-13-efectos-por-pares" class="level3">
+<h3 class="anchored" data-anchor-id="paso-13-efectos-por-pares">Paso 13: efectos por pares</h3>
+<p>Con el modelo ponderado <code>lm(y ~ trat)</code>, los tres contrastes son diferencias de coeficientes con su error estándar robusto. Comparamos con la fórmula g (Cap. 12.6), que <strong>no usa el PS</strong>: un modelo del desenlace con interacciones, se predice a todos bajo cada nivel y se contrastan los promedios:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb37"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a>fit_crudo <span class="ot">&lt;-</span> <span class="fu">lm</span>(pendiente_tfg <span class="sc">~</span> trat, <span class="at">data =</span> d3)</span>
+<span id="cb37-2"><a href="#cb37-2" aria-hidden="true" tabindex="-1"></a>fit_ipw   <span class="ot">&lt;-</span> <span class="fu">lm</span>(pendiente_tfg <span class="sc">~</span> trat, <span class="at">data =</span> d3, <span class="at">weights =</span> w)</span>
+<span id="cb37-3"><a href="#cb37-3" aria-hidden="true" tabindex="-1"></a>modelo_y  <span class="ot">&lt;-</span> <span class="fu">lm</span>(pendiente_tfg <span class="sc">~</span> trat <span class="sc">*</span> (<span class="fu">I</span>(edad <span class="sc">/</span> <span class="dv">10</span>) <span class="sc">+</span> sexo <span class="sc">+</span> imc <span class="sc">+</span> hba1c <span class="sc">+</span> tfg_basal <span class="sc">+</span> luacr <span class="sc">+</span> ecv), <span class="at">data =</span> d3)</span>
+<span id="cb37-4"><a href="#cb37-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb37-5"><a href="#cb37-5" aria-hidden="true" tabindex="-1"></a><span class="co"># fórmula g: media predicha si TODOS recibieran cada nivel, y contrastes por pares (IC con marginaleffects)</span></span>
+<span id="cb37-6"><a href="#cb37-6" aria-hidden="true" tabindex="-1"></a>medias_g <span class="ot">&lt;-</span> <span class="fu">map_dbl</span>(<span class="fu">levels</span>(d3<span class="sc">$</span>trat), \(l) <span class="fu">mean</span>(<span class="fu">predict</span>(modelo_y, <span class="fu">mutate</span>(d3, <span class="at">trat =</span> <span class="fu">factor</span>(l, <span class="fu">levels</span>(d3<span class="sc">$</span>trat))))))</span>
+<span id="cb37-7"><a href="#cb37-7" aria-hidden="true" tabindex="-1"></a><span class="fu">names</span>(medias_g) <span class="ot">&lt;-</span> <span class="fu">levels</span>(d3<span class="sc">$</span>trat)</span>
+<span id="cb37-8"><a href="#cb37-8" aria-hidden="true" tabindex="-1"></a><span class="fu">round</span>(<span class="fu">c</span>(medias_g, <span class="st">`</span><span class="at">iSGLT2 - Ninguno</span><span class="st">`</span> <span class="ot">=</span> medias_g[[<span class="st">"iSGLT2"</span>]] <span class="sc">-</span> medias_g[[<span class="st">"Ninguno"</span>]]), <span class="dv">2</span>)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>         Ninguno           aGLP-1           iSGLT2 iSGLT2 - Ninguno 
+           -2.46            -2.05            -1.51             0.94 </code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb39"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a>gf <span class="ot">&lt;-</span> <span class="fu">avg_comparisons</span>(modelo_y, <span class="at">variables =</span> <span class="fu">list</span>(<span class="at">trat =</span> <span class="st">"pairwise"</span>), <span class="at">vcov =</span> <span class="st">"HC3"</span>) <span class="sc">|&gt;</span> <span class="fu">as_tibble</span>() <span class="sc">|&gt;</span></span>
+<span id="cb39-2"><a href="#cb39-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">transmute</span>(<span class="at">contraste =</span> contrast, <span class="at">estimado =</span> estimate, <span class="at">ee =</span> std.error, <span class="at">ic_inf =</span> conf.low, <span class="at">ic_sup =</span> conf.high)</span>
+<span id="cb39-3"><a href="#cb39-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb39-4"><a href="#cb39-4" aria-hidden="true" tabindex="-1"></a>res3 <span class="ot">&lt;-</span> <span class="fu">bind_rows</span>(</span>
+<span id="cb39-5"><a href="#cb39-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">contrastes_pares</span>(fit_crudo, <span class="fu">vcovHC</span>(fit_crudo, <span class="st">"HC1"</span>)) <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">metodo =</span> <span class="st">"1. Sin ajustar"</span>),</span>
+<span id="cb39-6"><a href="#cb39-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">contrastes_pares</span>(fit_ipw, <span class="fu">vcovHC</span>(fit_ipw, <span class="st">"HC1"</span>))     <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">metodo =</span> <span class="st">"2. IPW multinomial"</span>),</span>
+<span id="cb39-7"><a href="#cb39-7" aria-hidden="true" tabindex="-1"></a>  gf <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="at">metodo =</span> <span class="st">"3. Fórmula g"</span>)) <span class="sc">|&gt;</span></span>
+<span id="cb39-8"><a href="#cb39-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">verdad =</span> verdad3[contraste])</span>
+<span id="cb39-9"><a href="#cb39-9" aria-hidden="true" tabindex="-1"></a>res3 <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="fu">across</span>(<span class="fu">where</span>(is.numeric), \(x) <span class="fu">round</span>(x, <span class="dv">2</span>))) <span class="sc">|&gt;</span> <span class="fu">select</span>(metodo, contraste, estimado, ee, verdad)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 9 × 5
+  metodo             contraste        estimado    ee verdad
+  &lt;chr&gt;              &lt;chr&gt;               &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt;
+1 1. Sin ajustar     aGLP-1 - Ninguno     0.28  0.05   0.4 
+2 1. Sin ajustar     iSGLT2 - Ninguno     1.01  0.04   0.92
+3 1. Sin ajustar     iSGLT2 - aGLP-1      0.73  0.06   0.51
+4 2. IPW multinomial aGLP-1 - Ninguno     0.4   0.06   0.4 
+5 2. IPW multinomial iSGLT2 - Ninguno     0.96  0.05   0.92
+6 2. IPW multinomial iSGLT2 - aGLP-1      0.56  0.06   0.51
+7 3. Fórmula g       aGLP-1 - Ninguno     0.41  0.05   0.4 
+8 3. Fórmula g       iSGLT2 - Ninguno     0.94  0.04   0.92
+9 3. Fórmula g       iSGLT2 - aGLP-1      0.54  0.05   0.51</code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb41"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(res3, <span class="fu">aes</span>(estimado, <span class="fu">fct_rev</span>(metodo))) <span class="sc">+</span></span>
+<span id="cb41-2"><a href="#cb41-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_vline</span>(<span class="fu">aes</span>(<span class="at">xintercept =</span> verdad), <span class="at">color =</span> <span class="st">"#D55E00"</span>, <span class="at">linewidth =</span> <span class="dv">1</span>) <span class="sc">+</span></span>
+<span id="cb41-3"><a href="#cb41-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_pointrange</span>(<span class="fu">aes</span>(<span class="at">xmin =</span> ic_inf, <span class="at">xmax =</span> ic_sup), <span class="at">color =</span> <span class="st">"#0072B2"</span>) <span class="sc">+</span></span>
+<span id="cb41-4"><a href="#cb41-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span>contraste, <span class="at">ncol =</span> <span class="dv">1</span>) <span class="sc">+</span></span>
+<span id="cb41-5"><a href="#cb41-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"Efecto sobre la pendiente de TFGe (mL/min/1.73 m²/año)"</span>, <span class="at">y =</span> <span class="cn">NULL</span>,</span>
+<span id="cb41-6"><a href="#cb41-6" aria-hidden="true" tabindex="-1"></a>       <span class="at">caption =</span> <span class="st">"Línea naranja: efecto verdadero (datos simulados)."</span>) <span class="sc">+</span></span>
+<span id="cb41-7"><a href="#cb41-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>(<span class="at">base_size =</span> <span class="dv">11</span>)</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="Capítulo12.10_files/figure-html/c1210-fig-efectos3-1.png" class="img-fluid figure-img" width="768"></p>
+</figure>
+</div>
+</div>
+</div>
+<p><strong>Qué vemos:</strong> sin ajustar, iSGLT2 frente a ninguno sale 1.01 (verdad 0.92) y aGLP-1 frente a ninguno 0.28 (verdad 0.40). El IPW multinomial da 0.96 y 0.40; la fórmula g, 0.94 y 0.41. La comparación <strong>entre fármacos</strong> (iSGLT2 − aGLP-1) es 0.56 con IPW y 0.54 con fórmula g (verdad 0.51). Las medias predichas por la fórmula g si <strong>todos</strong> recibieran Ninguno, aGLP-1 o iSGLT2 son -2.46, -2.05 y -1.51. Los errores estándar de IPW no incluyen la estimación del PS (usa <em>bootstrap</em>, como en 12.5, si la inferencia es crítica).</p>
+<p>Con <code>WeightIt</code> y <code>cobalt</code> (código no verificado en el entorno de pruebas):</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb42"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb42-1"><a href="#cb42-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(WeightIt); <span class="fu">library</span>(cobalt)</span>
+<span id="cb42-2"><a href="#cb42-2" aria-hidden="true" tabindex="-1"></a>w3 <span class="ot">&lt;-</span> <span class="fu">weightit</span>(trat <span class="sc">~</span> <span class="fu">I</span>(edad <span class="sc">/</span> <span class="dv">10</span>) <span class="sc">+</span> sexo <span class="sc">+</span> imc <span class="sc">+</span> hba1c <span class="sc">+</span> tfg_basal <span class="sc">+</span> luacr <span class="sc">+</span> ecv, <span class="at">data =</span> d3,</span>
+<span id="cb42-3"><a href="#cb42-3" aria-hidden="true" tabindex="-1"></a>               <span class="at">method =</span> <span class="st">"glm"</span>, <span class="at">estimand =</span> <span class="st">"ATE"</span>)        <span class="co"># con 3 niveles, estima un PS multinomial</span></span>
+<span id="cb42-4"><a href="#cb42-4" aria-hidden="true" tabindex="-1"></a><span class="fu">bal.tab</span>(w3, <span class="at">un =</span> <span class="cn">TRUE</span>, <span class="at">thresholds =</span> <span class="fu">c</span>(<span class="at">m =</span> <span class="fl">0.1</span>))          <span class="co"># balance por pares</span></span>
+<span id="cb42-5"><a href="#cb42-5" aria-hidden="true" tabindex="-1"></a><span class="fu">love.plot</span>(w3, <span class="at">abs =</span> <span class="cn">TRUE</span>, <span class="at">thresholds =</span> <span class="fu">c</span>(<span class="at">m =</span> <span class="fl">0.1</span>))</span></code></pre></div><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div class="callout callout-style-default callout-warning callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Advertencia</span>⚠️ Trampas frecuentes
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ul>
+<li><strong>Reducir a dos grupos.</strong> Comparar iSGLT2 contra aGLP-1 con un PS binario, quitando a los que no recibieron nada, es válido, pero responde a otra pregunta: el efecto en quienes <strong>recibirían uno de los dos</strong>, no en todos. Decide el estimando antes de elegir el método.</li>
+<li><strong>Olvidar el peso muestral en el desenlace.</strong> Aunque el PS se estime con pesos, el peso del PS solo (análisis 2) devolvió 1.39, el efecto de la muestra y no el de la región (0.99). Y el IC “robusto” que ignora los conglomerados salió más estrecho (EE 0.06 frente a 0.10).</li>
+</ul>
+</div>
+</div>
+</section>
+</section>
+<section id="tabla-resumen" class="level2">
+<h2 class="anchored" data-anchor-id="tabla-resumen">Tabla-resumen</h2>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Situación</th>
+<th>Qué cambia en el PS</th>
+<th>Estimando</th>
+<th>Error típico</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Encuesta compleja</strong></td>
+<td>Peso final = peso muestral × peso del PS; <code>svyglm</code> con el diseño; <code>subset()</code> del diseño</td>
+<td>Efecto en la <strong>población</strong> (PATE)</td>
+<td>Ignorar los pesos: se estima el efecto en la muestra y el EE sale corto</td>
+</tr>
+<tr class="even">
+<td><strong>Faltantes</strong></td>
+<td>Imputar con tratamiento y desenlace; PS <strong>dentro</strong> de cada imputación; Rubin</td>
+<td>ATE, como sin faltantes</td>
+<td>Casos completos o imputar sin desenlace</td>
+</tr>
+<tr class="odd">
+<td><strong>Tres o más niveles</strong></td>
+<td>PS multinomial; peso <span class="math inline">\(1/P(\text{su nivel}\mid X)\)</span>; DEM máxima entre pares</td>
+<td>ATE entre los tres; contrastes por pares</td>
+<td>Reducir a dos grupos sin cambiar el estimando</td>
+</tr>
+</tbody>
+</table>
+<div class="callout callout-style-default callout-important callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Importante</span>🎯 En resumen
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ul>
+<li>Con una <strong>encuesta</strong>, el efecto de la población exige el <strong>peso muestral</strong> en el análisis final; el PS puede estimarse con o sin pesos (aquí no hubo diferencia). Los EE salen del diseño y las subpoblaciones, de <code>subset()</code> sobre el diseño.</li>
+<li>Con <strong>faltantes</strong>, imputa incluyendo el <strong>tratamiento y el desenlace</strong>, estima el PS <strong>dentro</strong> de cada base y combina con Rubin. Casos completos e imputación sin desenlace sesgaron.</li>
+<li>Promediar el PS dio el mismo punto que <em>within</em> en nuestra simulación, pero su EE no recoge la imputación.</li>
+<li>Con <strong>tres niveles</strong>, usa un PS multinomial, pesos <span class="math inline">\(1/P(\text{nivel recibido}\mid X)\)</span> y la DEM máxima entre pares; los efectos por pares son contrastes del modelo ponderado o de la fórmula g.</li>
+<li>Nada de esto corrige la confusión <strong>no medida</strong>: aquí no la hay por construcción.</li>
+</ul>
+</div>
+</div>
+</section>
+<section id="ejercicio" class="level2">
+<h2 class="anchored" data-anchor-id="ejercicio">Ejercicio</h2>
+<ol type="1">
+<li>En la encuesta, estima el PATE <strong>solo en el área rural</strong> con <code>subset(dis_f, area == "Rural")</code>. ¿Se acerca a la verdad (<code>mean(pob$ite[pob$area == "Rural"])</code>)?</li>
+<li>En la cohorte con faltantes, aumenta a <code>m = 50</code> imputaciones. ¿Cambia el error estándar de <em>within</em>? ¿Y el punto?</li>
+<li>Con tres niveles, <strong>trunca</strong> los pesos en su percentil 99 y repite los efectos por pares. ¿Cuánto cambian y cuánto baja el peso máximo?</li>
+</ol>
+</section>
+<section id="referencias" class="level2">
+<h2 class="anchored" data-anchor-id="referencias">Referencias</h2>
+<ul>
+<li>Karim ME. <em>Advanced Epidemiological Methods (EpiMethods)</em>. https://ehsanx.github.io/EpiMethods/</li>
+<li>DuGoff EH, Schuler M, Stuart EA. Generalizing observational study results: applying propensity score methods to complex surveys. <em>Health Serv Res</em>. 2014;49(1):284-303.</li>
+<li>Zanutto EL. A comparison of propensity score and linear regression analysis of complex survey data. <em>J Data Sci</em>. 2006;4(1):67-91.</li>
+<li>Leyrat C, Seaman SR, White IR, et al.&nbsp;Propensity score analysis with partially observed covariates: how should multiple imputation be used? <em>Stat Methods Med Res</em>. 2019;28(1):3-19.</li>
+</ul>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copiado");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copiado");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+<nav class="page-navigation">
+  <div class="nav-page nav-page-previous">
+      <a href="../capitulos/Capítulo12.9.html" class="pagination-link" aria-label="Diseñar para reducir la confusión: comparador activo y nuevo usuario">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-title">Diseñar para reducir la confusión: comparador activo y nuevo usuario</span></span>
+      </a>          
+  </div>
+  <div class="nav-page nav-page-next">
+      <a href="../capitulos/Capítulo12.11.html" class="pagination-link" aria-label="Aprendizaje automático y TMLE: modelos flexibles sin perder la inferencia">
+        <span class="nav-page-text"><span class="chapter-title">Aprendizaje automático y TMLE: modelos flexibles sin perder la inferencia</span></span> <i class="bi bi-arrow-right-short"></i>
+      </a>
+  </div>
+</nav>
+</div> <!-- /content -->
+<footer class="footer">
+  <div class="nav-footer">
+    <div class="nav-footer-left">
+<p>This book was built with 💕 and <a href="https://quarto.org/">Quarto</a>.</p>
+</div>   
+    <div class="nav-footer-center">
+      &nbsp;
+    </div>
+    <div class="nav-footer-right">
+<p>DataLab for causal inference</p>
+</div>
+  </div>
+</footer>
+
+
+
+
+</body></html>
