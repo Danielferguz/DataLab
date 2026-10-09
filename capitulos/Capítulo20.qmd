@@ -20,14 +20,14 @@ Trabajaremos con el ensayo **simulado** de bicarbonato (Cap. 11) y con variantes
 
 ## El recorrido en una página
 
-Un ejemplo completo. Queremos detectar una diferencia de **1.5 mL/min/1.73 m²** en la TFGe a 12 meses entre bicarbonato y placebo. Si la desviación estándar de la TFGe a 12 meses es de unos **3.75**, la diferencia equivale a un tamaño de efecto de $d = 1.5 / 3.75 = 0.4$ (diferencia en unidades de desviación estándar).
+Un ejemplo completo. Queremos detectar una diferencia mínima importante de **1.0 mL/min/1.73 m²** en el cambio de TFGe a 12 meses entre bicarbonato y placebo. Si la desviación estándar de ese cambio (según un piloto simulado) es de unos **2.6**, la diferencia equivale a un tamaño de efecto de $d = 1.0 / 2.6 \approx 0.38$ (diferencia en unidades de desviación estándar).
 
 ```{r}
 #| label: recorrido-pwr-c20
 #| message: false
 library(tidyverse)
 library(pwr)
-d <- 1.5 / 3.75                                          # tamaño del efecto (Cohen)
+d <- 1.0 / 2.6                                           # tamaño del efecto (Cohen)
 n_formula <- ceiling(2 * (qnorm(0.975) + qnorm(0.80))^2 / d^2)   # fórmula aproximada, por grupo
 n_pwr     <- ceiling(pwr.t.test(d = d, power = 0.80, sig.level = 0.05, type = "two.sample")$n)
 c(formula_aproximada = n_formula, pwr_t_test = n_pwr)
@@ -40,19 +40,19 @@ La fórmula y `pwr` coinciden casi exactamente: **`r n_pwr` pacientes por grupo*
 #| fig-cap: "Potencia según el tamaño de muestra por grupo, para tres tamaños de efecto (d). Línea punteada: 80 % de potencia. Datos y parámetros hipotéticos."
 #| fig-width: 6.8
 #| fig-height: 3.8
-curvas <- expand_grid(n = seq(10, 300, by = 5), d = c(0.3, 0.4, 0.5)) |>
+curvas <- expand_grid(n = seq(10, 300, by = 5), d = c(0.25, 1.0 / 2.6, 0.5)) |>
   mutate(potencia = map2_dbl(n, d, \(n, d) pwr.t.test(n = n, d = d, sig.level = 0.05)$power))
 
-ggplot(curvas, aes(n, potencia, color = factor(d))) +
+ggplot(curvas, aes(n, potencia, color = factor(round(d, 3)))) +
   geom_hline(yintercept = 0.8, linetype = "dashed") +
   geom_line(linewidth = 1) +
   scale_y_continuous(labels = scales::percent) +
-  scale_color_brewer(palette = "Dark2", name = "Efecto (d)") +
+  scale_color_brewer(palette = "Dark2", name = "Efecto (d)", labels = \(x) round(as.numeric(x), 2)) +
   labs(x = "Pacientes por grupo", y = "Potencia") +
   theme_minimal(base_size = 12) + theme(panel.grid.minor = element_blank())
 ```
 
-Con $d = 0.4$ bastan unos 100 por grupo; si el efecto real fuera $d = 0.3$, **esos 100 darían solo `r scales::percent(pwr.t.test(n = n_pwr, d = 0.3, sig.level = 0.05)$power, accuracy = 1)` de potencia**. Elegir el efecto a detectar (**la diferencia mínima clínicamente importante**) es la decisión más importante del cálculo, y es una decisión **clínica**, no estadística.
+Con $d \approx 0.38$ bastan unos `r n_pwr` por grupo; si el efecto real fuera la mitad ($d = 0.19$), **esos `r n_pwr` darían solo `r scales::percent(pwr.t.test(n = n_pwr, d = d / 2, sig.level = 0.05)$power, accuracy = 1)` de potencia**. Elegir el efecto a detectar (**la diferencia mínima clínicamente importante**) es la decisión más importante del cálculo, y es una decisión **clínica**, no estadística.
 
 ::: {.callout-important}
 ## 🎯 Mapa del capítulo
@@ -73,6 +73,7 @@ Con $d = 0.4$ bastan unos 100 por grupo; si el efecto real fuera $d = 0.3$, **es
 ## Para leer más
 
 -   **Cohen J.** *Statistical Power Analysis for the Behavioral Sciences*. 2.ª ed. Lawrence Erlbaum; 1988. El origen del tamaño de efecto $d$.
+-   **Donner A, Klar N.** *Design and Analysis of Cluster Randomization Trials in Health Research*. Arnold; 2000. Referencia clásica para el efecto de diseño (20.4).
 -   **Barrett M, D'Agostino McGowan L, Gerke T.** *Causal Inference in R*. https://www.r-causal.org/. *Lectura recomendada por el autor; no se pudo consultar durante la redacción.*
 -   **Arnold BF, Hogan DR, Colford JM Jr, Hubbard AE.** Simulation methods to estimate design power: an overview for applied research. *BMC Med Res Methodol*. 2011;11:94. Una introducción a la potencia por simulación.
 -   **Chan AW, Tetzlaff JM, Altman DG, et al.** SPIRIT 2013 statement: defining standard protocol items for clinical trials. *Ann Intern Med*. 2013;158:200-207. Qué debe decir el protocolo sobre el tamaño de muestra.
