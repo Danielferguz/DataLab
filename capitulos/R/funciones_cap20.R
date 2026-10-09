@@ -174,7 +174,8 @@ simular_cluster <- function(k, m, icc, delta, sd_total) {
 #' @param n tamaño de muestra que se pasa a `generar`   @param nsim número de ensayos simulados
 #' @param semilla semilla (reproducible)   @param ... argumentos extra para `generar`
 #' @return tibble de una fila: potencia, IC 95 % de Monte Carlo (Clopper-Pearson), error estándar
-#'   de Monte Carlo, estimación media del efecto, análisis fallidos
+#'   de Monte Carlo, estimación media del efecto (`est_media`), estimación media SOLO entre los ensayos
+#'   significativos (`est_signif`) y análisis fallidos
 potencia_sim <- function(generar, analizar, n, nsim = 1000, alfa = 0.05, semilla = 1, ...) {
   set.seed(semilla)
   res <- vapply(seq_len(nsim), function(i) {
@@ -189,6 +190,7 @@ potencia_sim <- function(generar, analizar, n, nsim = 1000, alfa = 0.05, semilla
   tibble::tibble(n = n, potencia = rechazos / sum(ok), ic_inf = ic[1], ic_sup = ic[2],
                  error_mc = sqrt(rechazos / sum(ok) * (1 - rechazos / sum(ok)) / sum(ok)),
                  est_media = if (all(is.na(res["est", ]))) NA_real_ else mean(res["est", ], na.rm = TRUE),
+                 est_signif = if (rechazos == 0 || all(is.na(res["est", ]))) NA_real_ else mean(res["est", ok & p < alfa]),
                  nsim = sum(ok), fallidos = sum(!ok))
 }
 
@@ -266,3 +268,28 @@ limites_secuenciales <- function(K, tipo = c("pocock", "obf"), alfa = 0.05, R = 
   C <- unname(quantile(maxz, 1 - alfa))
   C * forma
 }
+
+#' Potencia y momento de parada de un ensayo secuencial con límites bilaterales dados (Monte Carlo).
+#' @param limites vector de K límites z (uno por análisis, equiespaciados en información)
+#' @param deriva valor esperado del estadístico z al FINAL del ensayo (0 = sin efecto;
+#'   qnorm(0.975) + qnorm(0.80) = 2.80 da 80 % de potencia con un diseño de un solo análisis)
+#' @return lista: potencia (rechazo en cualquier análisis), parada (probabilidad de rechazar en cada
+#'   análisis) e info_media (fracción esperada de la información usada)
+potencia_secuencial <- function(limites, deriva, R = 2e5, semilla = 1) {
+  K <- length(limites); t_k <- (1:K) / K
+  set.seed(semilla)
+  incr <- matrix(rnorm(R * K, 0, sqrt(1 / K)), R, K)
+  for (k in seq_len(K)[-1]) incr[, k] <- incr[, k] + incr[, k - 1]
+  z <- (incr + rep(deriva * t_k, each = R)) / rep(sqrt(t_k), each = R)
+  cruza <- abs(z) >= rep(limites, each = R)
+  primera <- max.col(cruza, ties.method = "first")
+  primera[rowSums(cruza) == 0] <- NA
+  list(potencia = mean(!is.na(primera)),
+       parada = as.vector(table(factor(primera, levels = seq_len(K)))) / R,
+       info_media = mean(ifelse(is.na(primera), 1, primera / K)))
+}
+
+#' Funciones de gasto de alfa de Lan-DeMets: alfa TOTAL (bilateral) gastado hasta la fracción de información t.
+#' `gasto_of()` aproxima a O'Brien-Fleming (gasta muy poco al inicio); `gasto_pocock()` a Pocock (gasta parejo).
+gasto_of <- function(t, alfa = 0.05) 2 * (2 - 2 * pnorm(qnorm(1 - alfa / 4) / sqrt(t)))
+gasto_pocock <- function(t, alfa = 0.05) alfa * log(1 + (exp(1) - 1) * t)

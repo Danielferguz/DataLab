@@ -17,18 +17,19 @@
 #  u (estado inflamatorio latente, N(0,1)): NO MEDIDO, baja la hemoglobina y la calidad de vida.
 #  Hemoglobina:   mu = 10.8 - 0.45*u - 0.010*(edad-62) - 0.30*dm - 0.05*(tiempo_hd-3.3)
 #                 hb_1 = mu + e_1,                 e_1 ~ N(0, 0.8^2)
-#                 hb_t = mu + 0.5*(hb_{t-1} - mu) + 0.8*dosis_alta_{t-1} + e_t,  e_t ~ N(0, 0.5^2)
-#                 => una dosis alta sube la Hb 0.8 g/dL al mes siguiente y su efecto decae a la mitad cada mes
+#                 hb_t = mu + 0.4*(hb_{t-1} - mu) + 1.0*dosis_alta_{t-1} + e_t,  e_t ~ N(0, 0.5^2)
+#                 => una dosis alta sube la Hb 1.0 g/dL al mes siguiente y ese efecto decae (x 0.4) cada mes
 #  Decisión (mundo observado):
-#                 logit P(dosis_alta_t = 1) = -0.3 + 1.2*(10.5 - hb_t) + 1.5*dosis_alta_{t-1}
+#                 logit P(dosis_alta_t = 1) = -0.5 + 0.6*(10.5 - hb_t) + 0.8*dosis_alta_{t-1}
 #                                             - 0.02*(edad-62) + 0.3*dm + efecto_u_en_a*u
 #                 (con efecto_u_en_a = 0 el nefrólogo decide SOLO con lo medido: intercambiabilidad
 #                 secuencial; con efecto_u_en_a > 0 mira además la inflamación, que no queda registrada)
 #  Calidad de vida a los K meses:
-#                 y = 55 + 5.0*(mean(hb_1..hb_K) - 10.5) - 0.4*sum(dosis_alta_t)
-#                       - 3.0*u - 0.8*(edad-62)/10 - 2.0*dm + N(0, 7^2)
+#                 y = 55 + 6.0*(mean(hb_1..hb_K) - 10.5) - 0.4*sum(dosis_alta_t)
+#                       - 3.0*u - 0.8*(edad-62)/10 - 2.0*dm + N(0, 6^2)
 #                 => cada mes de dosis alta tiene un EFECTO DIRECTO de -0.4 (efectos adversos)
-#                    y un efecto INDIRECTO positivo a través de la Hb.
+#                    y un efecto INDIRECTO positivo a través de la Hb. Con la simulación, siempre - nunca ≈ +4.8 puntos (= suma de los psi_t).
+#                 Efecto de dosis alta SOLO en el mes t (psi_t, resto nunca): 1.25 1.22 1.16 1.00 0.60 -0.40 (t = 1..6).
 #
 # Estrategias (argumento `estrategia`): NULL = lo que ocurrió; "siempre" = dosis alta todos los meses;
 # "nunca" = dosis estándar todos los meses; "dinamica" = dosis alta solo si hb_t < `umbral`;
