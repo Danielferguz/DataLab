@@ -35,13 +35,16 @@ f2 <- \(x) sprintf("%.2f", x)
 
 ### Paso 1: ¿qué efecto quieres, el de la muestra o el de la población?
 
-Nuestra encuesta (simulada) tiene **2 400 adultos con diabetes y ERC** de 60 comunidades: 20 urbanas y 40 rurales. Las zonas rurales están **sobremuestreadas** (dos tercios de la muestra, un 40 % de la región). Además, el iSGLT2 beneficia más en las zonas rurales. Como conocemos toda la región, calculamos los efectos verdaderos:
+```{r}
+#| label: c1210-datos-enc
+enc <- read_csv("Bases/ps_encuesta_erc.csv", show_col_types = FALSE)   # encuesta simulada
+pob <- simular_poblacion_ps()                                            # la región completa (solo en simulación)
+```
+
+Nuestra encuesta (simulada) tiene **`r miles(nrow(enc))` adultos con diabetes y ERC** de 60 comunidades: 20 urbanas y 40 rurales. Las zonas rurales están **sobremuestreadas**: son el `r round(100 * mean(enc$area == "Rural"))` % de la muestra y el `r round(100 * mean(pob$area == "Rural"))` % de la región. Además, el iSGLT2 beneficia más en las zonas rurales. Como conocemos toda la región, calculamos los efectos verdaderos:
 
 ```{r}
 #| label: c1210-verdad-enc
-enc <- read_csv("Bases/ps_encuesta_erc.csv", show_col_types = FALSE)   # encuesta simulada
-pob <- simular_poblacion_ps()                                            # la región completa (solo en simulación)
-
 pate <- mean(pob$ite)                                      # efecto verdadero en la POBLACIÓN
 sate <- mean(pob$ite[match(enc$id, pob$id)])               # efecto verdadero en las personas de la MUESTRA
 c(urbano = mean(pob$ite[pob$area == "Urbano"]), rural = mean(pob$ite[pob$area == "Rural"]),
@@ -136,7 +139,7 @@ tibble(analisis = c("subset() del diseño", "Filtrar la base", "Verdad (región)
        ee = c(SE(sub_ok)[["isglt2"]], SE(sub_mal)[["isglt2"]], NA)) |> mutate(across(where(is.numeric), \(x) round(x, 3)))
 ```
 
-**Qué vemos:** las estimaciones puntuales coinciden (`r f2(coef(sub_ok)[["isglt2"]])`) y el efecto verdadero en este subgrupo es `r f2(mean(pob$ite[pob$edad >= 70]))`. El error estándar difiere un poco (`r sprintf("%.3f", SE(sub_ok)[["isglt2"]])` frente a `r sprintf("%.3f", SE(sub_mal)[["isglt2"]])`) porque aquí todas las comunidades tienen mayores de 70 años; con subgrupos raros la diferencia crece, y a veces R ni puede calcular la varianza.
+**Qué vemos:** el efecto en mayores de 70 años es `r f2(coef(sub_ok)[["isglt2"]])` (verdad `r f2(mean(pob$ite[pob$edad >= 70]))`), con un EE de `r sprintf("%.3f", SE(sub_ok)[["isglt2"]])`. Aquí filtrar la base da casi lo mismo (EE `r sprintf("%.3f", SE(sub_mal)[["isglt2"]])`) porque hay mayores de 70 años en `r n_distinct(filter(enc, edad >= 70)$cluster)` de las `r n_distinct(enc$cluster)` comunidades. No es una garantía: con subgrupos raros, filtrar la base cambia el EE y a veces R ni puede calcular la varianza. Por eso la regla es siempre `subset()` sobre el diseño.
 
 Con los paquetes `WeightIt` y `cobalt` (código no verificado en el entorno de pruebas del libro; el análisis anterior es la versión propia ejecutable):
 
@@ -157,7 +160,7 @@ svyglm(pendiente_tfg ~ isglt2, dis_wi)
 
 ### Paso 5: una cohorte con faltantes que dependen del desenlace
 
-Cohorte simulada de 3 000 pacientes (sin confusión no medida). La UACR falta en un tercio y la HbA1c en cerca de un 10 %, con un mecanismo **MAR**: la falta depende de edad, TFGe, tratamiento y **del propio desenlace**. Conocemos el ATE verdadero y, además, el análisis con la base completa (la referencia que una base con faltantes intenta alcanzar):
+Cohorte simulada de 3 000 pacientes (sin confusión no medida). Con un mecanismo **MAR**, la UACR falta en un tercio y la HbA1c en cerca de un 10 % (cifras exactas abajo): la falta depende de edad, TFGe, tratamiento y **del propio desenlace** (falta más en los tratados y en quienes evolucionan peor). Conocemos el ATE verdadero y, además, el análisis con la base completa (la referencia que una base con faltantes intenta alcanzar):
 
 ```{r}
 #| label: c1210-datos-mi
@@ -173,7 +176,7 @@ c(faltan_luacr = mean(is.na(dat$luacr)), faltan_hba1c = mean(is.na(dat$hba1c)),
   pacientes_completos = nrow(na.omit(dat)) / nrow(dat)) |> round(2)
 ```
 
-Con **casos completos** quedan `r nrow(na.omit(dat))` pacientes y el ATE sale en **`r f2(cc$estimado)`**; con la base completa, `r f2(ref$estimado)`; la verdad es `r f2(ate2)`. Los casos completos no son una muestra al azar: sobreviven más los que tienen valores altos de pendiente.
+Con **casos completos** quedan `r miles(nrow(na.omit(dat)))` pacientes y el ATE sale en **`r f2(cc$estimado)`**; con la base completa, `r f2(ref$estimado)`; la verdad es `r f2(ate2)`. Los casos completos no son una muestra al azar: entre ellos el `r round(100 * mean(na.omit(dat)$isglt2))` % está tratado (en toda la cohorte, el `r round(100 * mean(dat$isglt2))` %) y su pendiente media es `r f2(mean(na.omit(dat)$pendiente_tfg))` (en toda la cohorte, `r f2(mean(dat$pendiente_tfg))`).
 
 ### Paso 6: imputar con el tratamiento y el desenlace (y el "feo" sin desenlace)
 
@@ -201,10 +204,11 @@ combinar <- function(imputacion) {
 }
 within  <- combinar(imp)
 sin_y   <- combinar(imp0)
-c(estimado = within$estimado, ee = within$ee, rango_por_base = range(map_dbl(within$res, "estimado"))) |> round(3)
+por_base <- map_dbl(within$res, "estimado")                                   # un ATE por cada base imputada
+c(within = within$estimado, ee = within$ee, minimo_base = min(por_base), maximo_base = max(por_base)) |> round(3)
 ```
 
-Cada una de las 20 bases da un ATE algo distinto (de `r f2(min(map_dbl(within$res, "estimado")))` a `r f2(max(map_dbl(within$res, "estimado")))`). Rubin los combina y suma esa variación entre bases al error estándar. Con `mice` el equivalente es `pool()`, pero con una restricción importante:
+Cada una de las 20 bases da un ATE algo distinto (de `r f2(min(por_base))` a `r f2(max(por_base))`). Rubin los combina y suma esa variación entre bases al error estándar. Con `mice` el equivalente es `pool()`, pero con una restricción importante:
 
 ::: {.callout-warning}
 ## ⚠️ `with(imp, ...)` no ve una fórmula guardada fuera
@@ -272,13 +276,13 @@ tibble(metodo = names(rep_mi)[-1], media = colMeans(rep_mi[-1]), de = apply(rep_
        sesgo = colMeans(rep_mi[-1]) - mean(rep_mi$verdad)) |> mutate(across(where(is.numeric), \(x) round(x, 3)))
 ```
 
-**Qué vemos:** en promedio, la base completa, *within* y promediar el PS están a menos de `r sprintf("%.2f", max(abs(colMeans(rep_mi[c("Base completa", "Within", "Promediar PS")]) - mean(rep_mi$verdad))))` de la verdad; los casos completos sesgan `r f2(mean(rep_mi[["Casos completos"]]) - mean(rep_mi$verdad))` y la imputación sin desenlace `r f2(mean(rep_mi[["Imputar SIN desenlace"]]) - mean(rep_mi$verdad))`. **Entre *within* y promediar el PS no hay diferencia en el punto** en este escenario sencillo. Leyrat y colaboradores (2019) recomiendan *within* sobre todo por el **error estándar** y por su comportamiento general; por eso es la opción por defecto. (Con el paquete `MatchThem`, `weightthem()` automatiza el flujo *within*; ver Cap. 13.5.)
+**Qué vemos:** en promedio, la base completa, *within* y promediar el PS están a menos de `r sprintf("%.2f", max(abs(colMeans(rep_mi[c("Base completa", "Within", "Promediar PS")]) - mean(rep_mi$verdad))))` de la verdad; los casos completos sesgan `r f2(mean(rep_mi[["Casos completos"]]) - mean(rep_mi$verdad))` y la imputación sin desenlace `r f2(mean(rep_mi[["Imputar SIN desenlace"]]) - mean(rep_mi$verdad))`. **Entre *within* y promediar el PS no hay diferencia en el punto** en este escenario sencillo; lo que sí cambia es el error estándar (en la cohorte de arriba, `r sprintf("%.3f", within$ee)` frente a `r sprintf("%.3f", sqrt(promedio$varianza))`). Leyrat y colaboradores (2019) compararon ambos enfoques con simulaciones y recomiendan *within*, que además es el que respeta las reglas de Rubin. (Con el paquete `MatchThem`, `weightthem()` automatiza el flujo *within*; ver Cap. 13.5.)
 
 ## Parte 3. Tres niveles de exposición
 
 ### Paso 10: el PS multinomial
 
-Con tres grupos (**Ninguno, aGLP-1, iSGLT2**) cada paciente tiene **tres** probabilidades que suman 1: $e_k(X) = P(A = k \mid X)$. Se estiman con una regresión logística **multinomial** (`nnet::multinom`; `VGAM::vglm` da lo mismo). Simulamos 4 000 pacientes con efectos distintos para cada fármaco:
+Con tres grupos (**Ninguno, aGLP-1, iSGLT2**) cada paciente tiene **tres** probabilidades que suman 1: $e_k(X) = P(A = k \mid X)$. Se estiman con una regresión logística **multinomial** (`nnet::multinom`; `VGAM::vglm` da lo mismo). Simulamos 4 000 pacientes (datos simulados) con efectos distintos para cada fármaco:
 
 ```{r}
 #| label: c1210-tres-datos
@@ -303,7 +307,7 @@ La positividad se mira **nivel por nivel**: para cada una de las tres probabilid
 #| fig-height: 3.4
 as_tibble(P) |> mutate(recibio = d3$trat) |>
   pivot_longer(-recibio, names_to = "probabilidad_de", values_to = "p") |>
-  mutate(probabilidad_de = paste("P(", probabilidad_de, ")")) |>
+  mutate(probabilidad_de = factor(paste0("P(", probabilidad_de, ")"), paste0("P(", levels(d3$trat), ")"))) |>
   ggplot(aes(p, fill = recibio)) +
   geom_density(alpha = 0.5, color = NA) +
   facet_wrap(~probabilidad_de, scales = "free_y") +
@@ -345,7 +349,7 @@ bal3 |> pivot_longer(-variable, names_to = "ajuste", values_to = "dem_max") |>
   theme_minimal(base_size = 11) + theme(legend.position = "bottom")
 ```
 
-**Qué vemos:** sin ajustar, la peor DEM entre pares llega a `r f2(max(bal3[["Sin ajustar"]]))` (la UACR: el iSGLT2 se da a quien más albuminuria tiene). Con los pesos, la máxima baja a `r f2(max(bal3[["Con pesos"]]))`. Los pesos llegan a `r round(max(d3$w), 1)`, pero el tamaño efectivo de muestra es `r round(ess(d3$w))` de `r nrow(d3)`.
+**Qué vemos:** sin ajustar, la peor DEM entre pares llega a `r f2(max(bal3[["Sin ajustar"]]))` (variable `r bal3$variable[which.max(bal3[["Sin ajustar"]])]`: el iSGLT2 se da a quien más albuminuria tiene). Con los pesos, la máxima baja a `r f2(max(bal3[["Con pesos"]]))`. Los pesos llegan a `r round(max(d3$w), 1)`, pero el tamaño efectivo de muestra es `r miles(round(ess(d3$w)))` de `r miles(nrow(d3))`.
 
 ### Paso 13: efectos por pares
 
@@ -357,8 +361,10 @@ fit_crudo <- lm(pendiente_tfg ~ trat, data = d3)
 fit_ipw   <- lm(pendiente_tfg ~ trat, data = d3, weights = w)
 modelo_y  <- lm(pendiente_tfg ~ trat * (I(edad / 10) + sexo + imc + hba1c + tfg_basal + luacr + ecv), data = d3)
 
-# fórmula g: medias predichas si TODOS recibieran cada nivel, y contrastes por pares (ic con marginaleffects)
+# fórmula g: media predicha si TODOS recibieran cada nivel, y contrastes por pares (IC con marginaleffects)
 medias_g <- map_dbl(levels(d3$trat), \(l) mean(predict(modelo_y, mutate(d3, trat = factor(l, levels(d3$trat))))))
+names(medias_g) <- levels(d3$trat)
+round(c(medias_g, `iSGLT2 - Ninguno` = medias_g[["iSGLT2"]] - medias_g[["Ninguno"]]), 2)
 gf <- avg_comparisons(modelo_y, variables = list(trat = "pairwise"), vcov = "HC3") |> as_tibble() |>
   transmute(contraste = contrast, estimado = estimate, ee = std.error, ic_inf = conf.low, ic_sup = conf.high)
 
@@ -383,7 +389,7 @@ ggplot(res3, aes(estimado, fct_rev(metodo))) +
   theme_minimal(base_size = 11)
 ```
 
-**Qué vemos:** sin ajustar, iSGLT2 frente a ninguno sale `r f2(res3$estimado[res3$metodo == "1. Sin ajustar" & res3$contraste == "iSGLT2 - Ninguno"])` (verdad `r f2(verdad3["iSGLT2 - Ninguno"])`) y aGLP-1 frente a ninguno `r f2(res3$estimado[res3$metodo == "1. Sin ajustar" & res3$contraste == "aGLP-1 - Ninguno"])` (verdad `r f2(verdad3["aGLP-1 - Ninguno"])`). El IPW multinomial da `r f2(res3$estimado[res3$metodo == "2. IPW multinomial" & res3$contraste == "iSGLT2 - Ninguno"])` y `r f2(res3$estimado[res3$metodo == "2. IPW multinomial" & res3$contraste == "aGLP-1 - Ninguno"])`; la fórmula g, `r f2(res3$estimado[res3$metodo == "3. Fórmula g" & res3$contraste == "iSGLT2 - Ninguno"])` y `r f2(res3$estimado[res3$metodo == "3. Fórmula g" & res3$contraste == "aGLP-1 - Ninguno"])`. La comparación **entre fármacos** (iSGLT2 − aGLP-1) es `r f2(res3$estimado[res3$metodo == "2. IPW multinomial" & res3$contraste == "iSGLT2 - aGLP-1"])` con IPW y `r f2(res3$estimado[res3$metodo == "3. Fórmula g" & res3$contraste == "iSGLT2 - aGLP-1"])` con fórmula g (verdad `r f2(verdad3["iSGLT2 - aGLP-1"])`). Los errores estándar no incluyen la estimación del PS (usa *bootstrap* como en 12.5 si la inferencia es crítica).
+**Qué vemos:** sin ajustar, iSGLT2 frente a ninguno sale `r f2(res3$estimado[res3$metodo == "1. Sin ajustar" & res3$contraste == "iSGLT2 - Ninguno"])` (verdad `r f2(verdad3["iSGLT2 - Ninguno"])`) y aGLP-1 frente a ninguno `r f2(res3$estimado[res3$metodo == "1. Sin ajustar" & res3$contraste == "aGLP-1 - Ninguno"])` (verdad `r f2(verdad3["aGLP-1 - Ninguno"])`). El IPW multinomial da `r f2(res3$estimado[res3$metodo == "2. IPW multinomial" & res3$contraste == "iSGLT2 - Ninguno"])` y `r f2(res3$estimado[res3$metodo == "2. IPW multinomial" & res3$contraste == "aGLP-1 - Ninguno"])`; la fórmula g, `r f2(res3$estimado[res3$metodo == "3. Fórmula g" & res3$contraste == "iSGLT2 - Ninguno"])` y `r f2(res3$estimado[res3$metodo == "3. Fórmula g" & res3$contraste == "aGLP-1 - Ninguno"])`. La comparación **entre fármacos** (iSGLT2 − aGLP-1) es `r f2(res3$estimado[res3$metodo == "2. IPW multinomial" & res3$contraste == "iSGLT2 - aGLP-1"])` con IPW y `r f2(res3$estimado[res3$metodo == "3. Fórmula g" & res3$contraste == "iSGLT2 - aGLP-1"])` con fórmula g (verdad `r f2(verdad3["iSGLT2 - aGLP-1"])`). Las medias predichas por la fórmula g si **todos** recibieran Ninguno, aGLP-1 o iSGLT2 son `r f2(medias_g[["Ninguno"]])`, `r f2(medias_g[["aGLP-1"]])` y `r f2(medias_g[["iSGLT2"]])`. Los errores estándar de IPW no incluyen la estimación del PS (usa *bootstrap*, como en 12.5, si la inferencia es crítica).
 
 Con `WeightIt` y `cobalt` (código no verificado en el entorno de pruebas):
 
@@ -402,7 +408,7 @@ love.plot(w3, abs = TRUE, thresholds = c(m = 0.1))
 ## ⚠️ Trampas frecuentes
 
 -   **Reducir a dos grupos.** Comparar iSGLT2 contra aGLP-1 con un PS binario, quitando a los que no recibieron nada, es válido, pero responde a otra pregunta: el efecto en quienes **recibirían uno de los dos**, no en todos. Decide el estimando antes de elegir el método.
--   **Promedios sin diseño ni desenlace.** En encuestas, el IC "robusto" que ignora los conglomerados es demasiado estrecho; con faltantes, imputar sin el desenlace sesga hacia el nulo. En los tres bloques el análisis "corto" falla de forma sistemática.
+-   **Olvidar el peso muestral en el desenlace.** Aunque el PS se estime con pesos, el peso del PS solo (análisis 2) devolvió `r f2(res_enc$estimado[2])`, el efecto de la muestra y no el de la región (`r f2(pate)`). Y el IC "robusto" que ignora los conglomerados salió más estrecho (EE `r f2(res_enc$ee[1])` frente a `r f2(res_enc$ee[4])`).
 :::
 
 ## Tabla-resumen

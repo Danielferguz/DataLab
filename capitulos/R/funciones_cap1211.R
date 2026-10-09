@@ -44,7 +44,7 @@ aprendiz_lasso <- function(x, y, ampliar = TRUE) {
 }
 
 #' Bosque aleatorio (ranger)
-aprendiz_bosque <- function(x, y, arboles = 300, nodo_min = 20) {
+aprendiz_bosque <- function(x, y, arboles = 200, nodo_min = 20) {
   if (es_binario(y)) {
     m <- ranger::ranger(x = x, y = factor(y, levels = 0:1), probability = TRUE, num.trees = arboles, min.node.size = nodo_min)
     function(nuevo) predict(m, nuevo)$predictions[, "1"]
@@ -54,10 +54,10 @@ aprendiz_bosque <- function(x, y, arboles = 300, nodo_min = 20) {
   }
 }
 
-#' Boosting de árboles (gbm): 300 árboles pequeños, tasa de aprendizaje 0.05
-aprendiz_boosting <- function(x, y, arboles = 300, profundidad = 3) {
+#' Boosting de árboles (gbm): 200 árboles pequeños, tasa de aprendizaje 0.08
+aprendiz_boosting <- function(x, y, arboles = 200, profundidad = 3) {
   m <- gbm::gbm.fit(as.data.frame(x), y, distribution = if (es_binario(y)) "bernoulli" else "gaussian",
-                    n.trees = arboles, interaction.depth = profundidad, shrinkage = 0.05,
+                    n.trees = arboles, interaction.depth = profundidad, shrinkage = 0.08,
                     bag.fraction = 0.5, n.minobsinnode = 20, verbose = FALSE)
   function(nuevo) predict(m, as.data.frame(nuevo), n.trees = arboles, type = "response")
 }
@@ -185,4 +185,19 @@ simular_no_lineal <- function(n = 3000, semilla = 11) {
   e <- rnorm(n)
   y <- ifelse(a == 1, mu0 + ite, mu0) + e
   list(datos = tibble::tibble(edad, tfg, luacr, hba1c, ecv, a, y), verdad = mean(ite))
+}
+
+# --- Resumen de un puntaje de propensión ---------------------------------------
+
+#' Resume un PS: rango, % de valores extremos, peso máximo, tamaño efectivo (ESS), balance (|DEM| máximo)
+#' y efecto IPW (ATE) frente a la verdad. Usa smd() y ess() del libro (funciones_epi.R y funciones_extra_cap1213.R).
+#' @param ps vector de PS   @param datos base con `isglt2` y el desenlace   @param vars covariables numéricas para el balance
+resumen_ps <- function(ps, nombre, datos, vars, desenlace = "pendiente_tfg", verdad = NA) {
+  a <- datos$isglt2; y <- datos[[desenlace]]
+  w <- ifelse(a == 1, 1 / ps, 1 / (1 - ps))
+  ipw <- stats::weighted.mean(y[a == 1], w[a == 1]) - stats::weighted.mean(y[a == 0], w[a == 0])
+  tibble::tibble(PS = nombre, minimo = min(ps), maximo = max(ps),
+                 extremos_pct = 100 * mean(ps < 0.05 | ps > 0.95), peso_max = max(w), ESS = ess(w),
+                 dem_max = max(abs(purrr::map_dbl(vars, \(v) smd(datos[[v]], a, w)))),
+                 efecto_ipw = ipw, sesgo = ipw - verdad)
 }
