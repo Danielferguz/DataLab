@@ -1,0 +1,264 @@
+# Pérdidas, análisis interinos y cómo reportar el tamaño de muestra
+
+::: {.callout-note}
+## 🩺 Escenario
+
+Ya tienes la cifra de pacientes. Antes de entregar el protocolo te quedan tres preguntas del comité de ética: *«¿qué pasa si muchos no toman el fármaco o abandonan?»*, *«¿vais a mirar los datos a mitad del ensayo y parar si es evidente?»* y *«¿cómo justificáis el tamaño de muestra en el protocolo?»*. Además un colega propone cerrar el reclutamiento «cuando lleguemos a 100 por grupo, que es lo que podemos pagar». Este subcapítulo cierra el cálculo: **ajustar por pérdidas y no adherencia**, **repartir el error tipo I** entre los análisis interinos, **redactar** el párrafo y **evitar** los errores clásicos.
+:::
+
+**Lo que vamos a hacer**
+
+-   Ver cómo la **no adherencia** diluye el efecto por intención de tratar (ITT) y cuánto *n* cuesta.
+-   Comparar análisis interinos con límites **O'Brien-Fleming** y **Pocock** (`rpact`, y una versión propia ejecutable).
+-   **Redactar** el párrafo de tamaño de muestra y revisar los errores que más se repiten.
+
+```{r}
+#| label: setup-c207
+#| message: false
+library(tidyverse)
+library(pwr)
+source("R/funciones_extra_a.R")      # num(), pct()
+source("R/funciones_cap20.R")
+theme_set(theme_minimal(base_size = 12))
+rpact_ok <- requireNamespace("rpact", quietly = TRUE)
+
+# Piloto SIMULADO (Cap. 11) con su "oráculo" (verdad conocida)
+eca <- read_csv("Bases/eca_bicarbonato.csv", show_col_types = FALSE) |>
+  left_join(read_csv("Bases/eca_bicarbonato_oraculo.csv", show_col_types = FALSE), by = "id")
+sigma <- 2.6                                    # DE del cambio de TFGe a 12 meses (20.1)
+```
+
+## Paso 1: el efecto que de verdad se mide es el diluido
+
+El análisis principal de un ensayo es por **intención de tratar** (ITT, 11.2): se compara según el brazo **asignado**. Si una parte de los asignados al fármaco no lo toma, o parte del placebo termina tomándolo (**contaminación** o **cruce**), la diferencia ITT se **diluye**. Con una fracción *a* de adherentes en el brazo activo y una fracción *c* de contaminados en el placebo:
+
+$$
+\delta_{ITT} = (a - c)\,\delta_{\text{quien toma el fármaco}}
+\qquad\Rightarrow\qquad
+n_{ITT} = \frac{n}{(a - c)^2}
+$$
+
+Como *n* depende del **cuadrado** del efecto, la dilución cuesta mucho. En el ensayo simulado del libro conocemos la verdad:
+
+```{r}
+#| label: dilucion-datos-c207
+act <- filter(eca, brazo == "Bicarbonato")
+a <- mean(act$adhiere)                                    # fracción que toma el fármaco en el brazo activo
+efecto_cumplidor <- mean(act$efecto_ind[act$adhiere == 1])   # mejora a 12 meses en quien lo toma (mL/min/1.73 m2)
+efecto_itt <- a * efecto_cumplidor                         # efecto ITT esperado (sin contaminación)
+
+c(adherencia = a, efecto_en_cumplidores = efecto_cumplidor, efecto_itt = efecto_itt,
+  n_si_todos_cumplieran = n_medias(efecto_cumplidor, sigma)$n1, n_itt = n_medias(efecto_itt, sigma)$n1) |> round(2)
+```
+
+**Qué vemos.** El **`r pct(a, 0)`** del brazo activo toma el fármaco y los que lo toman ganan **`r num(efecto_cumplidor, 2)`** mL/min/1.73 m² a 12 meses: el efecto ITT es de **`r num(efecto_itt, 2)`**. Si calculas el *n* con el efecto en cumplidores (`r n_medias(efecto_cumplidor, sigma)$n1` por grupo) pero el análisis es ITT, el ensayo quedará corto; el *n* correcto es **`r n_medias(efecto_itt, sigma)$n1`**, es decir, `r num(n_medias(efecto_itt, sigma)$n1 / n_medias(efecto_cumplidor, sigma)$n1, 1)` veces más. Con distintas adherencias y contaminaciones, el factor de inflación 1/(*a* − *c*)² es:
+
+```{r}
+#| label: factor-dilucion-c207
+expand_grid(adherencia = c(1, 0.90, 0.75, 0.60), contaminacion = c(0, 0.10, 0.20)) |>
+  mutate(factor = 1 / (adherencia - contaminacion)^2) |>
+  pivot_wider(names_from = contaminacion, values_from = factor, names_prefix = "contaminación ") |>
+  mutate(across(where(is.numeric) & !adherencia, \(x) round(x, 2)))
+```
+
+Con 75 % de adherencia y 10 % de contaminación hay que **multiplicar el *n* por `r num(1 / (0.75 - 0.10)^2, 1)`**. Lo comprobamos con `potencia_sim()` (de 20.5): 1 000 ensayos con la adherencia y el efecto del piloto, analizados por ITT (`brazo` asignado). Comparamos el *n* «ingenuo» (efecto en cumplidores) con el *n* ITT, ambos **sin pérdidas** para aislar la dilución:
+
+```{r}
+#| label: sim-dilucion-c207
+an_itt <- function(d) {                                        # ITT: se compara por el brazo ASIGNADO
+  m <- lm(I(tfg12 - tfg0) ~ brazo, data = d)
+  c(p = summary(m)$coefficients["brazo", 4], est = coef(m)[["brazo"]])
+}
+gen_dil <- \(n) generar_tfg(n, efecto = efecto_cumplidor, adherencia = a)
+
+dilucion <- bind_rows(
+  `n ingenuo (efecto en cumplidores)` = potencia_sim(gen_dil, an_itt, n_medias(efecto_cumplidor, sigma)$n1, 1000, semilla = 8),
+  `n ITT (efecto diluido)`            = potencia_sim(gen_dil, an_itt, n_medias(efecto_itt, sigma)$n1, 1000, semilla = 8), .id = "calculo")
+dilucion |> select(calculo, n, potencia, ic_inf, ic_sup, est_media) |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+El *n* ingenuo da una potencia de solo **`r pct(dilucion$potencia[1], 0)`**; el *n* ITT recupera **`r pct(dilucion$potencia[2], 0)`**. La estimación ITT media es `r num(dilucion$est_media[2], 2)`, cerca del efecto ITT teórico (`r num(efecto_itt, 2)`): la simulación confirma la fórmula. Rescatar el efecto en cumplidores con un análisis «por protocolo» no es una opción: rompe la aleatorización (11.2). El camino válido es el análisis por **CACE** (11.6), pero **el tamaño se calcula para el análisis principal**.
+
+## Paso 2: pérdidas, adherencia y plan final
+
+Las pérdidas se suman a la no adherencia: primero el *n* ITT, luego se **divide** entre (1 − pérdidas) (20.2). Con la tasa de pérdida a 12 meses del piloto:
+
+```{r}
+#| label: plan-final-c207
+perdida <- mean(is.na(eca$tfg_12))                         # pérdida de la TFGe a 12 meses en el piloto
+n_itt <- n_medias(efecto_itt, sigma)$n1
+n_plan <- n_inflar(n_itt, perdida)
+c(n_itt = n_itt, perdida = round(perdida, 3), n_por_grupo = n_plan, total = 2 * n_plan)
+```
+
+Verificamos el plan completo (adherencia, efecto en cumplidores y pérdidas al azar), con el análisis ITT:
+
+```{r}
+#| label: sim-plan-c207
+gen_plan <- \(n) generar_tfg(n, efecto = efecto_cumplidor, adherencia = a, perdida = c(perdida, perdida))
+verif_plan <- potencia_sim(gen_plan, an_itt, n_plan, nsim = 1500, semilla = 9)
+verif_plan |> select(n, potencia, ic_inf, ic_sup, est_media) |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+Con **`r n_plan` pacientes por grupo** (`r 2 * n_plan` en total), la potencia simulada es **`r pct(verif_plan$potencia, 1)`** (IC de Monte Carlo `r pct(verif_plan$ic_inf, 1)` a `r pct(verif_plan$ic_sup, 1)`): el plan cumple. Fíjate en que el tamaño final (`r 2 * n_plan`) es bastante mayor que los `r n_medias(1.0, sigma)$total` de 20.2: el ensayo «sencillo» olvidaba la no adherencia.
+
+## Paso 3: análisis interinos y gasto de α
+
+Mirar los datos a mitad del ensayo para parar si el efecto es evidente es éticamente deseable, pero **cada mirada es otra oportunidad de un falso positivo**. Si analizas tres veces (a 1/3, 2/3 y al final) con el límite habitual de |*z*| > 1.96, el error tipo I real ya no es 5 %. Lo medimos simulando el estadístico *z* acumulado de un ensayo sin efecto (con `potencia_secuencial()`):
+
+```{r}
+#| label: alfa-inflado-c207
+naive <- potencia_secuencial(rep(qnorm(0.975), 3), deriva = 0)
+c(error_tipo_I_con_tres_miradas = naive$potencia)
+```
+
+**Qué vemos.** Con tres miradas a 1.96, el error tipo I real es **`r pct(naive$potencia, 1)`**, más del doble del 5 % nominal. La solución es **gastar** el α total entre los análisis, usando límites más exigentes al principio. Dos esquemas clásicos:
+
+-   **O'Brien-Fleming**: límites muy altos al inicio (casi imposible parar en el primer análisis) y casi 1.96 al final; **cuesta muy poca potencia**.
+-   **Pocock**: el mismo límite en todos los análisis; permite parar antes, a cambio de **más muestra** y de un límite final más alto.
+
+Calibramos los límites con una versión propia (`limites_secuenciales()`, por simulación de Monte Carlo) y, si está instalado, con `rpact`, que los calcula **exactamente**:
+
+```{r}
+#| label: limites-c207
+lim_obf <- limites_secuenciales(3, "obf")
+lim_poc <- limites_secuenciales(3, "pocock")
+tabla_lim <- tibble(analisis = c("1 (1/3 de la información)", "2 (2/3)", "3 (final)"),
+                    obf_a_mano = lim_obf, pocock_a_mano = lim_poc)
+
+if (rpact_ok) {
+  d_of <- rpact::getDesignGroupSequential(kMax = 3, typeOfDesign = "OF", alpha = 0.05, sided = 2)
+  d_po <- rpact::getDesignGroupSequential(kMax = 3, typeOfDesign = "P", alpha = 0.05, sided = 2)
+  tabla_lim <- mutate(tabla_lim, obf_rpact = d_of$criticalValues, pocock_rpact = d_po$criticalValues)
+}
+tabla_lim |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+```{r}
+#| label: fig-limites-c207
+#| fig-cap: "Límites de parada (valor |z|) en tres análisis interinos: O'Brien-Fleming, Pocock y el 1.96 «ingenuo». Calibrados por simulación. Parámetros hipotéticos."
+#| fig-width: 6.8
+#| fig-height: 3.6
+bind_rows(tibble(esquema = "O'Brien-Fleming", info = c(1/3, 2/3, 1), limite = lim_obf),
+          tibble(esquema = "Pocock", info = c(1/3, 2/3, 1), limite = lim_poc),
+          tibble(esquema = "Ingenuo (1.96)", info = c(1/3, 2/3, 1), limite = qnorm(0.975))) |>
+  ggplot(aes(info, limite, color = esquema)) +
+  geom_step(linewidth = 1, direction = "vh", alpha = 0.6) + geom_point(size = 3) +
+  scale_x_continuous(breaks = c(1/3, 2/3, 1), labels = c("1/3", "2/3", "final")) +
+  scale_color_manual(values = c("#0072B2", "#D55E00", "grey40"), name = NULL) +
+  labs(x = "Fracción de la información acumulada", y = "Límite |z| para detener por eficacia")
+```
+
+Los límites calibrados por simulación se parecen a los exactos de `rpact`: difieren en alrededor de una centésima (error de Monte Carlo). O'Brien-Fleming exige **`r num(lim_obf[1], 2)`** en el primer análisis (un *p* nominal de `r format(2 * (1 - pnorm(lim_obf[1])), digits = 2)`) y **`r num(lim_obf[3], 2)`** al final; Pocock exige **`r num(lim_poc[1], 2)`** en todos. Veamos qué cuestan y qué dan: error tipo I, potencia con el *n* de un único análisis, probabilidad de parar antes y el factor por el que habría que **inflar el *n*** para recuperar el 80 %:
+
+```{r}
+#| label: comparar-secuenciales-c207
+deriva_80 <- qnorm(0.975) + qnorm(0.80)                      # z esperado final para 80 % con un solo análisis
+resumir <- function(lim) {
+  h0 <- potencia_secuencial(lim, 0); h1 <- potencia_secuencial(lim, deriva_80)
+  th <- uniroot(\(x) potencia_secuencial(lim, x)$potencia - 0.80, c(2.5, 3.8))$root
+  tibble(error_tipo_I = h0$potencia, potencia_mismo_n = h1$potencia, para_en_1er_analisis = h1$parada[1],
+         para_antes_del_final = sum(h1$parada[1:2]), info_media_usada = h1$info_media, inflar_n_por = (th / deriva_80)^2)
+}
+comparacion <- bind_rows(`Un solo análisis` = resumir(c(Inf, Inf, qnorm(0.975))),
+                         `Tres miradas a 1.96` = resumir(rep(qnorm(0.975), 3)),
+                         `O'Brien-Fleming` = resumir(lim_obf), Pocock = resumir(lim_poc), .id = "esquema")
+comparacion |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+
+if (rpact_ok) {          # factores de inflación exactos de rpact, para comparar
+  c(OF = rpact::getDesignCharacteristics(rpact::getDesignGroupSequential(kMax = 3, typeOfDesign = "OF", alpha = 0.05, sided = 2, beta = 0.2))$inflationFactor,
+    Pocock = rpact::getDesignCharacteristics(rpact::getDesignGroupSequential(kMax = 3, typeOfDesign = "P", alpha = 0.05, sided = 2, beta = 0.2))$inflationFactor) |> round(3)
+}
+```
+
+**Qué vemos.**
+
+-   Las tres miradas «ingenuas» tienen un error tipo I de **`r pct(comparacion$error_tipo_I[2], 1)`**; O'Brien-Fleming y Pocock lo devuelven al **`r pct(comparacion$error_tipo_I[3], 1)`** y **`r pct(comparacion$error_tipo_I[4], 1)`**.
+-   O'Brien-Fleming cuesta casi nada: hay que inflar el *n* un **`r pct(comparacion$inflar_n_por[3] - 1, 1)`** (el factor exacto de `rpact` está en la salida anterior). Casi nunca para en el primer análisis (`r pct(comparacion$para_en_1er_analisis[3], 0)` de los ensayos con efecto), pero sí antes del final (`r pct(comparacion$para_antes_del_final[3], 0)`, casi siempre en el segundo análisis), y usa en promedio `r pct(comparacion$info_media_usada[3], 0)` de la información.
+-   Pocock cuesta un **`r pct(comparacion$inflar_n_por[4] - 1, 0)`** más de muestra, para en el primer análisis en `r pct(comparacion$para_en_1er_analisis[4], 0)` de los casos (antes del final, `r pct(comparacion$para_antes_del_final[4], 0)`) y usa en promedio `r pct(comparacion$info_media_usada[4], 0)` de la información.
+-   El «un solo análisis» de la primera fila es el control: error tipo I de `r pct(comparacion$error_tipo_I[1], 1)` y potencia de `r pct(comparacion$potencia_mismo_n[1], 1)`, que es lo que predice la fórmula.
+
+El α gastado en cada análisis sigue una **función de gasto** (Lan-DeMets). Las aproximaciones a O'Brien-Fleming y a Pocock tienen fórmula cerrada (`gasto_of()` y `gasto_pocock()`), y con ella el límite del **primer** análisis sale a mano:
+
+```{r}
+#| label: gasto-c207
+t_info <- c(1/3, 2/3, 1)
+gastos <- tibble(info = t_info, gasto_acumulado_OF = gasto_of(t_info), gasto_acumulado_Pocock = gasto_pocock(t_info),
+                 limite_1er_analisis_OF = c(qnorm(1 - gasto_of(t_info[1]) / 2), NA, NA))
+if (rpact_ok) {          # los mismos gastos según rpact (typeOfDesign "asOF" y "asP")
+  gastos <- mutate(gastos,
+    OF_rpact = rpact::getDesignGroupSequential(kMax = 3, typeOfDesign = "asOF", alpha = 0.05, sided = 2)$alphaSpent,
+    Pocock_rpact = rpact::getDesignGroupSequential(kMax = 3, typeOfDesign = "asP", alpha = 0.05, sided = 2)$alphaSpent)
+}
+gastos |> mutate(across(where(is.numeric), \(x) round(x, 4)))
+```
+
+El estilo moderno es fijar la **función de gasto** y no el número de análisis: si el comité de monitoreo decide mirar antes o después, los límites se recalculan sin perder el control del error tipo I. `rpact` lo hace con `typeOfDesign = "asOF"` o `"asP"` (cuyos gastos acumulados por análisis coinciden con las fórmulas de arriba).
+
+## Paso 4: cómo redactar el párrafo
+
+```{r}
+#| label: n-final-c207
+fi_of <- comparacion$inflar_n_por[3]          # factor de inflación de O'Brien-Fleming con tres análisis
+n_final <- ceiling(n_plan * fi_of)
+```
+
+Los lineamientos **CONSORT** (informe de ensayos) y **SPIRIT** (protocolos) piden **justificar el tamaño de muestra**: el desenlace, el efecto asumido, la variabilidad, α, potencia, el ajuste por pérdidas, el análisis interino (si lo hay) y de dónde salen los supuestos. El párrafo de este ensayo, con las cifras que acabamos de calcular, quedaría así:
+
+> *Tamaño de muestra.* El desenlace principal es el cambio de TFGe a 12 meses. Asumimos una desviación estándar de `r num(sigma, 1)` mL/min/1.73 m² (estimada en un ensayo previo simulado), una mejora de `r num(efecto_cumplidor, 2)` mL/min/1.73 m² en quienes toman el fármaco y una adherencia del `r pct(a, 0)` en el brazo activo, lo que implica una diferencia por intención de tratar de `r num(efecto_itt, 2)` mL/min/1.73 m². Con un nivel de significación bilateral de 0.05 y una potencia del 80 %, se requieren `r n_itt` participantes por grupo (prueba *t*). Para compensar una pérdida esperada del `r pct(perdida, 0)` en la medición a 12 meses, se aleatorizarán `r n_plan` participantes por grupo (`r 2 * n_plan` en total). La potencia de este diseño con un solo análisis, verificada por simulación (1 500 ensayos), fue de `r pct(verif_plan$potencia, 0)`. Se planifican dos análisis interinos con la información de 1/3 y 2/3 de los participantes, con límites de eficacia de O'Brien-Fleming (límite del primer análisis: |*z*| > `r num(lim_obf[1], 2)`); como este esquema exige inflar la muestra un `r pct(fi_of - 1, 1)`, se aleatorizarán finalmente `r n_final` participantes por grupo (`r 2 * n_final` en total).
+
+Un párrafo así responde a la lista de comprobación: (1) el desenlace y la prueba, (2) el **efecto** y por qué, (3) la **variabilidad** y su fuente, (4) α y potencia, (5) **pérdidas y no adherencia**, (6) cómo se **verificó**, (7) el análisis interino y su regla de parada. Lo que no debe faltar en el protocolo (SPIRIT) y en el artículo (CONSORT): los **supuestos clínicos y estadísticos** (no solo el número) y cualquier **cambio** posterior al protocolo.
+
+## Paso 5: errores frecuentes
+
+**Efecto inflado de los estudios pequeños.** Los estudios pequeños que salen «significativos» tienden a **exagerar** el efecto verdadero (un fenómeno llamado error de tipo M por magnitud, o *winner's curse*). Para ver cuánto, simulamos ensayos con efecto ITT verdadero de `r num(efecto_itt, 2)` y distinto *n*, y miramos el efecto estimado **solo en los ensayos significativos**:
+
+```{r}
+#| label: efecto-inflado-c207
+gen_chico <- \(n) generar_tfg(n, efecto = efecto_itt)
+inflado <- map_dfr(c(25, 50, 108, n_itt), \(n) potencia_sim(gen_chico, an_itt, n, nsim = 1500, semilla = 12)) |>
+  mutate(exageracion = est_signif / efecto_itt)
+inflado |> select(n, potencia, est_media, est_signif, exageracion) |> mutate(across(where(is.numeric), \(x) round(x, 2)))
+```
+
+**Qué vemos.** El efecto verdadero es **`r num(efecto_itt, 2)`**. En todos los ensayos, la estimación media es `r num(inflado$est_media[1], 2)` (sin sesgo), pero entre los **significativos** con `r inflado$n[1]` por grupo (potencia de `r pct(inflado$potencia[1], 0)`), la estimación media es **`r num(inflado$est_signif[1], 2)`**, `r num(inflado$exageracion[1], 1)` veces la verdad. Con `r inflado$n[4]` por grupo (potencia `r pct(inflado$potencia[4], 0)`) la exageración baja a `r num(inflado$exageracion[4], 2)`. **Lección:** no calcules el *n* de un ensayo confirmatorio con el efecto de un piloto pequeño que «salió», ni te fíes de un efecto grande en un estudio pequeño.
+
+**Tamaño «por conveniencia».** Reclutar los pacientes que se pueden pagar no es un error; lo es **escribir un efecto a posteriori** para que el cálculo cuadre. La alternativa honesta es calcular **el efecto detectable** con el *n* disponible y dejar que el lector lo juzgue:
+
+```{r}
+#| label: detectable-c207
+tibble(n_por_grupo = c(60, 100, 150, 250, 400)) |>
+  mutate(d_detectable = map_dbl(n_por_grupo, \(n) pwr.t.test(n = n * (1 - perdida), power = 0.80)$d),
+         efecto_detectable = d_detectable * sigma) |>
+  mutate(across(where(is.numeric) & !n_por_grupo, \(x) round(x, 2)))
+```
+
+Con **100 pacientes por grupo** (y la pérdida del piloto), el ensayo solo detecta con 80 % de potencia efectos de **`r num(pwr.t.test(n = 100 * (1 - perdida), power = 0.80)$d * sigma, 2)`** mL/min/1.73 m² o más, bastante por encima del efecto ITT esperado (`r num(efecto_itt, 2)`). Escribe eso en el protocolo, no que «100 por grupo bastan para detectar 0.66».
+
+## Trampas frecuentes
+
+::: {.callout-warning}
+## ⚠️ Otros errores que se repiten
+
+-   **Calcular con el efecto en cumplidores** y analizar por ITT (Paso 1).
+-   **Mirar «un poco» los datos** sin plan: cada mirada no planificada infla el error tipo I (Paso 3). Todo interino va **en el protocolo**, con su regla.
+-   **Detener temprano por beneficio con pocos eventos**: los ensayos que paran por eficacia sobrestiman el efecto; los límites conservadores como O'Brien-Fleming lo mitigan.
+-   **Cambiar el efecto, la DE o α después de ver los datos** para «justificar» el *n* ya reclutado.
+-   **Reportar solo un número**: da siempre los supuestos y la sensibilidad (20.2).
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   La **no adherencia** y la contaminación diluyen el efecto ITT: δ_ITT = (*a* − *c*) δ_cumplidor, y el *n* se multiplica por 1/(*a* − *c*)². Aquí, con adherencia del `r pct(a, 0)`: `r n_itt` por grupo, no `r n_medias(efecto_cumplidor, sigma)$n1`.
+-   Después se **divide** entre (1 − pérdidas): `r n_plan` por grupo (`r 2 * n_plan` en total), con una potencia simulada de `r pct(verif_plan$potencia, 0)`.
+-   Mirar tres veces a 1.96 da un error tipo I de `r pct(naive$potencia, 0)`. **O'Brien-Fleming** casi no cuesta muestra (≈ `r pct(comparacion$inflar_n_por[3] - 1, 0)`); **Pocock** cuesta más (≈ `r pct(comparacion$inflar_n_por[4] - 1, 0)`).
+-   Redacta el párrafo con **supuestos explícitos** (desenlace, efecto, DE, α, potencia, pérdidas, interinos) y la verificación.
+-   Los estudios pequeños significativos **exageran** el efecto (hasta `r num(inflado$exageracion[1], 1)` veces con `r inflado$n[1]` por grupo); si el *n* viene dado, **reporta el efecto detectable**.
+:::
+
+## Ejercicio
+
+1.  Con adherencia de 60 % y contaminación de 5 %, ¿por cuánto se multiplica el *n*? Verifica con `potencia_sim()` y `generar_tfg(adherencia = 0.60, contaminacion = 0.05)`.
+2.  Calcula con `limites_secuenciales(5, "obf")` los límites con cinco análisis interinos. ¿Cuánto vale el primero? ¿Y el último?
+3.  Escribe el párrafo de tamaño de muestra para el desenlace binario de 20.2 (falla renal a 24 meses, riesgo del control, RR 0.75), con 15 % de pérdidas y sin análisis interino.

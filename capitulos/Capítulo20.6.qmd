@@ -82,7 +82,24 @@ tabla_sim <- bind_rows(simular_ic(n0, p_acidosis, d),
 tabla_sim |> mutate(across(where(is.numeric) & !n, \(x) round(x, 3)))
 ```
 
-**Qué vemos.** Con *n* = `r n0`, el semiancho **medio** es `r num(tabla_sim$semiancho_medio[1], 3)` (objetivo 0.050) y la **cobertura** del IC es `r pct(tabla_sim$cobertura[1], 1)`: la fórmula **cumple en promedio**. Pero solo en `r pct(tabla_sim$prob_ancho_ok[1], 0)` de los estudios el semiancho real queda por debajo de 0.05, porque el ancho cambia con el *p* que sale en cada muestra. Si quieres **tener casi garantizado** que el IC no exceda el margen, aumenta el *n*: con un 30 % más (`r tabla_sim$n[3]`), la probabilidad sube a `r pct(tabla_sim$prob_ancho_ok[3], 0)`. Eso se conoce como calcular con **garantía** (*assurance*) del ancho.
+**Qué vemos.** Con *n* = `r n0`, el semiancho **medio** del IC exacto es `r num(tabla_sim$semiancho_medio[1], 3)` (objetivo 0.050) y la **cobertura** es `r pct(tabla_sim$cobertura[1], 1)`: la fórmula de Wald queda **ligeramente corta** porque el intervalo exacto es algo más ancho (y conservador). Además, solo en `r pct(tabla_sim$prob_ancho_ok[1], 0)` de los estudios el semiancho real queda por debajo de 0.05, porque el ancho cambia con el *p* que sale en cada muestra (figura). Si quieres **tener casi garantizado** que el IC no exceda el margen, aumenta el *n*: con un 30 % más (`r tabla_sim$n[3]`), la probabilidad sube a `r pct(tabla_sim$prob_ancho_ok[3], 0)`. Eso se conoce como calcular con **garantía** (*assurance*) del ancho.
+
+```{r}
+#| label: fig-ancho-c206
+#| fig-cap: "Semiancho del IC exacto en 3 000 estudios simulados, con el n de la fórmula y con un 30 % más. Línea punteada: margen objetivo (0.05). Datos simulados."
+#| fig-width: 6.8
+#| fig-height: 3.4
+anchos <- map_dfr(c(n0, ceiling(1.30 * n0)), \(tam) {
+  set.seed(3)
+  hw <- sapply(rbinom(3000, tam, p_acidosis), \(x) diff(binom.test(x, tam)$conf.int) / 2)
+  tibble(n = factor(tam), semiancho = hw)
+})
+ggplot(anchos, aes(semiancho, fill = n)) +
+  geom_histogram(position = "identity", alpha = 0.55, bins = 40) +
+  geom_vline(xintercept = d, linetype = "dashed") +
+  scale_fill_manual(values = c("#D55E00", "#0072B2"), name = "Pacientes") +
+  labs(x = "Semiancho del IC 95 % (en proporción)", y = "Estudios")
+```
 
 ## Paso 2: una media con un ancho objetivo
 
@@ -102,7 +119,7 @@ hw_m <- replicate(3000, { x <- rnorm(n_m, 30, sigma_tfg); diff(t.test(x)$conf.in
 c(n = n_m, semiancho_medio = mean(hw_m), prob_ancho_ok = mean(hw_m <= 1)) |> round(3)
 ```
 
-**Qué vemos.** Con σ = `r num(sigma_tfg, 1)`, estimar la TFGe media con ±1 mL/min/1.73 m² requiere **`r n_m`** pacientes. El semiancho medio simulado es `r num(mean(hw_m), 2)` (la *t* es un poco más ancha que la normal), así que la fórmula **queda unas décimas corta**; con muestras pequeñas, usa la *t* y revisa por simulación. La precisión depende de σ, que es el parámetro que peor conoces: planifica con un σ algo mayor.
+**Qué vemos.** Con σ = `r num(sigma_tfg, 1)`, estimar la TFGe media con ±1 mL/min/1.73 m² requiere **`r n_m`** pacientes. El semiancho medio simulado es `r num(mean(hw_m), 2)` (la *t* es un poco más ancha que la normal) y solo en `r pct(mean(hw_m <= 1), 0)` de los estudios no pasa de 1: de nuevo, la fórmula da el ancho **esperado**, no una garantía. La precisión depende de σ, que es el parámetro que peor conoces: planifica con un σ algo mayor.
 
 ## Paso 3: sensibilidad y especificidad de una prueba
 
@@ -128,7 +145,7 @@ plan_dx <- n_sens_esp(se, sp, prev, d_dx)
 plan_dx
 ```
 
-**Qué vemos.** Hacen falta **`r plan_dx$enfermos_necesarios` enfermos** para la sensibilidad (`r pct(se, 0)`) y **`r plan_dx$sanos_necesarios` sanos** para la especificidad (`r pct(sp, 0)`). Con una prevalencia de `r pct(prev, 0)`, los enfermos son la parte difícil: para reunir `r plan_dx$enfermos_necesarios` hay que reclutar **`r plan_dx$total_por_sens` pacientes** (para los sanos bastarían `r plan_dx$total_por_esp`). Manda el mayor: **`r plan_dx$total`**. Si la prevalencia fuera de 40 % (pacientes de UCI, donde la LRA es más frecuente), serían **`r n_sens_esp(se, sp, 0.40, d_dx)$total`**.
+**Qué vemos.** Hacen falta **`r plan_dx$enfermos_necesarios` enfermos** para la sensibilidad (`r pct(se, 0)`) y **`r plan_dx$sanos_necesarios` sanos** para la especificidad (`r pct(sp, 0)`). Con una prevalencia de `r pct(prev, 0)`, los enfermos son la parte difícil: para reunir `r plan_dx$enfermos_necesarios` hay que reclutar **`r plan_dx$total_por_sens` pacientes** (para los sanos bastarían `r plan_dx$total_por_esp`). Manda el mayor: **`r plan_dx$total`**. Si la prevalencia fuera de 40 % (una población de mayor riesgo, como la de UCI), serían **`r n_sens_esp(se, sp, 0.40, d_dx)$total`**.
 
 Verifiquemos con simulación: reclutamos `r plan_dx$total` pacientes consecutivos (el número de enfermos varía por azar) y calculamos los IC exactos de Se y Sp:
 
@@ -152,10 +169,12 @@ El estudio reúne en promedio **`r num(mean(res_dx$enf), 0)` enfermos**, el semi
 -   **Modelos de predicción.** Para construir una calculadora de riesgo el tamaño de muestra no se calcula con la precisión de una proporción, sino con los criterios de **Riley** (encogimiento, optimismo y precisión del riesgo global), que dependen de los **eventos** y del número de parámetros. Está desarrollado en **17.1** y no lo repetimos aquí.
 -   **Comparar dos grupos con un IC estrecho.** Es la misma lógica: el semiancho del IC de una diferencia de medias es $d = z\,\sigma\sqrt{2/n}$. Con σ = `r num(2.6, 1)` y un semiancho de 0.5 mL/min/1.73 m², hacen falta **`r ceiling(2 * (qnorm(0.975) * 2.6 / 0.5)^2)` pacientes por grupo**, bastante más que los `r n_medias(1.0, 2.6)$n1` de 20.2: pedir un IC **estrecho** exige más que pedir **potencia** para detectar un efecto de 1.0.
 
+## Trampas frecuentes
+
 ::: {.callout-warning}
 ## ⚠️ Errores frecuentes con la precisión
 
--   **Usar la fórmula de la proporción con *p* muy cercano a 0 o 1.** Con prevalencias muy bajas (< 5 %), Wald funciona mal; usa intervalos exactos o de Wilson y verifica por simulación como en el Paso 1.
+-   **Usar la fórmula de la proporción con *p* muy cercano a 0 o 1.** Con prevalencias muy bajas (< 5 %), Wald puede funcionar mal; usa intervalos exactos o de Wilson y verifica por simulación como en el Paso 1.
 -   **Calcular el total por la menor de las dos proporciones.** En pruebas diagnósticas, el tamaño total es el **mayor** de los dos (el de la sensibilidad o el de la especificidad), según la prevalencia.
 -   **Prometer un margen sin una σ o una *p* defendible.** Cita de dónde sale el valor y calcula para un rango.
 :::
