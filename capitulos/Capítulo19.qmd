@@ -1,0 +1,102 @@
+# Capítulo 19: Tratamientos que cambian en el tiempo y diseños cuasi-experimentales
+
+> *"En la vida real casi nadie recibe un tratamiento una sola vez y para siempre: se ajusta, se suspende, se reinicia."* Este capítulo reúne dos familias de métodos para los casos en que el ajuste habitual por confusores **ya no alcanza**: los **métodos G** (para tratamientos que cambian en el tiempo y confusores que cambian con ellos) y los **diseños cuasi-experimentales** (cuando falta un confusor importante, pero existe una fuente de variación "casi aleatoria").
+
+::: {.callout-note}
+## 🩺 El problema de todos los días
+
+En hemodiálisis, cada mes ajustas la dosis del agente estimulante de la eritropoyesis (EPO) según la hemoglobina (Hb). Si la Hb es baja, subes la dosis; la dosis alta, a su vez, sube la Hb del mes siguiente. La Hb es a la vez **causa** de la dosis futura y **consecuencia** de la dosis pasada. Si "ajustas por Hb" para comparar pacientes, bloqueas parte del efecto que querías medir; si **no** ajustas, comparas pacientes más graves con más sanos. Ninguna regresión corriente sale de ese dilema. Los **métodos G** sí.
+:::
+
+En la segunda mitad del capítulo cambia el problema, no la idea: no podemos medir un confusor (la fragilidad, la gravedad del paciente) y, aun así, queremos un efecto causal. Ahí ayudan los diseños que **aprovechan** una fuente de variación ajena al paciente: la **preferencia del médico** (variables instrumentales), una **política que llegó a unas regiones y no a otras** (diferencias en diferencias) o un **umbral de TFGe** que decide quién recibe el fármaco (regresión discontinua).
+
+*Al finalizar este capítulo podrás:*
+
+-   **Reconocer** la confusión dependiente del tiempo y explicar por qué la regresión ordinaria falla.
+-   **Estimar** el efecto de una estrategia de tratamiento con **modelos estructurales marginales** (ponderación) y con la **fórmula g paramétrica**.
+-   **Usar** una variable instrumental, una diferencia en diferencias o una regresión discontinua, e **interpretar** a quién se refiere cada efecto (LATE, ATT, efecto local).
+-   **Explorar** la heterogeneidad del efecto (¿a quién beneficia más?) sin caer en falsos hallazgos por subgrupos.
+
+## El recorrido en una página
+
+Los dos problemas de este capítulo, en dos dibujos. Primero, la confusión que depende del tiempo: la hemoglobina del mes ($L_1$) es consecuencia de la dosis anterior ($A_0$) y causa de la dosis siguiente ($A_1$). Un factor no medido ($U$, por ejemplo, la inflamación) mueve la Hb y también el desenlace.
+
+```{r}
+#| label: recorrido-dag-c19
+#| echo: false
+#| message: false
+#| fig-width: 8
+#| fig-height: 3.2
+library(tidyverse)
+source("R/funciones_epi.R")
+nodos <- tribble(~nombre, ~x, ~y, ~etiqueta, ~rol,
+  "A0", 1, 1, "Dosis de EPO\nmes 0 (A0)", "exposicion",
+  "L1", 2.5, 1.6, "Hb mes 1 (L1)", "confusor",
+  "A1", 4, 1, "Dosis de EPO\nmes 1 (A1)", "exposicion",
+  "Y",  5.5, 1, "Evento\ncardiovascular (Y)", "desenlace",
+  "U",  2.5, 0.2, "Inflamación\n(U, no medida)", "no medido")
+aristas <- tribble(~de, ~a, "A0", "L1", "L1", "A1", "A0", "A1", "A0", "Y", "A1", "Y",
+                   "L1", "Y", "U", "L1", "U", "Y")
+dibujar_dag(nodos, aristas, tam_texto = 3.2, expandir = c(0.12, 0.25))
+```
+
+La flecha $A_0 \rightarrow L_1 \rightarrow A_1$ es el problema: $L_1$ es un **confusor** de $A_1$ y $Y$ (hay que ajustar), pero también un **mediador** del efecto de $A_0$ (no hay que ajustar). Los métodos G resuelven el dilema **sin condicionar** en $L_1$ como lo hace una regresión: ponderan o simulan.
+
+Segundo, el caso del confusor que **no** se mide. El instrumento (la preferencia del nefrólogo, $Z$) cambia la probabilidad de tratar, pero no toca el desenlace salvo a través del tratamiento:
+
+```{r}
+#| label: recorrido-iv-c19
+#| echo: false
+#| fig-width: 8
+#| fig-height: 3
+nodos_iv <- tribble(~nombre, ~x, ~y, ~etiqueta, ~rol,
+  "Z", 1, 1, "Preferencia del\nnefrólogo (Z)", "otro",
+  "A", 2.7, 1, "Recibe\niSGLT2 (A)", "exposicion",
+  "Y", 4.4, 1, "Pendiente\nde TFGe (Y)", "desenlace",
+  "U", 3.55, 2, "Fragilidad\n(U, no medida)", "no medido")
+aristas_iv <- tribble(~de, ~a, "Z", "A", "A", "Y", "U", "A", "U", "Y")
+dibujar_dag(nodos_iv, aristas_iv, tam_texto = 3.2, expandir = c(0.12, 0.25))
+```
+
+**La lógica:** comparamos pacientes según el **instrumento** (que no depende de $U$), no según el tratamiento (que sí depende). El precio: el efecto estimado se refiere solo a los pacientes cuyo tratamiento **cambió** por culpa del instrumento.
+
+::: {.callout-tip}
+## 💡 ¿Qué método para qué problema?
+
+| Problema | Método | Estimando |
+|---|---|---|
+| Tratamiento y confusores cambian en el tiempo; todo medido | MSM, fórmula g | Efecto de una **estrategia** a lo largo del tiempo |
+| Confusor importante **no medido**, hay un instrumento | Variable instrumental | LATE (efecto en quienes cambian por el instrumento) |
+| Política aplicada a unos grupos, con datos antes y después | Diferencias en diferencias | ATT (efecto en los expuestos) |
+| Tratamiento asignado por un **umbral** | Regresión discontinua | Efecto **local** en el umbral |
+| Tengo un efecto promedio y quiero saber a quién beneficia | CATE, subgrupos | Efecto **condicional** a características |
+:::
+
+::: {.callout-important}
+## 🎯 Mapa del capítulo
+
+| Subcapítulo | Nivel | Resuelve |
+|---|---|---|
+| 19.1 Confusión dependiente del tiempo | 🔴 | EPO y hemoglobina; por qué falla la regresión; datos persona-tiempo |
+| 19.2 Modelos estructurales marginales | 🔴 | Pesos estabilizados acumulados; diagnóstico; estimación |
+| 19.3 Fórmula g y estimación g | 🔴 | Simulación de estrategias; comparación de métodos G |
+| 19.4 Variables instrumentales | 🔴 | Preferencia del médico; dos etapas; LATE; instrumentos débiles |
+| 19.5 Diferencias en diferencias y regresión discontinua | 🔴 | Política regional, umbral de TFGe, tendencias paralelas, ancho de banda |
+| 19.6 Heterogeneidad del efecto | 🔴 | CATE, subgrupos y el riesgo de falsos hallazgos |
+:::
+
+*Prerrequisitos:* Caps. 3 (DAG, resultados potenciales), 12 (PS, ponderación, fórmula g) y 15 (series de tiempo). *Prepara:* Cap. 21 (cómo sintetizar la evidencia de varios estudios).
+
+## Para leer más
+
+-   **Hernán MA, Robins JM.** *Causal Inference: What If*. Chapman & Hall/CRC; 2020. Parte III (métodos G para tratamientos que varían en el tiempo) y capítulo 16 (variables instrumentales). Gratuito en línea.
+-   **Barrett M, D'Agostino McGowan L, Gerke T.** *Causal Inference in R*. https://www.r-causal.org/. *Lectura recomendada por el autor; no se pudo consultar durante la redacción, por lo que no se describe su contenido.*
+-   **Karim ME.** *Epidemiological Methods*. https://ehsanx.github.io/EpiMethods/. *Lectura recomendada por el autor; no se pudo consultar durante la redacción.*
+-   **Daniel RM, Cousens SN, De Stavola BL, Kenward MG, Sterne JAC.** Methods for dealing with time-dependent confounding. *Stat Med*. 2013;32:1584-1618. Una comparación clara de métodos G.
+-   **Hoffman KL et al.** Comparison of a target trial emulation framework vs Cox regression to estimate the effect of corticosteroids on COVID-19 mortality. *JAMA Netw Open*. 2022. Un ejemplo publicado de régimen dinámico con datos hospitalarios.
+
+## Referencias
+
+-   Robins JM, Hernán MA, Brumback B. Marginal structural models and causal inference in epidemiology. *Epidemiology*. 2000;11:550-560.
+-   Angrist JD, Imbens GW, Rubin DB. Identification of causal effects using instrumental variables. *J Am Stat Assoc*. 1996;91:444-455.
+-   Imbens G, Lemieux T. Regression discontinuity designs: a guide to practice. *J Econom*. 2008;142:615-635.

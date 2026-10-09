@@ -1,0 +1,84 @@
+# Capítulo 20: Cálculo del tamaño de muestra
+
+> *"¿Cuántos pacientes necesito?" es la primera pregunta que te harán y la última que querrás contestar de memoria.* Este capítulo te enseña a responderla con lógica y con código: de dónde sale el número, qué supuestos esconde y cómo comprobarlo con simulación antes de gastar un solo año de seguimiento.
+
+::: {.callout-note}
+## 🩺 El problema de todos los días
+
+Quieres evaluar si el bicarbonato oral enlentece la pérdida de TFGe en ERC G3b-4. El comité de ética pregunta cuántos pacientes reclutarás y por qué. Si pones pocos, puedes **no detectar** un efecto que existe y perder el estudio; si pones demasiados, expones a pacientes de más y gastas recursos. El número correcto depende de **cuánto efecto** quieres detectar, **cuánta variabilidad** hay entre pacientes y **cuánto riesgo de equivocarte** aceptas.
+:::
+
+Trabajaremos con el ensayo **simulado** de bicarbonato (Cap. 11) y con variantes rotuladas. Como los datos son simulados, comprobaremos cada fórmula con **simulación**: si una fórmula dice "necesitas 100 por grupo", simulamos muchos ensayos de 100 por grupo y vemos si de verdad detectan el efecto en el 80 % de los casos.
+
+*Al finalizar este capítulo podrás:*
+
+-   **Explicar** qué son el error tipo I y II, la potencia y el efecto clínicamente relevante, y por qué la "potencia post hoc" no sirve.
+-   **Calcular** el tamaño de muestra para diferencias de medias, proporciones y tiempo hasta evento (con `pwr`, `rpact` y a mano).
+-   **Ajustar** por conglomerados (efecto de diseño), pérdidas y análisis interinos.
+-   **Usar la simulación** para estimar la potencia en diseños que no tienen fórmula.
+-   **Calcular** el tamaño de muestra para obtener una **precisión** deseada y **redactar** el párrafo de tamaño de muestra de un protocolo.
+
+## El recorrido en una página
+
+Un ejemplo completo. Queremos detectar una diferencia de **1.5 mL/min/1.73 m²** en la TFGe a 12 meses entre bicarbonato y placebo. Si la desviación estándar de la TFGe a 12 meses es de unos **3.75**, la diferencia equivale a un tamaño de efecto de $d = 1.5 / 3.75 = 0.4$ (diferencia en unidades de desviación estándar).
+
+```{r}
+#| label: recorrido-pwr-c20
+#| message: false
+library(tidyverse)
+library(pwr)
+d <- 1.5 / 3.75                                          # tamaño del efecto (Cohen)
+n_formula <- ceiling(2 * (qnorm(0.975) + qnorm(0.80))^2 / d^2)   # fórmula aproximada, por grupo
+n_pwr     <- ceiling(pwr.t.test(d = d, power = 0.80, sig.level = 0.05, type = "two.sample")$n)
+c(formula_aproximada = n_formula, pwr_t_test = n_pwr)
+```
+
+La fórmula y `pwr` coinciden casi exactamente: **`r n_pwr` pacientes por grupo** (la fórmula normal da `r n_formula`; `pwr` usa la distribución *t*). Pero un solo número esconde cuánto cambia si el efecto real es menor:
+
+```{r}
+#| label: fig-recorrido-potencia-c20
+#| fig-cap: "Potencia según el tamaño de muestra por grupo, para tres tamaños de efecto (d). Línea punteada: 80 % de potencia. Datos y parámetros hipotéticos."
+#| fig-width: 6.8
+#| fig-height: 3.8
+curvas <- expand_grid(n = seq(10, 300, by = 5), d = c(0.3, 0.4, 0.5)) |>
+  mutate(potencia = map2_dbl(n, d, \(n, d) pwr.t.test(n = n, d = d, sig.level = 0.05)$power))
+
+ggplot(curvas, aes(n, potencia, color = factor(d))) +
+  geom_hline(yintercept = 0.8, linetype = "dashed") +
+  geom_line(linewidth = 1) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_color_brewer(palette = "Dark2", name = "Efecto (d)") +
+  labs(x = "Pacientes por grupo", y = "Potencia") +
+  theme_minimal(base_size = 12) + theme(panel.grid.minor = element_blank())
+```
+
+Con $d = 0.4$ bastan unos 100 por grupo; si el efecto real fuera $d = 0.3$, **esos 100 darían solo `r scales::percent(pwr.t.test(n = n_pwr, d = 0.3, sig.level = 0.05)$power, accuracy = 1)` de potencia**. Elegir el efecto a detectar (**la diferencia mínima clínicamente importante**) es la decisión más importante del cálculo, y es una decisión **clínica**, no estadística.
+
+::: {.callout-important}
+## 🎯 Mapa del capítulo
+
+| Subcapítulo | Nivel | Resuelve |
+|---|---|---|
+| 20.1 La lógica | 🟢 | Efecto, variabilidad, α, potencia; efecto mínimo importante |
+| 20.2 Medias y proporciones | 🟢 | `pwr`, fórmulas a mano, razón de asignación, tablas de sensibilidad |
+| 20.3 Tiempo hasta evento | 🟡 | Número de eventos (Schoenfeld) y de pacientes |
+| 20.4 Ensayos por conglomerados | 🟡 | Efecto de diseño, ICC, conglomerados vs. pacientes |
+| 20.5 Simulación | 🟡 | Potencia por Monte Carlo en diseños complejos |
+| 20.6 Precisión en lugar de potencia | 🔴 | IC con ancho objetivo; estudios descriptivos y diagnósticos |
+| 20.7 Pérdidas, interinos y reporte | 🔴 | Abandono, gasto de α, redacción del párrafo en el protocolo |
+:::
+
+*Prerrequisitos:* Caps. 6 (muestreo), 8 (regresión), 9 (supervivencia) y 11 (ensayos). *Relacionado:* 17.1 (tamaño de muestra para **modelos de predicción**, que sigue otra lógica).
+
+## Para leer más
+
+-   **Cohen J.** *Statistical Power Analysis for the Behavioral Sciences*. 2.ª ed. Lawrence Erlbaum; 1988. El origen del tamaño de efecto $d$.
+-   **Barrett M, D'Agostino McGowan L, Gerke T.** *Causal Inference in R*. https://www.r-causal.org/. *Lectura recomendada por el autor; no se pudo consultar durante la redacción.*
+-   **Arnold BF, Hogan DR, Colford JM Jr, Hubbard AE.** Simulation methods to estimate design power: an overview for applied research. *BMC Med Res Methodol*. 2011;11:94. Una introducción a la potencia por simulación.
+-   **Chan AW, Tetzlaff JM, Altman DG, et al.** SPIRIT 2013 statement: defining standard protocol items for clinical trials. *Ann Intern Med*. 2013;158:200-207. Qué debe decir el protocolo sobre el tamaño de muestra.
+
+## Referencias
+
+-   Schoenfeld DA. Sample-size formula for the proportional-hazards regression model. *Biometrics*. 1983;39:499-503.
+-   Donner A, Klar N. *Design and Analysis of Cluster Randomization Trials in Health Research*. Arnold; 2000.
+-   Hoenig JM, Heisey DM. The abuse of power: the pervasive fallacy of power calculations for data analysis. *Am Stat*. 2001;55:19-24.
