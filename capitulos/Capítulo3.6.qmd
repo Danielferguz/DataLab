@@ -1,16 +1,196 @@
-# Tipos de preguntas científicas
+# Un segundo caso completo: mosquiteros y malaria (datos de Andrew Heiss)
 
-Texto
+::: {.callout-note}
+## 🩺 Escenario
 
-## Test y modelos estadísticos usados en preguntas descriptivas
+Un ministerio de salud quiere saber si repartir mosquiteros reduce el riesgo de malaria. Quienes ya duermen bajo un mosquitero tienen mucho **menos** malaria que quienes no, pero también tienen **más ingresos y mejor salud**. ¿Cuánto del beneficio se debe al mosquitero y cuánto a quienes lo usan? Es la misma pregunta del iSGLT2, con otra enfermedad: te sirve para comprobar que el flujo de análisis del Capítulo 3.2 **no depende del ejemplo**.
+:::
 
-Texto
+## Lo que vamos a hacer
 
-## Test y modelos estadísticos usados en preguntas de predicción
+-   Repetir el análisis causal completo (estimandos, ponderación, estandarización, incertidumbre) en un **conjunto de datos distinto**, con verdad conocida.
+-   Comprobar qué estimador acierta más cuando el puntaje de propensión tiene **valores extremos**.
+-   Ver por qué el beneficio crudo es una **sobreestimación** del efecto causal.
 
-Texto
+## Los datos y su origen
 
-## Test y modelos estadísticos usados en preguntas de inferencia causal
+Usamos `mosquito_nets_v2.csv`, un conjunto de datos **simulado** que Andrew Heiss publicó con su artículo *Demystifying causal inference estimands: ATE, ATT, and ATU* (lectura recomendada por el autor; el archivo está en `Bases/` y el análisis que sigue es propio). Son 1 500 personas: `net` indica si usan mosquitero, `malaria_risk` es el riesgo de malaria observado (0-100, menor es mejor), y las columnas `malaria_risk_0`, `malaria_risk_1` e `ice` (efecto individual) son el **oráculo**: lo que en la vida real no puedes ver.
 
-Texto
+```{r}
+#| label: setup-36
+library(tidyverse)
+library(marginaleffects)
+source("R/funciones_epi.R")          # dibujar_dag(), smd()
+source("R/funciones_extra_a.R")      # num()
+source("R/funciones_extra_cap1213.R")  # ess()
 
+theme_set(theme_minimal(base_size = 12) + theme(panel.grid.minor = element_blank()))
+
+nets <- read_csv("Bases/mosquito_nets_v2.csv", show_col_types = FALSE)
+glimpse(nets)
+```
+
+Aquí el efecto **negativo** es el favorable (el mosquitero **baja** el riesgo). Con el oráculo calculamos los tres estimandos del Capítulo 3.2:
+
+```{r}
+#| label: verdad-36
+verdad <- c(ATE = mean(nets$ice), ATT = mean(nets$ice[nets$net == 1]), ATU = mean(nets$ice[nets$net == 0]))
+round(verdad, 2)
+```
+
+El **ATE** es `r num(verdad[["ATE"]], 1)`: usar mosquitero baja el riesgo en `r num(abs(verdad[["ATE"]]), 1)` puntos en toda la población. El **ATT** (`r num(verdad[["ATT"]], 1)`) es mayor en magnitud que el **ATU** (`r num(verdad[["ATU"]], 1)`): quienes ya usan mosquitero son quienes **más** se benefician (viven donde hay más mosquitos o saben que lo necesitan), y quienes no lo usan se beneficiarían menos. Es la misma historia que el iSGLT2 y la albuminuria.
+
+## Paso 1. El DAG
+
+Dos confusores: los **ingresos** (pagan mosquitero y viven en zonas con menos malaria) y la **salud** (influida por los ingresos; las personas sanas usan más mosquitero y enferman menos).
+
+```{r}
+#| label: fig-dag-36
+#| fig-cap: "Supuestos causales: los ingresos y la salud confunden la relación entre el mosquitero y el riesgo de malaria."
+#| fig-width: 7.5
+#| fig-height: 3.6
+nodos <- tribble(
+  ~nombre, ~x, ~y, ~etiqueta, ~rol,
+  "X", 1, 1, "Usa\nmosquitero", "exposicion",
+  "Y", 4, 1, "Riesgo de\nmalaria", "desenlace",
+  "Z1", 2, 2.2, "Ingresos", "confusor",
+  "Z2", 3, 2.2, "Salud", "confusor"
+)
+aristas <- tribble(~de, ~a, "X", "Y", "Z1", "X", "Z1", "Y", "Z2", "X", "Z2", "Y", "Z1", "Z2")
+dibujar_dag(nodos, aristas)
+```
+
+## Paso 2. La estimación ingenua
+
+```{r}
+#| label: ingenuo-36
+ingenuo <- with(nets, mean(malaria_risk[net == 1]) - mean(malaria_risk[net == 0]))
+tibble(ingenuo = ingenuo, ATE_verdadero = verdad[["ATE"]], error_pct = 100 * (ingenuo / verdad[["ATE"]] - 1)) |>
+  mutate(across(where(is.numeric), \(x) round(x, 1)))
+```
+
+La diferencia cruda es **`r num(ingenuo, 1)`**: exagera el efecto causal en un `r round(100 * (ingenuo / verdad[["ATE"]] - 1))` %. Quienes usan mosquitero tienen mejores ingresos y mejor salud (`r round(mean(nets$income[nets$net == 1]))` frente a `r round(mean(nets$income[nets$net == 0]))` en ingresos; `r round(mean(nets$health[nets$net == 1]))` frente a `r round(mean(nets$health[nets$net == 0]))` en salud) y habrían tenido menos malaria **sin** mosquitero.
+
+## Paso 3. Puntaje de propensión, solapamiento y pesos
+
+```{r}
+#| label: ps-36
+nets <- nets |>
+  mutate(ps = fitted(glm(net ~ income + health, data = nets, family = binomial())),
+         w_ate = net / ps + (1 - net) / (1 - ps),
+         w_att = net + (1 - net) * ps / (1 - ps),
+         w_atu = (1 - net) + net * (1 - ps) / ps)
+nets |> group_by(net) |>
+  summarise(n = n(), ps_min = min(ps), ps_mediana = median(ps), ps_max = max(ps),
+            peso_ate_max = max(w_ate), tamano_efectivo = ess(w_ate)) |>
+  mutate(across(where(is.numeric), \(x) round(x, 2)))
+```
+
+```{r}
+#| label: fig-ps-36
+#| fig-cap: "Histograma espejo del puntaje de propensión. Arriba: usan mosquitero; abajo: no lo usan. Hay personas con PS cercano a 0 o a 1: casi todo su perfil determina el tratamiento. Datos simulados (Heiss)."
+#| fig-width: 7
+#| fig-height: 3.8
+ggplot(nets, aes(ps)) +
+  geom_histogram(data = filter(nets, net == 1), aes(y = after_stat(count)), bins = 40, fill = "#0072B2", alpha = 0.6) +
+  geom_histogram(data = filter(nets, net == 0), aes(y = -after_stat(count)), bins = 40, fill = "#D55E00", alpha = 0.6) +
+  geom_hline(yintercept = 0) + scale_y_continuous(labels = abs) +
+  labs(x = "Puntaje de propensión", y = "Personas")
+```
+
+A diferencia del ejemplo del iSGLT2, aquí el PS llega a valores **muy extremos** (de `r num(min(nets$ps), 3)` a `r num(max(nets$ps), 3)`) y hay pesos de hasta `r round(max(nets$w_ate))`. El tamaño de muestra efectivo de los dos grupos queda en `r round(ess(nets$w_ate[nets$net == 0]))` y `r round(ess(nets$w_ate[nets$net == 1]))`, lejos de los `r sum(nets$net == 0)` y `r sum(nets$net == 1)` observados. Estas son las condiciones donde el IPW **sufre**.
+
+```{r}
+#| label: balance-36
+vars <- c("income", "health")
+tibble(variable = vars,
+       sin_ajustar = map_dbl(vars, \(v) smd(nets[[v]], nets$net)),
+       ponderado_ate = map_dbl(vars, \(v) smd(nets[[v]], nets$net, nets$w_ate))) |>
+  mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+El balance es excelente: la |DEM| baja de `r num(max(abs(map_dbl(vars, \(v) smd(nets[[v]], nets$net)))), 2)` a `r num(max(abs(map_dbl(vars, \(v) smd(nets[[v]], nets$net, nets$w_ate)))), 3)`. Un buen balance **no** garantiza una buena estimación cuando los pesos son extremos.
+
+## Paso 4. Dos formas de estimar los tres estimandos
+
+```{r}
+#| label: estimaciones-36
+estima_ipw <- \(w) coef(lm(malaria_risk ~ net, data = nets, weights = nets[[w]]))[["net"]]
+modelo_res <- lm(malaria_risk ~ net * (income + health), data = nets)
+estandariza <- \(d) mean(predict(modelo_res, mutate(d, net = 1)) - predict(modelo_res, mutate(d, net = 0)))
+
+res <- tibble(
+  estimando = c("ATE", "ATT", "ATU"),
+  verdad    = unname(verdad),
+  ipw       = c(estima_ipw("w_ate"), estima_ipw("w_att"), estima_ipw("w_atu")),
+  formula_g = c(estandariza(nets), estandariza(filter(nets, net == 1)), estandariza(filter(nets, net == 0)))
+) |> mutate(error_ipw = ipw - verdad, error_g = formula_g - verdad)
+res |> mutate(across(where(is.numeric), \(x) round(x, 2)))
+```
+
+**Qué vemos:** para el **ATE**, los dos métodos aciertan (IPW `r num(res$ipw[1], 1)`, fórmula g `r num(res$formula_g[1], 1)`; verdad `r num(res$verdad[1], 1)`). Para el **ATT** y el **ATU**, el IPW se equivoca más (errores de `r num(res$error_ipw[2], 1)` y `r num(res$error_ipw[3], 1)` frente a `r num(res$error_g[2], 1)` y `r num(res$error_g[3], 1)` de la fórmula g): los pesos del ATT y del ATU dependen de la razón $p/(1-p)$, que se dispara con los PS extremos. Esa es la lección práctica: **con poca superposición, el IPW es más inestable que la estandarización**, sobre todo para el ATT y el ATU.
+
+Con el paquete `WeightIt` (código no verificado en el entorno de pruebas del libro) los pesos salen en una línea:
+
+```{r}
+#| label: weightit-36
+#| eval: !expr requireNamespace("WeightIt", quietly = TRUE)
+#| error: true
+library(WeightIt)
+w <- weightit(net ~ income + health, data = nets, method = "glm", estimand = "ATT")   # también "ATE" y "ATC"
+summary(w)
+```
+
+## Paso 5. Incertidumbre con *bootstrap*
+
+```{r}
+#| label: bootstrap-36
+set.seed(36)
+boot_res <- map_dfr(1:300, \(i) {
+  b  <- slice_sample(nets, prop = 1, replace = TRUE)
+  p  <- fitted(glm(net ~ income + health, data = b, family = binomial()))
+  wa <- b$net / p + (1 - b$net) / (1 - p)
+  m  <- lm(malaria_risk ~ net * (income + health), data = b)
+  tibble(ipw = coef(lm(malaria_risk ~ net, data = b, weights = wa))[["net"]],
+         formula_g = mean(predict(m, mutate(b, net = 1)) - predict(m, mutate(b, net = 0))))
+})
+ic <- boot_res |> pivot_longer(everything(), names_to = "metodo", values_to = "est") |>
+  group_by(metodo) |> summarise(inf = quantile(est, 0.025), sup = quantile(est, 0.975))
+ic |> mutate(across(where(is.numeric), \(x) round(x, 2)))
+```
+
+Los dos intervalos del ATE contienen el valor verdadero (`r num(verdad[["ATE"]], 1)`): el IPW va de `r num(ic$inf[ic$metodo == "ipw"], 1)` a `r num(ic$sup[ic$metodo == "ipw"], 1)` y la fórmula g, de `r num(ic$inf[ic$metodo == "formula_g"], 1)` a `r num(ic$sup[ic$metodo == "formula_g"], 1)`. El de la fórmula g es **más estrecho**, coherente con lo que viste en los pesos.
+
+## Paso 6. Y si olvido un confusor
+
+```{r}
+#| label: sin-salud-36
+p2 <- fitted(glm(net ~ income, data = nets, family = binomial()))
+w2 <- nets$net / p2 + (1 - nets$net) / (1 - p2)
+sin_salud <- coef(lm(malaria_risk ~ net, data = nets, weights = w2))[["net"]]
+c(con_salud = res$ipw[1], sin_salud = sin_salud, verdad = verdad[["ATE"]]) |> round(2)
+```
+
+Sin ajustar por la salud, el IPW del ATE pasa de `r num(res$ipw[1], 1)` a `r num(sin_salud, 1)`: se aleja de la verdad (`r num(verdad[["ATE"]], 1)`) por haber **omitido un confusor** medido. Es el mismo error que en 3.4, con otros datos.
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   El flujo **estimando → DAG → PS → balance → estimación → incertidumbre** funciona igual con otros datos: lo que cambia es el contexto, no el método.
+-   La comparación cruda exagera el efecto (`r num(ingenuo, 1)` frente a `r num(verdad[["ATE"]], 1)`) porque los usuarios de mosquitero ya eran **más sanos y con más ingresos**.
+-   El **ATT es mayor** que el **ATU** (en valor absoluto): quien elige el tratamiento suele ser quien más lo aprovecha.
+-   Con **PS extremos**, el IPW (sobre todo para ATT y ATU) es inestable; la **estandarización** suele ser más precisa. Mira siempre el solapamiento, los pesos y el tamaño efectivo.
+-   Omitir un confusor medido sesga el resultado: el DAG decide qué ajustar.
+:::
+
+## Ejercicio
+
+1.  Recorta el PS a [0.05, 0.95] (descartando los pacientes fuera de ese rango) y repite el Paso 4. ¿Cambia el ATE? ¿A qué población corresponde ahora?
+2.  Añade la variable `income_high` o `health_high` (indicadores de altos ingresos y salud) al modelo del PS. ¿Mejora o empeora el IPW para el ATT?
+3.  Con el oráculo, calcula el efecto verdadero entre quienes tienen `health_high == TRUE`. ¿Es mayor o menor que el ATE?
+
+## Referencias
+
+-   Heiss A. *Demystifying causal inference estimands: ATE, ATT, and ATU* (blog), 2024. <https://www.andrewheiss.com/blog/> (lectura recomendada por el autor; los datos `mosquito_nets_v2.csv` son de esa entrada).
+-   Greifer N, Stuart EA. Choosing the estimand when matching or weighting in observational studies. 2021. <https://doi.org/10.48550/arXiv.2106.10577>
+-   Barrett M, D'Agostino McGowan L, Gerke T. *Causal Inference in R*. <https://www.r-causal.org/> (lectura recomendada por el autor).
