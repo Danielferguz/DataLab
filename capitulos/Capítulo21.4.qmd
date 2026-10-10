@@ -1,0 +1,276 @@
+# Metaanálisis de efectos fijos y aleatorios
+
+::: {.callout-note}
+## 🩺 Escenario
+
+Tienes los **veinte ensayos** de iSGLT2 frente a placebo (ficticios, 21.3). Cada uno dice algo distinto: unos reducen el evento renal a casi un tercio, uno lo aumenta un 28 %, muchos tienen intervalos que cruzan el 1. El jefe pregunta: *«¿y entonces, funciona o no, y cuánto?»*. El metaanálisis es la forma de promediar con criterio: **dar más peso a los ensayos más precisos**, y decidir si todos los ensayos estiman *lo mismo* (efecto fijo) o *cosas parecidas pero distintas* (efectos aleatorios).
+:::
+
+**Lo que vamos a hacer**
+
+-   Combinar a mano los log RR con el **inverso de la varianza** y con **DerSimonian-Laird**, y comprobarlo con `metafor::rma()` (REML, DL, HKSJ).
+-   Dibujar el **forest plot** y ver cómo **efectos fijos** y **aleatorios** reparten el peso (qué pasa con los ensayos grandes).
+-   Metaanalizar el desenlace **binario** (cuentas, Mantel-Haenszel) y el **continuo** (diferencia de medias), y **comparar con la verdad**.
+
+```{r}
+#| label: setup-c214
+#| message: false
+library(tidyverse)
+library(metafor)
+source("R/funciones_extra_a.R")     # num(), pct()
+source("R/simular_metaanalisis.R")  # solo para el Paso 7 (repetir el proceso con otras semillas)
+theme_set(theme_minimal(base_size = 12))
+
+# 20 ensayos FICTICIOS (iSGLT2 vs placebo en ERC). El "oráculo" añade el log RR verdadero de cada ensayo.
+ensayos <- read_csv("Bases/metaanalisis_isglt2.csv", show_col_types = FALSE)
+oraculo <- read_csv("Bases/metaanalisis_isglt2_oraculo.csv", show_col_types = FALSE)
+verdad  <- list(rr_poblacion = 0.75, tau = 0.25, md = 0.90)     # parámetros del simulador (R/simular_metaanalisis.R)
+```
+
+Todos los ensayos son **ficticios**. Como los generamos nosotros, sabemos la verdad: el RR medio de la población de ensayos es **`r verdad$rr_poblacion`**, la heterogeneidad real es τ = `r verdad$tau` y el efecto verdadero sobre la pendiente de TFGe es **`r verdad$md`** mL/min/1.73 m² por año. Al final veremos si el metaanálisis las recupera.
+
+## Paso 1: lo que aporta cada ensayo
+
+Cada ensayo da una estimación del **log RR** (el logaritmo del riesgo relativo de evento renal: negativo = a favor del fármaco) y su **error estándar** (EE), que mide cuánta confianza merece. Los ensayos grandes tienen EE pequeño.
+
+```{r}
+#| label: datos-c214
+ensayos |> transmute(estudio, pacientes = n_trat + n_ctrl, RR = round(exp(log_rr), 2), log_rr = round(log_rr, 3), se_log_rr = round(se_log_rr, 3)) |>
+  slice_head(n = 6)
+```
+
+Una tentación es sumar todos los pacientes como si fueran un solo ensayo gigante. Eso **ignora que cada ensayo tiene su propio riesgo basal** (aquí el riesgo en el placebo va de `r pct(min(ensayos$ev_ctrl / ensayos$n_ctrl), 0)` a `r pct(max(ensayos$ev_ctrl / ensayos$n_ctrl), 0)`, según el seguimiento y la población) y rompe la aleatorización. La suma ingenua da un RR de `r num((sum(ensayos$ev_trat) / sum(ensayos$n_trat)) / (sum(ensayos$ev_ctrl) / sum(ensayos$n_ctrl)), 2)`; aquí no queda lejos del efecto fijo, pero por casualidad: con otro reparto de tamaños y riesgos basales puede ir en cualquier dirección. **Se combinan siempre las estimaciones de cada ensayo, no los pacientes.**
+
+## Paso 2: efecto fijo, a mano
+
+El modelo de **efecto fijo** supone que todos los ensayos estiman **el mismo** efecto verdadero y que sus diferencias son solo azar de muestreo. El estimador es un promedio ponderado por el **inverso de la varianza** (cuanto más preciso, más pesa):
+
+$$
+\hat\theta_{FE} = \frac{\sum w_i\,y_i}{\sum w_i}, \qquad w_i = \frac{1}{EE_i^2}, \qquad EE(\hat\theta_{FE}) = \frac{1}{\sqrt{\sum w_i}}
+$$
+
+```{r}
+#| label: fe-mano-c214
+y <- ensayos$log_rr; ee <- ensayos$se_log_rr; k <- length(y)
+
+meta_mano <- function(y, ee, tau2 = 0) {              # tau2 = 0 es efecto fijo
+  w <- 1 / (ee^2 + tau2)                              # peso = inverso de la varianza
+  est <- sum(w * y) / sum(w)                          # promedio ponderado
+  se <- 1 / sqrt(sum(w))
+  c(estimado = est, se = se, rr = exp(est), li = exp(est - 1.96 * se), ls = exp(est + 1.96 * se))
+}
+fe_mano <- meta_mano(y, ee)
+fe_mano
+
+# Q de Cochran: cuánto se aleja cada ensayo del promedio fijo, en unidades de su precisión
+w_fe <- 1 / ee^2
+Q <- sum(w_fe * (y - fe_mano[["estimado"]])^2)
+c(Q = Q, gl = k - 1, p = pchisq(Q, k - 1, lower.tail = FALSE))
+```
+
+El RR de efecto fijo es **`r num(fe_mano[["rr"]], 2)`** (IC 95 % `r num(fe_mano[["li"]], 2)` a `r num(fe_mano[["ls"]], 2)`). Pero la **Q de Cochran** vale **`r num(Q, 1)`** con `r k - 1` grados de libertad (*p* < 0.001): los ensayos se alejan del promedio **mucho más de lo que permite el azar**. El supuesto de «todos estiman lo mismo» no se sostiene; el intervalo de efecto fijo es **demasiado estrecho** (21.5 explica por qué).
+
+## Paso 3: efectos aleatorios, DerSimonian-Laird a mano
+
+El modelo de **efectos aleatorios** supone que cada ensayo estima **su propio** efecto, y que esos efectos varían alrededor de una media con una desviación τ (tau, la **heterogeneidad** entre ensayos). Se estima τ² y se **suma a la varianza de cada ensayo**, lo que **reparte el peso de forma más pareja**:
+
+$$
+\hat\tau^2_{DL} = \max\left(0,\ \frac{Q - (k-1)}{\sum w_i - \sum w_i^2 / \sum w_i}\right), \qquad w_i^* = \frac{1}{EE_i^2 + \hat\tau^2}
+$$
+
+```{r}
+#| label: dl-mano-c214
+tau2_dl <- max(0, (Q - (k - 1)) / (sum(w_fe) - sum(w_fe^2) / sum(w_fe)))     # DerSimonian-Laird (1986)
+dl_mano <- meta_mano(y, ee, tau2 = tau2_dl)
+c(tau2 = tau2_dl, tau = sqrt(tau2_dl), dl_mano[c("rr", "li", "ls")])
+```
+
+Ahora las mismas cuentas con el paquete `metafor` (Viechtbauer, 2010), con cuatro variantes. `rma()` recibe el efecto (`yi`) y su error estándar (`sei`):
+
+```{r}
+#| label: rma-c214
+m_fe   <- rma(yi = log_rr, sei = se_log_rr, data = ensayos, method = "FE")
+m_dl   <- rma(yi = log_rr, sei = se_log_rr, data = ensayos, method = "DL")
+m_reml <- rma(yi = log_rr, sei = se_log_rr, data = ensayos, method = "REML")                 # el más usado hoy
+m_hk   <- rma(yi = log_rr, sei = se_log_rr, data = ensayos, method = "REML", test = "knha")  # Hartung-Knapp-Sidik-Jonkman
+
+res_rr <- map_dfr(list(`Efecto fijo` = m_fe, `DerSimonian-Laird` = m_dl, `REML` = m_reml, `REML + HKSJ` = m_hk), \(m) {
+  tibble(RR = exp(coef(m)), li = exp(m$ci.lb), ls = exp(m$ci.ub), tau2 = m$tau2)
+}, .id = "metodo")
+res_rr |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+**Qué vemos.**
+
+-   `rma(method = "DL")` reproduce **exactamente** nuestra cuenta a mano: τ² = `r num(m_dl$tau2, 4)` (a mano, `r num(tau2_dl, 4)`) y RR = `r num(exp(coef(m_dl)), 3)` (a mano, `r num(dl_mano[["rr"]], 3)`). No hay magia: es un promedio ponderado.
+-   Los métodos de efectos aleatorios coinciden en lo esencial: RR ≈ **`r num(exp(coef(m_reml)), 2)`**. **REML** estima τ² algo mayor (`r num(m_reml$tau2, 3)`) que **DL** (`r num(m_dl$tau2, 3)`); la diferencia es pequeña frente a la incertidumbre de τ² con solo `r k` ensayos (EE ≈ `r num(m_reml$se.tau2, 3)`).
+-   **HKSJ** (`test = "knha"`) corrige el intervalo para tener en cuenta que τ² es **estimado** y usa la distribución *t* en lugar de la normal. Aquí da `r num(res_rr$li[4], 2)` a `r num(res_rr$ls[4], 2)`, casi igual al de REML (`r num(res_rr$li[3], 2)` a `r num(res_rr$ls[3], 2)`). Con pocos ensayos (< 10) y heterogeneidad, HKSJ suele ser más honesto que el intervalo normal (IntHout y cols., 2014).
+-   **Efecto fijo frente a aleatorios:** `r num(res_rr$RR[1], 2)` frente a `r num(res_rr$RR[3], 2)`. No es un detalle: es la diferencia entre una reducción del `r round(100 * (1 - res_rr$RR[1]))` % y una del `r round(100 * (1 - res_rr$RR[3]))` %. Veamos de dónde sale.
+
+## Paso 4: el forest plot
+
+El **forest plot** (gráfico de bosque) es el gráfico de todo metaanálisis: una fila por ensayo con su estimación (cuadrado, de tamaño proporcional al peso) y su IC, y abajo el **estimador combinado** (rombo). `metafor::forest()` lo dibuja; `atransf = exp` muestra el eje en escala RR aunque el modelo trabaje con logaritmos.
+
+```{r}
+#| label: fig-forest-c214
+#| fig-cap: "Forest plot del RR de evento renal con iSGLT2 frente a placebo (20 ensayos ficticios; efectos aleatorios, REML). Columnas: eventos/pacientes por brazo y peso en el modelo."
+#| fig-width: 9
+#| fig-height: 6.8
+forest(m_reml, atransf = exp, at = log(c(0.1, 0.25, 0.5, 1, 2)), slab = ensayos$estudio, cex = 0.8,
+       xlab = "Razón de riesgos (RR); menos de 1 favorece al iSGLT2", header = c("Ensayo (ficticio)", "RR [IC 95 %]"),
+       mlab = "Efectos aleatorios (REML)", showweights = TRUE, xlim = c(-6, 3.2),
+       ilab = cbind(paste0(ensayos$ev_trat, "/", ensayos$n_trat), paste0(ensayos$ev_ctrl, "/", ensayos$n_ctrl)), ilab.xpos = c(-3.6, -2.6))
+text(c(-3.6, -2.6), k + 1.8, c("iSGLT2", "Placebo"), cex = 0.8, font = 2)
+```
+
+La lectura del forest es siempre la misma: *¿hacia dónde apuntan los cuadrados?* (casi todos a la izquierda del 1), *¿cuánto se solapan los intervalos?* (poco: hay ensayos con RR 0.27 y otro con 1.28) y *¿dónde cae el rombo?* (`r num(res_rr$RR[3], 2)`, con IC `r num(res_rr$li[3], 2)` a `r num(res_rr$ls[3], 2)`). Los intervalos que no se tocan entre sí son la señal visual de heterogeneidad (21.5).
+
+## Paso 5: ¿qué pasa con los ensayos grandes?
+
+En efectos fijos el peso es solo precisión, así que **los ensayos más grandes dominan**. En efectos aleatorios, al sumar τ² a todas las varianzas, la parte «propia» de cada ensayo se vuelve más importante que su tamaño y el peso se **aplana**:
+
+```{r}
+#| label: pesos-c214
+pesos <- tibble(estudio = ensayos$estudio, pacientes = ensayos$n_trat + ensayos$n_ctrl,
+                `Efecto fijo` = weights(m_fe), `Efectos aleatorios` = weights(m_reml))
+pesos |> arrange(desc(pacientes)) |> slice_head(n = 4) |> mutate(across(where(is.numeric), \(x) round(x, 1)))
+top3 <- pesos |> slice_max(pacientes, n = 3) |> summarise(across(c(`Efecto fijo`, `Efectos aleatorios`), sum))
+
+# ¿Los ensayos grandes tienen efectos menos favorables? RR mediano de la mitad más grande y de la más pequeña
+mitades <- ensayos |>
+  mutate(mitad = if_else(n_trat + n_ctrl >= median(n_trat + n_ctrl), "grandes", "pequenos")) |>
+  group_by(mitad) |> summarise(rr_mediano = exp(median(log_rr)))
+```
+
+```{r}
+#| label: fig-pesos-c214
+#| fig-cap: "Peso de cada ensayo (%) en efecto fijo y en efectos aleatorios. Datos ficticios."
+#| fig-width: 7
+#| fig-height: 5.2
+pesos |>
+  pivot_longer(c(`Efecto fijo`, `Efectos aleatorios`), names_to = "modelo", values_to = "peso") |>
+  mutate(estudio = fct_reorder(estudio, pacientes)) |>
+  ggplot(aes(peso, estudio, color = modelo)) +
+  geom_line(aes(group = estudio), color = "grey70") +
+  geom_point(size = 2.4) +
+  scale_color_manual(values = c("Efecto fijo" = "#D55E00", "Efectos aleatorios" = "#0072B2"), name = NULL) +
+  labs(x = "Peso en el metaanálisis (%)", y = NULL, caption = "Ensayos ordenados por tamaño. Datos ficticios.") +
+  theme(legend.position = "top")
+```
+
+**Qué vemos.** Los tres ensayos más grandes reúnen el **`r round(top3$"Efecto fijo")` %** del peso en efecto fijo pero solo el **`r round(top3$"Efectos aleatorios")` %** en efectos aleatorios. ONDA, el mayor (`r format(max(pesos$pacientes), big.mark = " ")` pacientes), pasa de **`r num(pesos$"Efecto fijo"[which.max(pesos$pacientes)], 1)` %** a **`r num(pesos$"Efectos aleatorios"[which.max(pesos$pacientes)], 1)` %**. Y como los **ensayos grandes tienden a tener efectos algo menos favorables** que los pequeños (RR mediano de `r num(mitades$rr_mediano[mitades$mitad == "grandes"], 2)` en la mitad más grande frente a `r num(mitades$rr_mediano[mitades$mitad == "pequenos"], 2)` en la más pequeña; el de ONDA es `r num(exp(ensayos$log_rr[ensayos$estudio == "ONDA (2016)"]), 2)`), el efecto fijo, que sigue a los grandes, queda más cerca del 1 que el aleatorio. Esa asociación entre tamaño y efecto es lo que 21.6 llama **efecto de estudios pequeños** y contrasta formalmente. Elegir entre uno y otro modelo **no debe hacerse por el valor de *p* de la Q**: se elige según la pregunta y la plausibilidad clínica. Con ensayos clínicamente distintos (población, seguimiento, definición del evento) casi nunca es creíble que todos estimen el mismo efecto, y por eso el modelo de efectos aleatorios es el punto de partida habitual.
+
+## Paso 6: desenlace binario con cuentas, y desenlace continuo
+
+Hasta aquí usamos el log RR que da cada ensayo. Cuando tienes las **cuentas** (eventos y tamaños por brazo) puedes elegir la medida y el método. `escalc()` calcula el efecto y su varianza; `rma.mh()` aplica **Mantel-Haenszel**, que se comporta bien con pocos eventos y no necesita corrección de continuidad cuando no hay ceros (pero es un método de **efecto fijo**):
+
+```{r}
+#| label: binario-c214
+dat_rr <- escalc(measure = "RR", ai = ev_trat, n1i = n_trat, ci = ev_ctrl, n2i = n_ctrl, data = ensayos)
+dat_or <- escalc(measure = "OR", ai = ev_trat, n1i = n_trat, ci = ev_ctrl, n2i = n_ctrl, data = ensayos)
+mh_rr <- rma.mh(ai = ev_trat, n1i = n_trat, ci = ev_ctrl, n2i = n_ctrl, data = ensayos, measure = "RR")
+mh_or <- rma.mh(ai = ev_trat, n1i = n_trat, ci = ev_ctrl, n2i = n_ctrl, data = ensayos, measure = "OR")
+re_rr <- rma(yi, vi, data = dat_rr, method = "REML")
+re_or <- rma(yi, vi, data = dat_or, method = "REML")
+
+tibble(medida = c("RR", "RR", "OR", "OR"), modelo = c("Mantel-Haenszel (fijo)", "REML (aleatorio)", "Mantel-Haenszel (fijo)", "REML (aleatorio)"),
+       estimado = c(exp(coef(mh_rr)), exp(coef(re_rr)), exp(coef(mh_or)), exp(coef(re_or))),
+       li = c(exp(mh_rr$ci.lb), exp(re_rr$ci.lb), exp(mh_or$ci.lb), exp(re_or$ci.lb)),
+       ls = c(exp(mh_rr$ci.ub), exp(re_rr$ci.ub), exp(mh_or$ci.ub), exp(re_or$ci.ub))) |>
+  mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+**Qué vemos.** `escalc()` solo agrega 0.5 cuando hay una celda en cero, mientras que la base trae el log RR calculado con 0.5 en todas las celdas; por eso el RR de efectos aleatorios coincide casi exactamente con el nuestro (`r num(exp(coef(re_rr)), 3)` frente a `r num(exp(coef(m_reml)), 3)`). **Mantel-Haenszel** da `r num(exp(coef(mh_rr)), 2)`, más cercano al efecto fijo ponderado por precisión. El **OR** (`r num(exp(coef(re_or)), 2)` en efectos aleatorios) es **más alejado del 1** que el RR (`r num(exp(coef(re_rr)), 2)`): con eventos que no son raros (riesgo en el placebo de hasta `r pct(max(ensayos$ev_ctrl / ensayos$n_ctrl), 0)`), el OR **exagera** el efecto si se interpreta como un RR. Para decisiones clínicas, el RR (o el RD con el riesgo basal del paciente) comunica mejor.
+
+El desenlace **continuo** (la diferencia de medias de la pendiente de TFGe, en mL/min/1.73 m² por año) se metaaliza igual, con la diferencia de medias (`md_tfg`) y su EE. Se usa **diferencia de medias** cuando todos miden en la **misma unidad**; la **diferencia de medias estandarizada** (DEM/SMD) solo cuando miden la misma cosa con escalas distintas.
+
+```{r}
+#| label: continuo-c214
+m_md <- rma(yi = md_tfg, sei = se_md_tfg, data = ensayos, method = "REML")
+c(MD = coef(m_md), li = m_md$ci.lb, ls = m_md$ci.ub, tau2 = m_md$tau2, I2 = m_md$I2) |> round(3)
+```
+
+La diferencia de medias combinada es **`r num(coef(m_md), 2)`** mL/min/1.73 m² por año (IC 95 % `r num(m_md$ci.lb, 2)` a `r num(m_md$ci.ub, 2)`): a favor del iSGLT2 y **compatible con la verdad (`r verdad$md`)**, que cae dentro del intervalo.
+
+## Paso 7: ¿recupera la verdad? El sesgo de publicación
+
+Sabemos cuál es la verdad. Comparemos:
+
+```{r}
+#| label: verdad-c214
+tibble(cantidad = c("RR medio verdadero de la población de ensayos (simulador)",
+                    "RR medio verdadero de estos 20 ensayos (oráculo)",
+                    "Efecto fijo (inverso de la varianza)", "Efectos aleatorios (REML)"),
+       RR = c(verdad$rr_poblacion, exp(mean(oraculo$theta_verdadero)), exp(coef(m_fe)), exp(coef(m_reml)))) |>
+  mutate(RR = round(RR, 3))
+```
+
+**Qué vemos.** El metaanálisis estima muy bien lo que debe: el RR medio verdadero **de estos 20 ensayos** es `r num(exp(mean(oraculo$theta_verdadero)), 2)` y el de efectos aleatorios es `r num(exp(coef(m_reml)), 2)`. Pero **no recupera el 0.75 de la población de ensayos**: está más lejos del 1 y su IC (`r num(exp(m_reml$ci.lb), 2)` a `r num(exp(m_reml$ci.ub), 2)`) apenas lo incluye. ¿Por qué? Porque **los 20 ensayos no son una muestra al azar de todos los que se hicieron**: en el simulador, los ensayos pequeños y poco favorables se publican menos. Es el **sesgo de publicación**: lo que ves es una selección favorable y, aunque calcules perfecto, estimas la media de la **selección**. ¿Es un accidente de esta semilla? Repetimos el proceso (simular, publicar, metaanalizar) en 100 «mundos» distintos:
+
+```{r}
+#| label: mundos-c214
+mundos <- map_dfr(1:100, \(s) {
+  e <- simular_metaanalisis(semilla = 1000 + s)                       # otros 20 ensayos publicados
+  m <- rma(e$log_rr, sei = e$se_log_rr, method = "REML")
+  tibble(estimado = coef(m), verdad_publicados = mean(e$theta_verdadero),
+         cubre = m$ci.lb < log(verdad$rr_poblacion) & m$ci.ub > log(verdad$rr_poblacion))
+})
+c(RR_estimado_promedio = exp(mean(mundos$estimado)), RR_verdadero_de_los_publicados = exp(mean(mundos$verdad_publicados)),
+  RR_verdadero_de_la_poblacion = verdad$rr_poblacion, cobertura_IC95_del_075 = mean(mundos$cubre)) |> round(3)
+```
+
+En promedio el RR estimado es **`r num(exp(mean(mundos$estimado)), 2)`**, casi idéntico al RR verdadero de los ensayos publicados (`r num(exp(mean(mundos$verdad_publicados)), 2)`), pero **`r num(verdad$rr_poblacion - exp(mean(mundos$estimado)), 2)` por debajo del 0.75 de la población**. (La selección fue más intensa en nuestro mundo de la semilla 2121, con `r num(exp(mean(oraculo$theta_verdadero)), 2)`, que en el promedio: es normal que varíe de un mundo a otro.) El IC al 95 % contiene el 0.75 solo en el **`r pct(mean(mundos$cubre), 0)`** de los mundos, no en el 95 % que se espera de un IC bien calibrado. El metaanálisis **no corrige** por sí solo la selección de lo que se publica; cómo detectarla, y sus límites, es el tema de 21.6.
+
+::: {.callout-tip}
+## 💡 Con el paquete {meta} (código no verificado en el entorno de pruebas del libro)
+
+`meta` es el paquete que más se usa en la literatura clínica. `metabin()` trabaja con las cuentas y `metagen()` con la estimación y su EE. Argumentos de versiones recientes (en las antiguas, `comb.fixed`/`comb.random` y `hakn = TRUE`):
+
+```{r}
+#| label: meta-c214
+#| eval: !expr requireNamespace("meta", quietly = TRUE)
+#| error: true
+library(meta)
+mb <- metabin(event.e = ev_trat, n.e = n_trat, event.c = ev_ctrl, n.c = n_ctrl, studlab = estudio, data = ensayos,
+              sm = "RR", method = "MH", common = TRUE, random = TRUE, method.tau = "REML",
+              method.random.ci = "HK", prediction = TRUE)
+summary(mb)
+forest(mb)
+mg <- metagen(TE = md_tfg, seTE = se_md_tfg, studlab = estudio, data = ensayos, sm = "MD",
+              method.tau = "REML", method.random.ci = "HK", prediction = TRUE)
+```
+:::
+
+## Trampas frecuentes
+
+::: {.callout-warning}
+## ⚠️ Errores clásicos del metaanálisis
+
+-   **Sumar pacientes** de ensayos distintos como si fueran uno solo (Paso 1).
+-   **Elegir efecto fijo o aleatorio según el *p* de la Q**: la elección es conceptual; con heterogeneidad real, el intervalo de efecto fijo es engañosamente estrecho.
+-   **Meter el RR en el modelo sin logaritmo**: el metaanálisis se hace en escala log (RR, OR, HR) y se transforma al final con `exp()`.
+-   **Interpretar el OR como si fuera un RR** cuando el evento no es raro.
+-   **Creer que el metaanálisis corrige el sesgo de los estudios**: promedia lo que le das, incluidos el sesgo de publicación y el de los ensayos individuales.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   El metaanálisis es un **promedio ponderado por el inverso de la varianza**. En efectos aleatorios se suma τ² a la varianza de cada ensayo y el peso se **aplana**: los tres ensayos más grandes pasan de `r round(top3$"Efecto fijo")` % a `r round(top3$"Efectos aleatorios")` % del peso.
+-   Con estos 20 ensayos: RR de efecto fijo = `r num(res_rr$RR[1], 2)`; efectos aleatorios (REML) = `r num(res_rr$RR[3], 2)` (IC `r num(res_rr$li[3], 2)` a `r num(res_rr$ls[3], 2)`); τ² = `r num(m_reml$tau2, 3)`. `rma(method = "DL")` coincide con la cuenta a mano.
+-   Con cuentas puedes usar Mantel-Haenszel (RR `r num(exp(coef(mh_rr)), 2)`, OR `r num(exp(coef(mh_or)), 2)`); el desenlace continuo da una diferencia de `r num(coef(m_md), 2)` mL/min/1.73 m² por año, compatible con la verdad (`r verdad$md`).
+-   El resultado recupera la media de los ensayos **publicados** (`r num(exp(mean(oraculo$theta_verdadero)), 2)`), no la de la población de ensayos (`r verdad$rr_poblacion`): el **sesgo de publicación** desplaza el resultado (21.6).
+:::
+
+## Ejercicio
+
+1.  Calcula a mano el RR de efectos aleatorios **sin** el ensayo ONDA (puedes usar `meta_mano()` con `tau2 = tau2_dl`). ¿Cambia mucho? ¿Y el efecto fijo?
+2.  Repite `rma()` con `method = "PM"` (Paule-Mandel) y `method = "EB"`. ¿Cuánto varía τ² entre estimadores?
+3.  Con `rma.mh(..., measure = "RD")` calcula la diferencia de riesgos de Mantel-Haenszel. ¿Qué te dice sobre cuántos pacientes habría que tratar para evitar un evento, y qué le falta a esa cifra para aplicarla a un paciente concreto?
+
+## Referencias
+
+-   DerSimonian R, Laird N. Meta-analysis in clinical trials. *Control Clin Trials*. 1986;7:177-188.
+-   Viechtbauer W. Conducting meta-analyses in R with the metafor package. *J Stat Softw*. 2010;36(3):1-48.
+-   IntHout J, Ioannidis JPA, Borm GF. The Hartung-Knapp-Sidik-Jonkman method for random effects meta-analysis is straightforward and considerably outperforms the standard DerSimonian-Laird method. *BMC Med Res Methodol*. 2014;14:25. *(por verificar)*
+-   Higgins JPT y cols. (eds.). *Cochrane Handbook for Systematic Reviews of Interventions*, capítulos de metaanálisis.

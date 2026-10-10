@@ -1,0 +1,217 @@
+# Ética, privacidad y uso de inteligencia artificial
+
+::: {.callout-note}
+## 🩺 Escenario
+
+Tienes los datos de 2 000 pacientes con ERC de la historia clínica electrónica de tu hospital y un artículo casi listo. En la última semana te pasan tres cosas: la revista pide **depositar los datos y el código**; un compañero te propone «subir el Excel a un asistente de IA para que lo limpie y redacte los resultados», y el comité de ética pregunta **¿con qué autorización usaste esos datos?** Ninguna de las tres se resuelve con estadística, pero las tres pueden arruinar un estudio perfecto, o dañar a un paciente.
+:::
+
+**Lo que vamos a hacer**
+
+-   Repasar los principios del uso de datos de rutina y el consentimiento.
+-   **Medir el riesgo de reidentificación** con una función propia (*k*-anonimato y celdas pequeñas) sobre la cohorte simulada.
+-   Ver qué se comparte (código, datos sintéticos, licencias), qué se declara (conflictos de interés y uso de IA) y qué **no** se delega.
+
+```{r}
+#| label: c236-setup
+#| message: false
+library(tidyverse)
+source("R/funciones_extra_a.R")      # num(), pct()
+source("R/funciones_epi.R")          # categoria_g(), categoria_a()
+source("R/funciones_cap23.R")        # k_anonimato(), celdas_pequenas()
+theme_set(theme_libro())
+
+ckd <- read_csv("Bases/ckd_isglt2.csv", show_col_types = FALSE)    # cohorte SIMULADA: no hay pacientes reales
+```
+
+## Paso 1: consentimiento y datos de rutina
+
+Los datos de la historia clínica se recogieron para **atender** al paciente, no para investigar. Usarlos después plantea una pregunta ética que las normas resuelven de formas distintas según el país y la institución: ¿hace falta el consentimiento de cada paciente? Algunas normativas exigen consentimiento informado específico; otras permiten exención cuando el riesgo es mínimo, los datos están desidentificados y recabar el consentimiento sería inviable. **No existe una regla universal: verifica la normativa de tu país y de tu institución, y consulta con el comité de ética antes de empezar**, no después de tener los resultados.
+
+Los principios que casi todas las normativas comparten son más estables que sus detalles:
+
+-   **Finalidad**: usa los datos para la pregunta aprobada, no para «lo que salga».
+-   **Minimización**: pide **solo** las variables que necesitas; cada columna extra es riesgo extra.
+-   **Seguridad**: acceso restringido, almacenamiento protegido, sin copias en correos ni memorias USB personales.
+-   **Transparencia**: documenta quién accedió, para qué y qué se hizo con los datos.
+-   **Proporcionalidad**: a más sensibilidad del dato (VIH, salud mental, genética), más protección.
+
+## Paso 2: desidentificar no es borrar el nombre
+
+Hay dos tipos de variables que pueden señalar a una persona:
+
+-   **Identificadores directos**: nombre, número de documento, número de historia clínica, teléfono, correo, dirección, fotos, huellas. Se **eliminan** o se sustituyen por un código aleatorio sin relación con los originales.
+-   **Cuasi-identificadores**: variables que **por sí solas** no identifican, pero **combinadas** sí: edad, sexo, fecha de ingreso, código postal, centro, un diagnóstico raro. Quien conozca a un paciente (un vecino, un compañero) o cruce tu base con otra puede reconocerlo por esa combinación.
+
+Esto se mide con el ***k*-anonimato**: cada combinación de cuasi-identificadores debe ser compartida por **al menos *k* personas**. Si hay una sola persona de 87 años, mujer y con ECV, esa persona es única y reconocible. La función `k_anonimato()` agrupa a los pacientes con los mismos valores y reporta el tamaño del grupo más pequeño (*k* mínimo), cuántas personas son únicas y qué porcentaje cae en grupos con menos de 5.
+
+Probamos con la cohorte simulada, añadiendo cuasi-identificadores. Primero con datos «tal cual»:
+
+```{r}
+#| label: c236-k-original
+cuasi_1 <- list(`Sexo` = "sexo", `+ edad exacta` = c("sexo", "edad"), `+ ECV previa` = c("sexo", "edad", "ecv"),
+                `+ TFGe basal (decimales)` = c("sexo", "edad", "ecv", "tfg_basal"))
+original <- map_dfr(cuasi_1, \(v) k_anonimato(ckd, v), .id = "escenario")
+original |> select(escenario, n_clases, k_minimo, personas_unicas, pct_en_clases_menores) |>
+  mutate(pct_en_clases_menores = pct(pct_en_clases_menores, 1))
+```
+
+**Qué vemos.** Con solo el sexo, nadie es único (*k* mínimo `r original$k_minimo[1]`). Con sexo y edad exacta ya hay `r original$personas_unicas[2]` personas únicas; con la ECV, `r original$personas_unicas[3]`. Y al añadir la TFGe con decimales, **`r original$personas_unicas[4]` de `r nrow(ckd)` pacientes (`r pct(original$personas_unicas[4] / nrow(ckd), 0)`) son únicas**. Una variable continua medida con decimales es casi una huella digital. (Aquí el riesgo es solo didáctico, porque los datos son simulados.)
+
+**Generalizar** reduce el riesgo: agrupar la edad en décadas, la TFGe en categorías G de KDIGO y la albuminuria en categorías A.
+
+```{r}
+#| label: c236-k-generalizado
+ckd <- ckd |>
+  mutate(edad_banda = cut(edad, c(0, 50, 60, 70, 80, Inf), right = FALSE, labels = c("<50", "50-59", "60-69", "70-79", "80+")),
+         cat_g = categoria_g(tfg_basal), cat_a = categoria_a(uacr))
+
+cuasi_2 <- list(`Sexo + edad en décadas + ECV` = c("sexo", "edad_banda", "ecv"),
+                `+ categoría G` = c("sexo", "edad_banda", "ecv", "cat_g"),
+                `+ categoría A` = c("sexo", "edad_banda", "ecv", "cat_g", "cat_a"),
+                `+ iSGLT2` = c("sexo", "edad_banda", "ecv", "cat_g", "cat_a", "isglt2"))
+generalizado <- map_dfr(cuasi_2, \(v) k_anonimato(ckd, v), .id = "escenario")
+generalizado |> select(escenario, n_clases, k_minimo, personas_unicas, pct_en_clases_menores) |>
+  mutate(pct_en_clases_menores = pct(pct_en_clases_menores, 1))
+```
+
+**Qué vemos.** Agrupar ayuda mucho: con sexo, edad en décadas y ECV, el *k* mínimo es `r generalizado$k_minimo[1]` (nadie es único). Pero a medida que se añaden categorías, reaparecen los grupos pequeños: con las seis variables hay `r generalizado$personas_unicas[4]` personas únicas y `r pct(generalizado$pct_en_clases_menores[4], 1)` de los pacientes están en grupos de menos de 5. La estrategia práctica es combinar tres movimientos: **eliminar** variables que no necesitas, **generalizar** las demás y, como último recurso, **suprimir** a quienes quedan en grupos menores que *k*:
+
+```{r}
+#| label: c236-k-suprimir
+cuasi <- cuasi_2[[4]]
+con_k <- ckd |> add_count(across(all_of(cuasi)), name = "k")        # tamaño del grupo de cada paciente
+filtrada <- filter(con_k, k >= 5)
+c(pacientes_suprimidos = sum(con_k$k < 5), pct = round(100 * mean(con_k$k < 5), 1),
+  k_minimo_despues = k_anonimato(filtrada, cuasi)$k_minimo)
+```
+
+**Qué vemos.** Para alcanzar *k* ≥ 5 hubo que suprimir a `r sum(con_k$k < 5)` pacientes (`r pct(mean(con_k$k < 5), 1)` de la base) y el *k* mínimo pasó a `r k_anonimato(filtrada, cuasi)$k_minimo`. Es el compromiso de siempre: **más privacidad, menos información**. Dos límites del *k*-anonimato: no protege si todos los miembros de un grupo comparten el mismo valor sensible (todos tienen el mismo diagnóstico), ni si alguien cuenta con otra base para cruzar. Es una **medida de riesgo básica**, no una garantía.
+
+### La regla de las celdas pequeñas
+
+En las **tablas** que publicas pasa lo mismo: una celda con 1 o 2 personas puede identificar a alguien. Una regla muy extendida es **no publicar celdas con menos de 5 personas** (algunas instituciones usan 10 u 11; consulta la tuya). `celdas_pequenas()` marca las celdas que no deben mostrarse. Aquí, los eventos renales de los pacientes con iSGLT2 según categoría G y A:
+
+```{r}
+#| label: c236-celdas
+celdas <- ckd |> filter(isglt2 == 1, evento == 1) |> celdas_pequenas("cat_g", "cat_a", umbral = 5)
+celdas |> filter(!(n == 0)) |> select(fila, columna, n, mostrar) |> mutate(fila = as.character(fila), columna = as.character(columna)) |>
+  pivot_wider(names_from = columna, values_from = mostrar, id_cols = fila, names_sort = TRUE)
+n_ocultas <- sum(!celdas$publicable)
+```
+
+**Qué vemos.** De las `r sum(celdas$n > 0)` celdas con algún evento, **`r n_ocultas` quedan por debajo de 5** y se publicarían como «<5». Cuidado con la **supresión complementaria**: si además publicas los totales por fila y por columna, una celda oculta se puede **recuperar restando**. Hay que ocultar también otra celda de esa fila y de esa columna, o publicar solo los totales. Los ceros también pueden delatar («nadie de este grupo tuvo el evento»). Y, en general, **la tabla final de un artículo casi nunca necesita ese nivel de detalle**.
+
+## Paso 3: datos sintéticos y sus límites
+
+Los datos de este libro son **sintéticos**: los generó un programa (`R/simular_ckd.R` y sus hermanos) a partir de ecuaciones conocidas; **no corresponden a ningún paciente real**. Sirven para ensayar métodos, compartir código y probar tu *pipeline* sin riesgo, y tienen una ventaja que los reales no tienen: conocemos la **verdad** y podemos comprobar si un método la recupera.
+
+Pero tienen límites que conviene decir en voz alta:
+
+-   **Solo contienen lo que el simulador puso**. En la cohorte del libro, la edad y la TFGe basal se relacionan (correlación de `r num(cor(ckd$edad, ckd$tfg_basal), 2)`) porque la ecuación del simulador las ligó así. Aprendes cómo se comporta un método; **no descubres nada nuevo** sobre la ERC.
+-   **No son evidencia clínica.** Ninguna conclusión de un análisis sobre datos sintéticos debe citarse como si fuera un hallazgo.
+-   **Sintético no siempre es seguro.** Un generador entrenado con datos reales puede memorizar y reproducir pacientes verdaderos; hay que evaluar el riesgo de reidentificación como con cualquier otra base.
+
+## Paso 4: compartir código y datos
+
+El código casi siempre se puede compartir; los datos, solo si el consentimiento, la normativa y la desidentificación lo permiten. Los principios **FAIR** (Wilkinson y cols., 2016) piden datos que sean *Findable* (localizables), *Accessible* (accesibles, aunque sea bajo condiciones), *Interoperable* y *Reusable* (reutilizables). Si no puedes compartir los datos reales: comparte el **código**, un **diccionario de datos**, **datos sintéticos** con la misma estructura y las instrucciones de cómo solicitar el acceso a los reales.
+
+Un repositorio **sin licencia** no autoriza a nadie a reutilizarlo: por defecto, todos los derechos están reservados. Estas son las más habituales:
+
+```{r}
+#| label: c236-licencias
+tribble(
+  ~Licencia, ~`Para qué`, ~`Qué permite y qué exige (resumen)`,
+  "CC BY (Creative Commons Atribución)", "Textos, figuras y datos con permiso de compartir", "Reutilizar, incluso con fines comerciales, **citando** al autor",
+  "CC0", "Datos que quieres liberar sin condiciones", "Renuncia a los derechos: se usa sin exigir ni la atribución (aunque se agradece citar)",
+  "MIT", "Código", "Usar, copiar y modificar el código; solo exige conservar el aviso de copyright y la licencia"
+) |> knitr::kable()
+```
+
+Es un resumen **no jurídico**: lee el texto de la licencia y, si los datos son de una institución, **pregunta quién puede decidir** (tú no siempre eres el titular). Deposita datos y código en repositorios con DOI (Zenodo, OSF) y cita la versión exacta.
+
+## Paso 5: conflictos de interés
+
+Un **conflicto de interés** es cualquier vínculo que pueda influir (o parecer que influye) en cómo diseñas, analizas o interpretas: honorarios o financiación de la industria, patentes, acciones, cargos en sociedades, o una relación personal con el desarrollador de un fármaco. No son malos por sí solos; ocultarlos sí. Se declaran **al enviar el manuscrito** (muchas revistas usan el formulario de ICMJE) y se **describe el papel del financiador**: ¿participó en el diseño, el análisis o la decisión de publicar? Los conflictos **no financieros** (competencia académica, convicciones) también cuentan. En caso de duda, declara.
+
+## Paso 6: la IA en tu trabajo
+
+Los asistentes de IA generativa (modelos de lenguaje) ayudan a redactar, traducir, resumir y depurar código. También **inventan**: citas que no existen, cifras plausibles, funciones de R con argumentos falsos. Y **no son responsables de nada**: la responsabilidad es tuya.
+
+**Qué se declara.** Las revistas y las normas editoriales piden indicar el uso de IA: **qué herramienta** (nombre y versión), **para qué** (redacción, traducción, código, revisión de lenguaje), **cuándo** y **quién revisó** el resultado. Las IA **no pueden figurar como autoras**, porque no pueden asumir responsabilidad ni declarar conflictos. Una declaración puede ser así (adáptala a las normas de la revista):
+
+> *Declaración de uso de IA. Se utilizó [herramienta, versión] en [mes, año] para [revisar la redacción / sugerir código en R / traducir el resumen]. Los autores revisaron y editaron el contenido y asumen toda la responsabilidad. Las cifras del texto se generaron con código en línea a partir de los datos y se verificaron ejecutando el código; las referencias se comprobaron en la fuente original. No se introdujeron datos de pacientes en la herramienta.*
+
+Este libro se escribió y editó con asistencia de IA y se aplica esa misma regla: **las cifras del texto salen del código** (4.4) y se verificaron ejecutándolo; las referencias se confirman en la fuente.
+
+**Qué NO se delega.**
+
+-   La **pregunta** y el estimando, el diseño y las decisiones éticas.
+-   La **verificación de cifras y referencias**: la IA puede escribir un borrador, pero tú ejecutas el código y buscas la cita.
+-   La **interpretación clínica** y las conclusiones.
+-   El **manejo de datos de pacientes**: nunca pegues datos identificables en una herramienta externa sin autorización expresa de tu institución, ni tampoco un manuscrito en revisión (es confidencial).
+
+Una verificación mínima, fácil de hacer, es contrastar cada cifra del borrador con el código. Imagina que la IA te devuelve este párrafo sobre la cohorte simulada (ficticio):
+
+```{r}
+#| label: c236-verificar
+borrador_ia <- tribble(
+  ~afirmacion,                         ~declarada, ~calculada,                ~tolerancia,
+  "Pacientes analizados",              5000,       nrow(ckd),                 0,
+  "Edad media (años)",                 62,         mean(ckd$edad),            0.5,
+  "Con ECV previa (%)",                30,         100 * mean(ckd$ecv),       0.5,
+  "Con evento renal (%)",              15.3,       100 * mean(ckd$evento),    0.05
+) |> mutate(coincide = abs(declarada - calculada) <= tolerancia, calculada = round(calculada, 1))
+borrador_ia
+```
+
+**Qué vemos.** Solo `r sum(borrador_ia$coincide)` de las `r nrow(borrador_ia)` cifras coinciden. La **edad media** es `r num(mean(ckd$edad), 1)` y no 62, y la **ECV previa**, `r num(100 * mean(ckd$ecv), 1)` % y no 30 %. Las cifras de un borrador suenan bien aunque estén mal; solo el código las certifica.
+
+## Trampas frecuentes
+
+::: {.callout-warning}
+## ⚠️ Lo que más se hace «sin darse cuenta»
+
+-   **Pegar datos de pacientes en una herramienta de IA en línea** para «ordenarlos» o «sacar un resumen»: es una divulgación de datos, aunque quites el nombre (los cuasi-identificadores siguen ahí).
+-   **Creer que «anonimizado» = «quitar el nombre».** Mide el riesgo (*k*, celdas pequeñas).
+-   **Subir a un repositorio público la base «porque no tiene nombres»**, o una clave de acceso olvidada en el código (23.3).
+-   **Confiar en una referencia o una cifra de la IA sin comprobarla.**
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   El uso de datos de rutina exige autorización ética: **verifica la normativa de tu país e institución** y consulta antes de empezar. Principios: finalidad, minimización, seguridad, transparencia.
+-   Desidentificar es más que quitar el nombre: los **cuasi-identificadores** combinados identifican. Aquí, con sexo, edad, ECV y TFGe con decimales, `r pct(original$personas_unicas[4] / nrow(ckd), 0)` de los pacientes eran únicos; agrupar (décadas, categorías) y suprimir redujo el riesgo, a cambio de perder `r pct(mean(con_k$k < 5), 1)` de la muestra.
+-   No publiques **celdas con menos de 5** (o el umbral de tu institución) y cuida la supresión complementaria.
+-   Los datos sintéticos sirven para ensayar métodos, **no** para descubrir nada; comparte código con licencia (MIT) y datos o textos con CC BY o CC0 cuando sea posible.
+-   Declara los **conflictos de interés** y el **uso de IA**; no delegues la responsabilidad, la verificación de cifras y referencias, ni el manejo de datos de pacientes.
+:::
+
+## Ejercicio
+
+1.  Usa `k_anonimato()` con `c("sexo", "edad_banda")` y con `c("sexo", "edad_banda", "ecv", "cat_g", "isglt2")`. ¿Cuál es el *k* mínimo en cada caso? ¿Qué variable te costaría menos eliminar?
+2.  Repite la tabla de celdas pequeñas con el **umbral 10**. ¿Cuántas celdas se ocultan ahora?
+3.  Redacta tu declaración de uso de IA para un manuscrito donde la herramienta solo revisó la ortografía del resumen.
+
+## Para cerrar el libro: diez hábitos
+
+Esta es la lista corta que resume el libro. Si recuerdas solo diez cosas, que sean estas:
+
+1.  **Empieza por la pregunta**, no por el método: define el estimando (quién, qué tratamiento, qué desenlace, qué contraste) antes de abrir R (11.1, 12.1).
+2.  **Razona causalmente**: dibuja el DAG y elige las variables de ajuste por lógica, no por su valor *p* (Cap. 3, 8.6).
+3.  **Mira tus datos** antes de modelar: descríbelos, grafícalos y pregúntate cómo llegaron ahí (selección, medición, Cap. 10).
+4.  **Preespecifica y registra** el plan; separa lo confirmatorio de lo exploratorio (23.4, 23.5).
+5.  **Compara con una verdad** siempre que puedas: simula, valida, haz análisis de sensibilidad (Cap. 12 y 20).
+6.  **Reporta efectos con su incertidumbre** y sus supuestos, no solo valores *p* ni «significativo» (8.6, 23.2).
+7.  **Trata explícitamente los datos faltantes y las pérdidas** (Cap. 13).
+8.  **Valida lo que predices** en otros datos y mide si ayuda a decidir (Cap. 16, 17).
+9.  **Haz tu trabajo reproducible**: proyecto, semilla, versiones, código y cifras que salen del código (23.3).
+10.  **Protege al paciente y firma tu trabajo**: privacidad, conflictos de interés, uso de IA declarado y verificado (23.6). La responsabilidad es tuya.
+
+## Referencias
+
+-   Wilkinson MD, Dumontier M, Aalbersberg IJJ, et al. The FAIR Guiding Principles for scientific data management and stewardship. *Sci Data*. 2016;3:160018.
+-   Sweeney L. *k*-anonymity: a model for protecting privacy. *Int J Uncertain Fuzziness Knowl Based Syst*. 2002;10:557-570.
+-   Comité Internacional de Editores de Revistas Médicas (ICMJE). *Recommendations for the Conduct, Reporting, Editing, and Publication of Scholarly Work in Medical Journals* (secciones sobre conflictos de interés y uso de IA; consulta la versión vigente).
+-   Creative Commons (creativecommons.org) y Open Source Initiative (opensource.org) para el texto de las licencias CC BY, CC0 y MIT.

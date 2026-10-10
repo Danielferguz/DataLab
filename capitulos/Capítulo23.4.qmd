@@ -13,7 +13,7 @@ El comité de ética te devuelve el protocolo del ensayo de bicarbonato con una 
 -   Listar las **decisiones que se toman antes de ver los datos** y probar el plan con datos «ciegos».
 
 ```{r}
-#| label: setup-c234
+#| label: c234-setup
 #| message: false
 library(tidyverse)
 source("R/funciones_extra_a.R")      # num(), pct()
@@ -32,7 +32,7 @@ eca <- read_csv("Bases/eca_bicarbonato.csv", show_col_types = FALSE) |>
 Un solo ensayo, un solo desenlace (cambio de la TFGe a 12 meses) y cinco formas de analizarlo que cualquiera defendería en una reunión. Ninguna es absurda; todas cambian la respuesta.
 
 ```{r}
-#| label: cinco-analisis-c234
+#| label: c234-cinco-analisis
 efecto <- function(m, term = "brazoBicarbonato") {            # estimación, IC 95 % y valor p del término del brazo
   ic <- confint(m)[term, ]
   tibble(estimacion = coef(m)[[term]], ic_inf = ic[[1]], ic_sup = ic[[2]],
@@ -51,7 +51,7 @@ analisis |> mutate(across(c(estimacion, ic_inf, ic_sup), \(x) round(x, 2)), p = 
 ```
 
 ```{r}
-#| label: fig-cinco-c234
+#| label: c234-fig-cinco
 #| fig-cap: "Efecto del bicarbonato sobre el cambio de la TFGe a 12 meses (mL/min/1.73 m²) según cinco análisis del mismo ensayo simulado. Puntos e IC 95 %; línea punteada: efecto verdadero por intención de tratar en la simulación."
 #| fig-width: 7.5
 #| fig-height: 3.2
@@ -194,7 +194,7 @@ Fecha, motivo, y si el cambio se hizo antes o después de ver los resultados.
 La regla de oro: toda decisión que **pueda depender del resultado** debe tomarse antes de conocer el resultado. Estas son las que más se quedan para después:
 
 ```{r}
-#| label: tabla-decisiones-c234
+#| label: c234-tabla-decisiones
 tribble(
   ~Decisión, ~`Qué se fija antes`, ~`Qué pasa si se decide después`, ~`Dónde en el libro`,
   "Estimando", "Población, tratamiento, manejo de eventos intercurrentes, medida", "Se cambia la pregunta para que salga una respuesta cómoda", "11.1",
@@ -217,7 +217,7 @@ Fíjate en el patrón de la tercera columna: **ninguna de esas decisiones tardí
 Un SAP también se puede **ensayar sin mirar el resultado**. Escribes el análisis principal como una función, y la corres con la etiqueta del brazo **barajada al azar**. La estimación no significa nada (el tratamiento ya no está relacionado con nada), pero el código se prueba completo: que corra, que dé el formato esperado, que las tablas se llenen.
 
 ```{r}
-#| label: ensayo-ciego-c234
+#| label: c234-ensayo-ciego
 # Análisis principal ESCRITO EN EL SAP: ANCOVA por intención de tratar
 analisis_primario <- function(d) efecto(lm(cambio12 ~ brazo + tfg0 + centro, data = d))
 
@@ -228,7 +228,7 @@ bind_rows(`Datos con brazo barajado (ensayo en seco)` = analisis_primario(ciego)
   mutate(across(c(estimacion, ic_inf, ic_sup), \(x) round(x, 2)), p = format.pval(p, digits = 2, eps = 0.001))
 ```
 
-**Qué vemos.** Con el brazo barajado la estimación es `r num(analisis_primario(ciego)$estimacion, 2)` (p = `r format.pval(analisis_primario(ciego)$p, digits = 2)`): cercana a cero, como debe ser, y la función corre de principio a fin. Con los datos reales, la misma función da `r num(analisis_primario(eca)$estimacion, 2)` (IC `r num(analisis_primario(eca)$ic_inf, 2)` a `r num(analisis_primario(eca)$ic_sup, 2)`). El código del análisis principal quedó fijado **antes** de ver el resultado; lo único nuevo es qué sale. En un ensayo real, la revisión ciega la hace quien programa, con los datos enmascarados, y la base se «congela» antes de abrir la asignación.
+**Qué vemos.** Con el brazo barajado la estimación es `r num(analisis_primario(ciego)$estimacion, 2)` (p = `r format.pval(analisis_primario(ciego)$p, digits = 2)`): cercana a cero, como debe ser, y la función corre de principio a fin. Con los datos reales, la misma función da `r num(analisis_primario(eca)$estimacion, 2)` (IC `r num(analisis_primario(eca)$ic_inf, 2)` a `r num(analisis_primario(eca)$ic_sup, 2)`). En un ensayo real, este es el momento en que el código queda fijado, **antes** de abrir la asignación: la revisión ciega la hace quien programa, con los datos enmascarados, y la base se «congela». Aquí, como ya vimos los resultados en el Paso 1, solo ilustramos el mecanismo.
 
 ## Trampas frecuentes
 

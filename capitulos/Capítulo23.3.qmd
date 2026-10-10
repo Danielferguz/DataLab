@@ -13,7 +13,7 @@ Un año después de defender tu tesis, un revisor te pide repetir el análisis e
 -   Escribir un **mini-análisis parametrizado** que se rehace con otros parámetros, y revisar el **control de versiones** (git) y el script maestro.
 
 ```{r}
-#| label: setup-c233
+#| label: c233-setup
 #| message: false
 library(tidyverse)
 source("R/funciones_extra_a.R")      # num(), pct()
@@ -26,7 +26,7 @@ theme_set(theme_libro())
 Una estructura sencilla, con una función de cada carpeta, evita el 80 % de los desastres. `crear_esqueleto()` la crea (aquí en una carpeta temporal, para no ensuciar tu proyecto):
 
 ```{r}
-#| label: esqueleto-c233
+#| label: c233-esqueleto
 estructura <- crear_esqueleto()
 estructura
 ```
@@ -40,7 +40,7 @@ estructura
 Dos archivos acompañan a las carpetas: `README.md` (qué es el proyecto y cómo correrlo) y `.gitignore` (qué no sube a git, Paso 6). Para las rutas usa un proyecto de RStudio y `here`, como en 4.1; así el mismo código funciona en tu computadora y en la de tu tutor:
 
 ```{r}
-#| label: here-c233
+#| label: c233-here
 #| eval: false
 library(here)
 datos <- read_csv(here("datos", "crudos", "ckd_isglt2.csv"))     # nunca setwd("C:/Users/...")
@@ -51,7 +51,7 @@ datos <- read_csv(here("datos", "crudos", "ckd_isglt2.csv"))     # nunca setwd("
 Mucho de lo que hacemos usa **números aleatorios** (*bootstrap*, imputación múltiple, simulación). Una **semilla** (`set.seed()`) hace que la secuencia sea la misma cada vez:
 
 ```{r}
-#| label: semilla-c233
+#| label: c233-semilla
 set.seed(2026); x1 <- rnorm(3)
 set.seed(2026); x2 <- rnorm(3)
 set.seed(7);    x3 <- rnorm(3)
@@ -64,7 +64,7 @@ RNGkind()                       # el generador usado; también cambia entre vers
 Para registrar **qué versión** de R y de cada paquete usaste, la función `registrar_sesion()` devuelve una tabla corta. La versión larga es `sessioninfo::session_info()` (o `sessionInfo()` de base), que conviene guardar en un archivo junto a los resultados:
 
 ```{r}
-#| label: sesion-c233
+#| label: c233-sesion
 paquetes <- c("tidyverse", "here", "renv", "flextable", "patchwork", "survival")
 registrar_sesion(paquetes)
 ```
@@ -76,7 +76,7 @@ Estas versiones son las del **entorno del libro**; las tuyas serán distintas, y
 `renv` guarda las versiones exactas de los paquetes de **cada proyecto**, de modo que otra persona (o tú dentro de un año) pueda reinstalarlas. Su ciclo de trabajo tiene tres órdenes principales y una de comprobación. **No se ejecutan en este libro**, porque crean archivos en la carpeta del proyecto:
 
 ```{r}
-#| label: renv-c233
+#| label: c233-renv
 #| eval: false
 renv::init()        # UNA vez al empezar: crea renv/, renv.lock y .Rprofile en este proyecto
 renv::snapshot()    # cada vez que añadas o actualices paquetes: anota las versiones en renv.lock
@@ -87,7 +87,7 @@ renv::status()      # ¿el proyecto y renv.lock siguen alineados?
 `renv.lock` es un archivo de texto (JSON) que **sí** se sube a git. Así se ve; este ejemplo se genera con las versiones realmente instaladas aquí y un esquema simplificado (el real incluye más campos, y renv lo escribe por ti: **no se edita a mano**):
 
 ```{r}
-#| label: renv-lock-c233
+#| label: c233-renv-lock
 #| class-output: json
 cat(renv_lock_ejemplo(c("here", "renv")))
 ```
@@ -99,7 +99,7 @@ cat(renv_lock_ejemplo(c("here", "renv")))
 La idea central: **todo lo que puede cambiar el resultado debe ser un argumento visible** (archivo, ajuste, semilla), no algo escondido en el script. `analisis_minimo()` (en `R/funciones_cap23.R`) estima la razón de tasas (IRR) de evento renal asociada al iSGLT2 con Poisson y *offset* del tiempo (como en 8.6), cruda y ajustada, con IC por *bootstrap*, y devuelve también qué archivo, semilla y ajuste usó:
 
 ```{r}
-#| label: analisis-1-c233
+#| label: c233-analisis-1
 ruta <- "Bases/ckd_isglt2.csv"          # en un proyecto: here("datos", "crudos", "ckd_isglt2.csv")
 a1 <- analisis_minimo(ruta, semilla = 2026)
 a1$resultado |> mutate(across(where(is.numeric), \(x) round(x, 3)))
@@ -109,7 +109,7 @@ unlist(a1$meta[c("archivo", "filas", "semilla", "n_boot")])
 Lo repetimos con los mismos parámetros, con otra semilla y con otro conjunto de ajuste (sin la albuminuria):
 
 ```{r}
-#| label: analisis-2-c233
+#| label: c233-analisis-2
 a2 <- analisis_minimo(ruta, semilla = 2026)                      # mismos parámetros
 a3 <- analisis_minimo(ruta, semilla = 7)                         # otra semilla
 ajuste_sin_uacr <- setdiff(a1$meta$ajuste, "luacr")
@@ -161,7 +161,7 @@ quarto render informes/informe.qmd -P semilla:7 -P n_boot:500
 Un archivo, `00_ejecutar_todo.R`, que reproduce todo desde los datos crudos. Es la **tabla de contenidos ejecutable** del proyecto: cualquiera sabe en qué orden correr cada cosa. No se ejecuta aquí.
 
 ```{r}
-#| label: maestro-c233
+#| label: c233-maestro
 #| eval: false
 # 00_ejecutar_todo.R  --  reproduce TODO el análisis desde datos/crudos
 library(here)
@@ -183,7 +183,7 @@ writeLines(capture.output(sessioninfo::session_info()), here("resultados", "sesi
 El paquete `targets` convierte ese guion en un **flujo de trabajo con memoria**: sabe qué pasos dependen de cuáles y, al volver a correr, solo rehace lo que cambió. Con el paquete `targets` (código no verificado en el entorno de pruebas del libro), un flujo mínimo de tres pasos sobre los datos del libro, escrito en una carpeta temporal:
 
 ```{r}
-#| label: targets-c233
+#| label: c233-targets
 #| eval: !expr requireNamespace("targets", quietly = TRUE)
 #| error: true
 library(targets)
@@ -209,7 +209,7 @@ Mientras no instales `targets`, el script maestro hace el mismo trabajo, con men
 **Git** guarda la **historia** de tus archivos de texto (scripts, `.qmd`, `renv.lock`): qué cambió, cuándo y por qué. **GitHub** es un sitio donde alojar ese repositorio para compartirlo y respaldarlo. Con seis órdenes basta para empezar (se escriben en la terminal; no se ejecutan aquí):
 
 ```{bash}
-#| label: git-c233
+#| label: c233-git
 #| eval: false
 git init                                     # una vez: convierte la carpeta en repositorio
 git status                                   # ¿qué cambió?

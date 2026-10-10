@@ -13,7 +13,7 @@ El ensayo de bicarbonato no mostró efecto sobre el desenlace principal. Un coau
 -   Ver cómo se **registra** un estudio, cómo se **rotula** lo exploratorio y cómo se **reportan las desviaciones** del protocolo.
 
 ```{r}
-#| label: setup-c235
+#| label: c235-setup
 #| message: false
 library(tidyverse)
 source("R/funciones_extra_a.R")      # num(), pct()
@@ -28,7 +28,7 @@ Un valor *p* < 0.05 se acepta como evidencia porque, **si no hay efecto**, ocurr
 Lo simulamos. **Todos los datos son simulados y el efecto verdadero es cero** en todos los desenlaces y subgrupos. Primero, estudios con **20 desenlaces independientes** (por ejemplo, 20 variables de laboratorio), 64 pacientes por grupo; calculamos en cada estudio el menor valor *p* entre los primeros *k* desenlaces:
 
 ```{r}
-#| label: sim-desenlaces-c235
+#| label: c235-sim-desenlaces
 set.seed(2026)
 n_est <- 5000
 P <- p_desenlaces(n_est, n_por_grupo = 64, k = 20)          # 5 000 estudios x 20 desenlaces, sin efecto real
@@ -40,7 +40,7 @@ positivos |> filter(k %in% c(1, 5, 10, 20)) |> mutate(across(-k, \(x) round(x, 3
 Ahora, un **solo desenlace** y 20 subgrupos al azar (variables binarias sin relación con nada); en cada estudio de 300 pacientes se prueba el efecto del tratamiento dentro de cada subgrupo. Los subgrupos se solapan (comparten pacientes), así que las pruebas no son independientes:
 
 ```{r}
-#| label: sim-subgrupos-c235
+#| label: c235-sim-subgrupos
 S <- p_subgrupos(n_est = 1000, n_total = 300, k = 20)       # 1 000 estudios x 20 subgrupos, sin efecto real
 min_acum_s <- apply(S, 1, cummin)
 positivos <- positivos |> mutate(subgrupos = rowMeans(min_acum_s < 0.05))
@@ -48,7 +48,7 @@ positivos |> filter(k %in% c(1, 5, 10, 20)) |> select(k, subgrupos) |> mutate(su
 ```
 
 ```{r}
-#| label: fig-jardin-c235
+#| label: c235-fig-jardin
 #| fig-cap: "Porcentaje de estudios con al menos un resultado «significativo» (p < 0.05) cuando no hay efecto real, según cuántos desenlaces o subgrupos se prueben. Puntos: simulación (5 000 estudios con desenlaces independientes y 1 000 con subgrupos solapados); línea punteada: valor teórico 1 - 0.95^k para pruebas independientes. Datos simulados."
 #| fig-width: 6.8
 #| fig-height: 3.6
@@ -70,7 +70,7 @@ positivos |>
 Veamos un estudio concreto. El primero de la simulación con al menos un *p* < 0.05 en los 20 desenlaces, con sus cinco valores *p* más bajos y su versión corregida (los métodos del Paso 2):
 
 ```{r}
-#| label: un-estudio-c235
+#| label: c235-un-estudio
 i <- which(apply(P, 1, min) < 0.05)[1]                      # un estudio «positivo» sin efecto real
 tibble(desenlace = 1:20, p = P[i, ], bonferroni = p.adjust(P[i, ], "bonferroni"),
        holm = p.adjust(P[i, ], "holm"), bh = p.adjust(P[i, ], "BH")) |>
@@ -95,7 +95,7 @@ R trae `p.adjust()` con los métodos habituales:
 **Su costo es la potencia.** Simulamos 2 000 estudios con 20 desenlaces, **uno** con un efecto verdadero de 0.5 desviaciones estándar (potencia de ~80 % con 64 por grupo) y 19 nulos:
 
 ```{r}
-#| label: sim-multiplicidad-c235
+#| label: c235-sim-multiplicidad
 mult <- simular_multiplicidad(n_est = 2000, n_por_grupo = 64, k = 20, d_verdadero = 0.5)
 mult |> mutate(across(where(is.numeric), \(x) round(x, 3)))
 n_sin <- power.t.test(delta = 0.5, power = 0.80, sig.level = 0.05)$n
@@ -136,7 +136,7 @@ Una frase útil para el artículo: *«Este análisis no estaba preespecificado, 
 Todo estudio real se desvía del plan en algo: un desenlace secundario cambia de medición, el reclutamiento termina antes, el modelo no converge. Las guías de reporte (CONSORT, SPIRIT, 23.1) piden **decir qué cambió y por qué**. Una tabla de desviaciones, que va en un apéndice (los ejemplos son hipotéticos), basta:
 
 ```{r}
-#| label: desviaciones-c235
+#| label: c235-desviaciones
 tribble(
   ~Fecha, ~`Qué cambió`, ~`Por qué`, ~`¿Antes de ver datos del desenlace?`, ~`Impacto esperado`,
   "2025-03", "Se añadió el centro como factor de ajuste", "Se descubrió que la aleatorización fue estratificada por centro", "Sí", "Bajo; alinea el análisis con el diseño",
