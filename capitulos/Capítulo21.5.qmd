@@ -1,0 +1,235 @@
+# Heterogeneidad: cuánto varían los efectos entre ensayos
+
+::: {.callout-note}
+## 🩺 Escenario
+
+El metaanálisis de iSGLT2 (ficticio, 21.4) dio un RR agrupado de 0.65. Una colega de otro hospital pregunta: *«Vale, pero ¿qué me va a pasar a mí?: ¿si hiciera un ensayo nuevo en mi población, vería 0.65?»*. La respuesta honesta es **«no necesariamente»**: los ensayos van desde un RR de 0.27 hasta uno de 1.28. Hay que cuantificar **cuánto varían los efectos entre ensayos** (heterogeneidad) y decir, además del promedio, **qué rango de efectos es plausible** en un contexto nuevo.
+:::
+
+**Lo que vamos a hacer**
+
+-   Calcular **Q, I² y τ²** (a mano y con `metafor`), con sus intervalos de confianza.
+-   Obtener el **intervalo de predicción**: *¿qué efecto verás en el próximo ensayo?*
+-   Hacer un **análisis de influencia** (*leave-one-out*, `influence()`, gráfico de Baujat) y entender por qué **I² no mide cuánta heterogeneidad clínica** hay.
+
+```{r}
+#| label: setup-c215
+#| message: false
+library(tidyverse)
+library(metafor)
+source("R/funciones_extra_a.R")     # num(), pct()
+theme_set(theme_minimal(base_size = 12))
+
+# 20 ensayos FICTICIOS (iSGLT2 vs placebo en ERC) y su oráculo (log RR verdadero de cada ensayo)
+ensayos <- read_csv("Bases/metaanalisis_isglt2.csv", show_col_types = FALSE)
+oraculo <- read_csv("Bases/metaanalisis_isglt2_oraculo.csv", show_col_types = FALSE)
+m <- rma(yi = log_rr, sei = se_log_rr, data = ensayos, slab = estudio, method = "REML")   # el modelo de 21.4
+k <- m$k
+```
+
+## Paso 1: Q, I² y τ²
+
+Tres números describen la heterogeneidad, y cada uno responde algo distinto:
+
+-   **Q de Cochran:** una **prueba**: ¿se alejan los ensayos del promedio más de lo que permite el azar? Es la suma de las distancias al promedio, ponderadas por precisión. Si no hubiera heterogeneidad, Q sería parecida a sus grados de libertad (*k* − 1).
+-   **τ² (tau al cuadrado):** la **varianza real entre ensayos**, en la escala del modelo (aquí, log RR). Su raíz, τ, es la **desviación típica de los efectos verdaderos**. Es la medida «absoluta».
+-   **I²:** el **porcentaje de la variabilidad total** que se debe a diferencias reales entre ensayos y no al azar de muestreo: $I^2 = (Q - (k-1))/Q$ (Higgins y Thompson, 2002). Es una medida «relativa».
+
+```{r}
+#| label: q-i2-c215
+w <- 1 / ensayos$se_log_rr^2
+mu_fe <- sum(w * ensayos$log_rr) / sum(w)
+Q <- sum(w * (ensayos$log_rr - mu_fe)^2)           # Q de Cochran a mano
+gl <- k - 1
+c(Q = Q, gl = gl, p = pchisq(Q, gl, lower.tail = FALSE), I2_desde_Q = max(0, (Q - gl) / Q), H2 = Q / gl)
+
+# metafor: el modelo REML da tau2, I2 y H2, y confint() les pone intervalo de confianza
+c(Q = m$QE, tau2 = m$tau2, tau = sqrt(m$tau2), I2 = m$I2 / 100, H2 = m$H2)
+confint(m)
+```
+
+**Qué vemos.**
+
+-   **Q = `r num(Q, 1)`** con `r gl` grados de libertad: unas **`r num(Q / gl, 1)` veces** lo esperado sin heterogeneidad (*p* < 0.001).
+-   **I² = `r pct(max(0, (Q - gl) / Q), 0)`** calculado desde Q y **`r num(m$I2, 0)` %** con el τ² de REML: se calculan de formas distintas y por eso difieren un poco. Es una heterogeneidad **alta** (el Handbook de Cochrane da rangos orientativos y solapados; úsalos como guía, no como regla). Su IC es **muy ancho**: `r num(confint(m)$random["I^2(%)", "ci.lb"], 0)` % a `r num(confint(m)$random["I^2(%)", "ci.ub"], 0)` %.
+-   **τ² = `r num(m$tau2, 3)`**, es decir, **τ = `r num(sqrt(m$tau2), 2)`** en log RR. Se interpreta así: alrededor del 68 % de los efectos verdaderos estarían entre **`r num(exp(coef(m) - sqrt(m$tau2)), 2)`** y **`r num(exp(coef(m) + sqrt(m$tau2)), 2)`** en escala RR (el promedio ± 1 τ). Esa es una frase que un clínico entiende.
+-   Con **solo `r k` ensayos**, τ² es muy impreciso (IC `r num(confint(m)$random["tau^2", "ci.lb"], 2)` a `r num(confint(m)$random["tau^2", "ci.ub"], 2)`).
+
+¿Y la verdad? El simulador pone τ = 0.25 de heterogeneidad **residual** y además hace que el efecto dependa de la albuminuria de cada ensayo. La desviación típica de los efectos verdaderos de **estos 20 ensayos** (el oráculo) es **`r num(sd(oraculo$theta_verdadero), 2)`**: el estimado (`r num(sqrt(m$tau2), 2)`) está muy cerca. El metaanálisis recupera bien la heterogeneidad real, y esta incluye lo que explicaría la albuminuria (21.6).
+
+## Paso 2: el intervalo de predicción
+
+El **intervalo de confianza** del efecto combinado (`r num(exp(m$ci.lb), 2)` a `r num(exp(m$ci.ub), 2)`) responde *«¿dónde está el efecto **medio**?»*. Pero tu colega pregunta otra cosa: el efecto **de un ensayo nuevo**. Para eso se usa el **intervalo de predicción** (IP), que suma a la incertidumbre del promedio la variación **entre ensayos** (τ²):
+
+$$
+\hat\theta \;\pm\; z_{0.975}\sqrt{\hat\tau^2 + EE(\hat\theta)^2}
+$$
+
+```{r}
+#| label: pi-c215
+mu <- coef(m); se_mu <- m$se
+ip_mano <- mu + c(-1, 1) * qnorm(0.975) * sqrt(m$tau2 + se_mu^2)          # a mano (aproximación normal)
+exp(ip_mano)
+
+predict(m, transf = exp)                                                  # metafor: IC (ci.) e IP (pi.)
+m_hk <- rma(yi = log_rr, sei = se_log_rr, data = ensayos, method = "REML", test = "knha")
+predict(m_hk, transf = exp)                                               # con HKSJ el IP usa la t y es algo más ancho
+
+p_beneficio <- pnorm(0, mean = mu, sd = sqrt(m$tau2 + se_mu^2))           # P(efecto verdadero < 0 en un ensayo nuevo)
+```
+
+**Qué vemos.** El IC es **`r num(exp(m$ci.lb), 2)` a `r num(exp(m$ci.ub), 2)`**, pero el IP va de **`r num(exp(ip_mano[1]), 2)` a `r num(exp(ip_mano[2]), 2)`**: incluye el 1. Un ensayo nuevo podría encontrar desde una reducción del `r round(100 * (1 - exp(ip_mano[1])))` % hasta un **aumento** del `r round(100 * (exp(ip_mano[2]) - 1))` %. Bajo el modelo, la probabilidad de que el efecto verdadero en un nuevo contexto sea **beneficioso** (RR < 1) es del **`r pct(p_beneficio, 0)`**. A mano y con `predict()` salen los mismos límites; con HKSJ el IP es algo más ancho (`r num(predict(m_hk, transf = exp)$pi.lb, 2)` a `r num(predict(m_hk, transf = exp)$pi.ub, 2)`), porque tiene en cuenta que τ² es estimado.
+
+Como tenemos el oráculo, comprobamos si el IP cumple su promesa: **¿cuántos de los 20 efectos verdaderos caen dentro?**
+
+```{r}
+#| label: fig-pi-c215
+#| fig-cap: "Efecto agrupado (rombo), intervalo de confianza (barra gruesa), intervalo de predicción (barra fina) y efectos verdaderos de los 20 ensayos (puntos, solo se conocen por ser datos ficticios)."
+#| fig-width: 7
+#| fig-height: 2.8
+dentro <- oraculo$theta_verdadero > ip_mano[1] & oraculo$theta_verdadero < ip_mano[2]
+ggplot() +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "grey50") +
+  geom_jitter(data = oraculo, aes(exp(theta_verdadero), 1.0), height = 0.12, width = 0, color = "grey35", alpha = 0.8) +
+  geom_errorbarh(aes(xmin = exp(ip_mano[1]), xmax = exp(ip_mano[2]), y = 0.55), height = 0.1, color = "#0072B2", linewidth = 0.9) +
+  geom_errorbarh(aes(xmin = exp(m$ci.lb), xmax = exp(m$ci.ub), y = 0.55), height = 0, color = "#0072B2", linewidth = 2.6) +
+  geom_point(aes(exp(mu), 0.55), shape = 18, size = 5, color = "#D55E00") +
+  scale_x_log10(breaks = c(0.25, 0.5, 1, 2), limits = c(0.25, 2)) +
+  scale_y_continuous(limits = c(0.3, 1.3), breaks = c(0.55, 1.0), labels = c("Agrupado", "Verdaderos")) +
+  labs(x = "RR (escala logarítmica)", y = NULL, caption = "Datos ficticios; el oráculo no existe en la vida real.")
+```
+
+De los 20 efectos verdaderos, **`r sum(dentro)`** (`r pct(mean(dentro), 0)`) caen dentro del IP, que promete cerca del 95 %; los demás son los extremos (RR `r num(min(exp(oraculo$theta_verdadero)), 2)` y `r num(max(exp(oraculo$theta_verdadero)), 2)`). Y se ve la diferencia práctica: el IC (barra gruesa) es estrecho porque describe el **promedio**; los ensayos individuales se reparten por el IP, mucho más ancho. **Si vas a informar una decisión para un contexto nuevo, el IP es la cifra que importa**.
+
+## Paso 3: análisis de influencia
+
+¿Depende el resultado de un solo ensayo? La forma más directa es el **leave-one-out** (dejar uno fuera): repetir el metaanálisis `r k` veces, quitando cada vez un ensayo.
+
+```{r}
+#| label: loo-c215
+loo <- leave1out(m) |> as_tibble() |> mutate(estudio = ensayos$estudio, rr = exp(estimate), li = exp(ci.lb), ls = exp(ci.ub)) |>
+  select(estudio, rr, li, ls, tau2, I2)
+loo |> arrange(rr) |> slice(c(1:2, (n() - 1):n())) |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+range(loo$rr)
+```
+
+```{r}
+#| label: fig-loo-c215
+#| fig-cap: "Análisis leave-one-out: RR agrupado (efectos aleatorios) al excluir cada ensayo. Línea punteada: RR con todos los ensayos. Datos ficticios."
+#| fig-width: 7
+#| fig-height: 5.2
+loo |>
+  mutate(estudio = fct_reorder(estudio, rr)) |>
+  ggplot(aes(rr, estudio)) +
+  geom_vline(xintercept = exp(coef(m)), linetype = "dashed", color = "#D55E00") +
+  geom_pointrange(aes(xmin = li, xmax = ls), color = "#0072B2", size = 0.4) +
+  scale_x_continuous(limits = c(0.45, 0.9)) +
+  labs(x = "RR agrupado sin ese ensayo (IC 95 %)", y = "Ensayo excluido")
+```
+
+**Qué vemos.** El RR agrupado se mueve solo entre **`r num(min(loo$rr), 2)`** y **`r num(max(loo$rr), 2)`** al quitar cualquier ensayo (con todos: `r num(exp(coef(m)), 2)`): el **efecto medio es robusto**. Pero la **heterogeneidad** sí depende de unos pocos: sin EOLO el I² cae a **`r num(loo$I2[loo$estudio == "EOLO (2011)"], 0)` %** (de `r num(m$I2, 0)` %) y τ² a `r num(loo$tau2[loo$estudio == "EOLO (2011)"], 3)`; sin MIRA, I² cae a `r num(loo$I2[loo$estudio == "MIRA (2016)"], 0)` %. Veamos qué dice la distancia de Cook y el gráfico de Baujat:
+
+```{r}
+#| label: influencia-c215
+res_inf <- influence(m)
+inf_tab <- as.data.frame(res_inf$inf) |> mutate(estudio = ensayos$estudio, influyente = res_inf$is.infl)
+inf_tab |> arrange(desc(cook.d)) |> select(estudio, rstudent, cook.d, hat, influyente) |> slice_head(n = 4) |>
+  mutate(across(where(is.numeric), \(x) round(x, 2)))
+```
+
+```{r}
+#| label: fig-baujat-c215
+#| fig-cap: "Gráfico de Baujat: contribución de cada ensayo a la heterogeneidad (eje x) y a la variación del efecto combinado (eje y)."
+#| fig-width: 6
+#| fig-height: 4.4
+b <- baujat(m, symbol = 19, xlab = "Contribución a la heterogeneidad (Q)", ylab = "Influencia sobre el efecto combinado")
+top <- order(b$x, decreasing = TRUE)[1:3]                                  # rotulamos los tres que más contribuyen
+text(b$x[top], b$y[top], ensayos$estudio[top], pos = 2, cex = 0.8)
+```
+
+**Qué vemos.** `influence()` marca **`r paste(inf_tab$estudio[inf_tab$influyente], collapse = " y ")`** como influyente (residuo estudentizado `r num(inf_tab$rstudent[inf_tab$estudio == "EOLO (2011)"], 1)`, distancia de Cook `r num(inf_tab$cook.d[inf_tab$estudio == "EOLO (2011)"], 2)`). En el Baujat, los ensayos arriba a la derecha (EOLO y, algo menos, MIRA) son los que **más aportan a la heterogeneidad y más mueven el resultado**. ¿Qué hacer con ellos? **No borrarlos.** Primero hay que preguntarse **por qué** son distintos:
+
+```{r}
+#| label: extremos-c215
+ensayos |> filter(estudio %in% c("EOLO (2011)", "MIRA (2016)")) |>
+  transmute(estudio, RR = round(exp(log_rr), 2), uacr_media, mediana_uacr_de_todos = median(ensayos$uacr_media), rob_global)
+m_sin <- rma(yi = log_rr, sei = se_log_rr, data = filter(ensayos, !estudio %in% c("EOLO (2011)", "MIRA (2016)")))   # sin los dos extremos
+```
+
+EOLO tiene la **albuminuria media más alta** de los 20 ensayos (`r max(ensayos$uacr_media)` mg/g) y el mayor efecto; MIRA, la **más baja** (`r min(ensayos$uacr_media)` mg/g), con riesgo de sesgo alto y un RR por encima de 1. Los dos extremos de la heterogeneidad coinciden con los dos extremos de albuminuria: una **pista clínica** que 21.6 explorará con una metarregresión. Sin ambos, el efecto agrupado sería **`r num(exp(coef(m_sin)), 2)`** (I² = `r num(m_sin$I2, 0)` %: la heterogeneidad baja, pero no desaparece); pero quitar ensayos «porque molestan» es una decisión que **debería estar en el protocolo** y justificarse clínicamente, no estadísticamente.
+
+## Paso 4: por qué I² no mide la heterogeneidad clínica
+
+I² es un **cociente**: heterogeneidad real dividida por heterogeneidad real más ruido de muestreo. Si cambia el ruido, cambia I² **aunque los efectos verdaderos varíen exactamente igual**. Con la fórmula de Higgins y Thompson, $I^2 = \tau^2/(\tau^2 + s^2)$, donde $s^2$ es la varianza de muestreo «típica» de los ensayos. Fijamos **el mismo τ²** del modelo y variamos solo el tamaño de los ensayos:
+
+```{r}
+#| label: i2-precision-c215
+s2 <- (k - 1) * sum(w) / (sum(w)^2 - sum(w^2))        # varianza de muestreo "típica" (Higgins y Thompson, 2002)
+c(I2_metafor = m$I2 / 100, I2_con_la_formula = m$tau2 / (m$tau2 + s2))   # coinciden
+
+tibble(`tamaño de los ensayos` = c("la mitad", "los de la base", "el doble", "cuatro veces"),
+       `s² típica` = s2 * c(2, 1, 0.5, 0.25),
+       tau2 = m$tau2) |>
+  mutate(I2 = pct(tau2 / (tau2 + `s² típica`), 0), `s² típica` = round(`s² típica`, 3), tau2 = round(tau2, 3))
+```
+
+**Qué vemos.** Con exactamente el **mismo τ² = `r num(m$tau2, 3)`** (los mismos efectos verdaderos dispersos), I² pasa de **`r pct(m$tau2 / (m$tau2 + 2 * s2), 0)`** si los ensayos fueran la mitad de grandes a **`r pct(m$tau2 / (m$tau2 + 0.25 * s2), 0)`** si fueran cuatro veces mayores. I² sube cuando los ensayos se hacen más precisos **sin que la diversidad clínica haya cambiado nada**. Y al revés: un metaanálisis de ensayos pequeñísimos puede tener un I² bajo con una diversidad clínica enorme, porque el ruido la tapa.
+
+Por eso:
+
+-   **I² no es «cuánta heterogeneidad clínica»**: es cuánto de la variación observada **no** es azar de muestreo. La heterogeneidad **clínica** (poblaciones, dosis, seguimiento, definición del evento) se juzga con **criterio médico leyendo los ensayos** (PICOS, 21.1), no con un porcentaje.
+-   Para **informar** la dispersión usa **τ** (en las unidades del efecto) y el **intervalo de predicción**, no solo I².
+-   **La prueba Q tiene poca potencia con pocos ensayos** y detecta cualquier diferencia con muchos o con ensayos enormes: un *p* alto no demuestra homogeneidad.
+-   I² también depende de **la medida** (RR, OR, diferencia de medias): el mismo conjunto de ensayos puede dar I² distintos según cómo se exprese el efecto.
+
+::: {.callout-tip}
+## 💡 Con el paquete {meta} (código no verificado en el entorno de pruebas del libro)
+
+En `meta`, el resumen de `metagen()` o `metabin()` con `prediction = TRUE` imprime τ², I² (con IC) y el intervalo de predicción; `metainf()` hace el *leave-one-out* y `baujat()` el gráfico de Baujat:
+
+```{r}
+#| label: meta-het-c215
+#| eval: !expr requireNamespace("meta", quietly = TRUE)
+#| error: true
+library(meta)
+mg <- metagen(TE = log_rr, seTE = se_log_rr, studlab = estudio, data = ensayos, sm = "RR",
+              method.tau = "REML", method.random.ci = "HK", prediction = TRUE)
+summary(mg)                      # tau2, tau, I2 con IC, Q y intervalo de predicción
+metainf(mg, pooled = "random")   # leave-one-out
+baujat(mg)
+```
+:::
+
+## Trampas frecuentes
+
+::: {.callout-warning}
+## ⚠️ Errores clásicos con la heterogeneidad
+
+-   **Interpretar I² como «cuánta heterogeneidad hay»** o compararlo entre metaanálisis con ensayos de distinto tamaño (Paso 4).
+-   **Decidir efecto fijo o aleatorio por el *p* de la Q**, o dar por homogéneos los ensayos porque Q «no es significativa» con pocos ensayos.
+-   **Informar solo el IC del efecto agrupado** y callar el intervalo de predicción: con heterogeneidad alta, el IC da una falsa sensación de certeza para un contexto nuevo.
+-   **Excluir ensayos «atípicos» para bajar el I²** sin razón clínica previa: es pescar resultados.
+-   **Usar el intervalo de predicción con muy pocos ensayos** (por ejemplo, 3 o 4): es extremadamente impreciso.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   La heterogeneidad se resume con **Q** (prueba), **τ²/τ** (varianza real entre ensayos) e **I²** (proporción de la variabilidad que no es azar). Aquí: Q = `r num(Q, 1)`, τ = `r num(sqrt(m$tau2), 2)`, I² ≈ `r num(m$I2, 0)` %; el estimado de τ (`r num(sqrt(m$tau2), 2)`) está cerca de la dispersión verdadera de los ensayos (`r num(sd(oraculo$theta_verdadero), 2)`).
+-   El **intervalo de predicción** responde «¿qué efecto veré en el próximo ensayo?»: aquí `r num(exp(ip_mano[1]), 2)` a `r num(exp(ip_mano[2]), 2)` (incluye el 1), frente a un IC de `r num(exp(m$ci.lb), 2)` a `r num(exp(m$ci.ub), 2)` para la media.
+-   El **análisis de influencia** (*leave-one-out*, Cook, Baujat) no cambia el efecto medio (RR entre `r num(min(loo$rr), 2)` y `r num(max(loo$rr), 2)`), pero señala a EOLO y MIRA como los que más contribuyen a la heterogeneidad: **investígalos, no los borres**.
+-   **I² depende del tamaño de los ensayos**: no mide cuánta heterogeneidad clínica hay. Usa τ, el intervalo de predicción y tu criterio clínico.
+:::
+
+## Ejercicio
+
+1.  Calcula con `rma(..., method = "DL")` y con `method = "PM"` el τ² y el I². ¿Cuánto cambian respecto a REML?
+2.  Elimina los cinco ensayos **más pequeños** (menos de 1 000 pacientes) y repite Q, I² y el IP. ¿Qué pasa con I²? ¿Y con τ²? Relaciónalo con el Paso 4.
+3.  Si tu hospital tiene pacientes con albuminuria baja (UACR < 150 mg/g), ¿te basta con el RR agrupado? ¿Qué parte del análisis de este subcapítulo te hace dudar?
+
+## Referencias
+
+-   Higgins JPT, Thompson SG. Quantifying heterogeneity in a meta-analysis. *Stat Med*. 2002;21:1539-1558.
+-   IntHout J, Ioannidis JPA, Rovers MM, Goeman JJ. Plea for routinely presenting prediction intervals in meta-analysis. *BMJ Open*. 2016;6:e010247.
+-   Viechtbauer W. Conducting meta-analyses in R with the metafor package. *J Stat Softw*. 2010;36(3):1-48.
+-   Higgins JPT y cols. (eds.). *Cochrane Handbook for Systematic Reviews of Interventions*, capítulo sobre heterogeneidad.

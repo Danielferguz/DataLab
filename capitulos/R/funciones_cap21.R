@@ -364,3 +364,57 @@ dibujar_red <- function(ensayos, tam_texto = 3.4) {
     ggplot2::scale_y_continuous(expand = ggplot2::expansion(mult = 0.2)) +
     ggplot2::theme_void()
 }
+
+#' Metaanálisis en red por contrastes (ensayos de DOS brazos), mínimos cuadrados ponderados
+#' @param red tibble con trat1, trat2, yi (efecto de trat1 frente a trat2, p. ej. log HR) y sei
+#' @param referencia tratamiento de referencia (los parámetros son efectos frente a él)
+#' @param orden orden deseado de los tratamientos (opcional, solo afecta a la presentación)
+#' @param tau2 varianza entre ensayos común (0 = efecto común/fijo)
+#' @return lista: d (efectos frente a la referencia), V (covarianzas), X (matriz de diseño), Q, gl
+#' No maneja ensayos de tres o más brazos (sus contrastes están correlacionados).
+nma_contrastes <- function(red, referencia = "Placebo", orden = NULL, tau2 = 0) {
+  trats <- setdiff(sort(unique(c(red$trat1, red$trat2))), referencia)
+  if (!is.null(orden)) trats <- intersect(orden, trats)
+  X <- sapply(trats, \(t) as.numeric(red$trat1 == t) - as.numeric(red$trat2 == t))
+  if (!is.matrix(X)) X <- matrix(X, ncol = 1, dimnames = list(NULL, trats))
+  w <- 1 / (red$sei^2 + tau2)
+  V <- solve(t(X) %*% (w * X))                       # (X' W X)^-1
+  b <- drop(V %*% t(X) %*% (w * red$yi))
+  names(b) <- trats; dimnames(V) <- list(trats, trats)
+  Q <- sum(w * (red$yi - drop(X %*% b))^2)
+  list(d = b, V = V, X = X, Q = Q, gl = nrow(red) - length(trats), referencia = referencia)
+}
+
+#' Todas las comparaciones por pares (A frente a B) de un ajuste de nma_contrastes()
+pares_nma <- function(fit) {
+  nom <- c(names(fit$d), fit$referencia)
+  d <- c(fit$d, 0); names(d) <- nom
+  V <- matrix(0, length(nom), length(nom), dimnames = list(nom, nom)); V[names(fit$d), names(fit$d)] <- fit$V
+  utils::combn(nom, 2, simplify = FALSE) |>
+    purrr::map_dfr(\(p) tibble::tibble(trat1 = p[1], trat2 = p[2], est = d[[p[1]]] - d[[p[2]]],
+                                       se = sqrt(V[p[1], p[1]] + V[p[2], p[2]] - 2 * V[p[1], p[2]])))
+}
+
+#' Evidencia directa (ensayos que comparan exactamente ese par) e indirecta (red sin esos ensayos)
+#' para cada par. Devuelve est/se de cada una (NA si no existe).
+evidencia_directa_indirecta <- function(red, pares, referencia = "Placebo", orden = NULL) {
+  purrr::pmap_dfr(list(pares$trat1, pares$trat2), function(a, b) {
+    es_par <- (red$trat1 == a & red$trat2 == b) | (red$trat1 == b & red$trat2 == a)
+    dir <- red[es_par, ]
+    y <- ifelse(dir$trat1 == a, dir$yi, -dir$yi)
+    w <- 1 / dir$sei^2
+    dir_est <- if (nrow(dir)) sum(w * y) / sum(w) else NA_real_
+    dir_se <- if (nrow(dir)) 1 / sqrt(sum(w)) else NA_real_
+    resto <- red[!es_par, ]
+    ind <- tryCatch({
+      f <- nma_contrastes(resto, referencia, orden)
+      nom <- c(names(f$d), referencia)
+      if (!all(c(a, b) %in% nom)) stop("sin conexión")
+      d <- c(f$d, 0); names(d) <- nom
+      V <- matrix(0, length(nom), length(nom), dimnames = list(nom, nom)); V[names(f$d), names(f$d)] <- f$V
+      c(est = d[[a]] - d[[b]], se = sqrt(V[a, a] + V[b, b] - 2 * V[a, b]))
+    }, error = function(e) c(est = NA_real_, se = NA_real_))
+    tibble::tibble(trat1 = a, trat2 = b, k_directo = nrow(dir), dir_est = dir_est, dir_se = dir_se,
+                   ind_est = unname(ind["est"]), ind_se = unname(ind["se"]))
+  })
+}
