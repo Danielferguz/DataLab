@@ -1,0 +1,78 @@
+# Capítulo 21: Revisiones sistemáticas y metaanálisis
+
+> *"Un ensayo responde una pregunta en una población; una revisión sistemática pregunta qué dicen **todos** los ensayos, y un metaanálisis los combina."* Este capítulo te lleva de la pregunta al forest plot: cómo plantear el protocolo, buscar y seleccionar estudios, juzgar su riesgo de sesgo, **combinar** sus resultados y, sobre todo, desconfiar con método de lo que sale.
+
+::: {.callout-note}
+## 🩺 El problema de todos los días
+
+Tu servicio quiere decidir si ofrecer un iSGLT2 a todos los pacientes con ERC y albuminuria. Hay muchos ensayos, algunos pequeños, otros enormes, con resultados que no coinciden. Citar solo los que te gustan es un sesgo; leerlos todos y "tener una impresión" tampoco es método. Una **revisión sistemática** define de antemano cómo buscar, qué incluir y cómo juzgar; el **metaanálisis** es la parte estadística que combina los efectos cuando tiene sentido hacerlo.
+:::
+
+En este capítulo trabajamos con **20 ensayos ficticios** de un iSGLT2 contra placebo en ERC (los nombres son inventados; los datos están simulados con verdad conocida, ver `R/simular_metaanalisis.R`). El mismo conjunto de datos se califica con GRADE en el Capítulo 22.
+
+*Al finalizar este capítulo podrás:*
+
+-   **Formular** una pregunta PICOS y un protocolo, y **dibujar** un diagrama de flujo PRISMA.
+-   **Buscar y seleccionar** estudios con método: estrategia de búsqueda, deduplicación y cribado por dos revisores.
+-   **Juzgar** el riesgo de sesgo con RoB 2 y ROBINS-I.
+-   **Combinar** resultados con efectos fijos y aleatorios, y **leer** un forest plot.
+-   **Cuantificar la heterogeneidad** (Q, I², τ², intervalo de predicción) y **buscar sus causas** con metarregresión.
+-   **Detectar** el sesgo de publicación y explicar por qué un metaanálisis puede equivocarse.
+
+## El recorrido en una página
+
+Los 20 ensayos ficticios, en un forest plot y con su combinación mediante efectos aleatorios:
+
+```{r}
+#| label: recorrido-forest-c21
+#| message: false
+#| fig-width: 7.5
+#| fig-height: 6.4
+#| fig-cap: "Forest plot de 20 ensayos ficticios (riesgo relativo del evento renal compuesto). Cuadrados: estimaciones de cada ensayo; rombo: efecto agrupado con efectos aleatorios. Datos ficticios."
+library(tidyverse)
+library(metafor)
+source("R/funciones_extra_a.R")
+ensayos <- read_csv("Bases/metaanalisis_isglt2.csv", show_col_types = FALSE)
+m <- rma(yi = log_rr, vi = se_log_rr^2, data = ensayos, slab = estudio, method = "REML")
+forest(m, atransf = exp, at = log(c(0.25, 0.5, 1, 2)), xlab = "Riesgo relativo (menor de 1 favorece al iSGLT2)",
+       header = c("Ensayo (ficticio)", "RR [IC 95 %]"), cex = 0.8)
+pr <- predict(m, transf = exp)
+```
+
+**Qué vemos:** el riesgo relativo agrupado es **`r num(exp(coef(m)), 2)`** (IC 95 % `r num(exp(m$ci.lb), 2)` a `r num(exp(m$ci.ub), 2)`): el fármaco parece reducir el evento renal en un `r round(100 * (1 - exp(coef(m))))` %. Pero los ensayos **no coinciden entre sí**: la heterogeneidad es grande (I² = `r round(m$I2)` %) y el **intervalo de predicción** (el efecto que verías en un ensayo nuevo) va de `r num(pr$pi.lb, 2)` a `r num(pr$pi.ub, 2)`, es decir, **incluye** efectos nulos. Un solo número esconde esa dispersión. Además, `r sum(ensayos$ev_trat < ensayos$ev_ctrl)` de los 20 ensayos tienen menos eventos con el fármaco, pero uno (MIRA) tiene **más**.
+
+::: {.callout-warning}
+## ⚠️ El efecto verdadero de la población de ensayos no es el que sale
+
+En estos datos ficticios sabemos que el efecto medio verdadero es un RR de **0.75**; el metaanálisis da `r num(exp(coef(m)), 2)`. La diferencia no es azar: en la simulación los ensayos **pequeños y poco favorables se publican menos**, y el metaanálisis solo ve lo publicado. Lo aprenderás a detectar en 21.6.
+:::
+
+::: {.callout-important}
+## 🎯 Mapa del capítulo
+
+| Subcapítulo | Nivel | Resuelve |
+|---|---|---|
+| 21.1 Protocolo y pregunta PICOS | 🟢 | PICOS, criterios de elegibilidad, PROSPERO, PRISMA 2020 y su diagrama de flujo |
+| 21.2 Búsqueda y selección | 🟢 | Estrategia de búsqueda, deduplicación, cribado por dos revisores y kappa |
+| 21.3 Extracción y riesgo de sesgo | 🟡 | Formulario de extracción, RoB 2 y ROBINS-I, gráficos de semáforo |
+| 21.4 Metaanálisis de efectos fijos y aleatorios | 🟡 | Inverso de la varianza, DerSimonian-Laird, REML, HKSJ, forest plot |
+| 21.5 Heterogeneidad | 🟡 | Q, I², τ², intervalo de predicción, análisis de influencia |
+| 21.6 Metarregresión y sesgo de publicación | 🔴 | Moderadores, embudo, Egger, recorte y relleno |
+| 21.7 Metaanálisis en red (visión general) | 🔴 | Comparaciones indirectas, transitividad y coherencia |
+:::
+
+*Prerrequisitos:* Caps. 2 (medidas de efecto), 9 (supervivencia, HR) y 11 (ensayos). *Prepara:* Cap. 22 (certeza de la evidencia).
+
+## Para leer más
+
+-   **Higgins JPT, Thomas J, Chandler J, et al.** *Cochrane Handbook for Systematic Reviews of Interventions*. Es la referencia práctica de todo el capítulo (gratuita en línea). *No se pudo consultar durante la redacción; no se describen sus contenidos concretos.*
+-   **Page MJ, McKenzie JE, Bossuyt PM, et al.** The PRISMA 2020 statement: an updated guideline for reporting systematic reviews. *BMJ*. 2021;372:n71.
+-   **Viechtbauer W.** Conducting meta-analyses in R with the metafor package. *J Stat Softw*. 2010;36(3):1-48. El paquete que usamos en este capítulo.
+-   **Barrett M, D'Agostino McGowan L, Gerke T.** *Causal Inference in R*. https://www.r-causal.org/. *Lectura recomendada por el autor; no se pudo consultar durante la redacción.*
+-   **IntHout J, Ioannidis JPA, Rovers MM, Goeman JJ.** Plea for routinely presenting prediction intervals in meta-analysis. *BMJ Open*. 2016;6:e010247.
+
+## Referencias
+
+-   DerSimonian R, Laird N. Meta-analysis in clinical trials. *Control Clin Trials*. 1986;7:177-188.
+-   Higgins JPT, Thompson SG. Quantifying heterogeneity in a meta-analysis. *Stat Med*. 2002;21:1539-1558.
+-   Egger M, Davey Smith G, Schneider M, Minder C. Bias in meta-analysis detected by a simple, graphical test. *BMJ*. 1997;315:629-634.
