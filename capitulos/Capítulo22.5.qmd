@@ -1,0 +1,200 @@
+# De la evidencia a la recomendación (Evidence-to-Decision)
+
+::: {.callout-note}
+## 🩺 Escenario
+
+El comité de la guía de ERC pregunta: *«¿ofrecemos el iSGLT2 a todo paciente con ERC y albuminuria?»*. Ya calificaste la certeza (22.3): baja para el evento renal compuesto, moderada para la pendiente de TFGe (**datos ficticios**). La jefa advierte: *«la certeza no es la recomendación; la certeza dice cuánto confiamos en los números, la recomendación decide qué hacemos con ellos»*. Con la misma evidencia, otro comité podría llegar a otra conclusión, y no estaría equivocado.
+:::
+
+**Lo que vamos a hacer**
+
+-   Recorrer el marco **Evidence-to-Decision** (EtD) con los números del metaanálisis ficticio, también **por nivel de albuminuria**.
+-   Distinguir una recomendación **fuerte** de una **condicional** y ver **cuánto dependen de los valores** de los pacientes.
+-   Cerrar el capítulo con un **ejercicio de calificación de la certeza, paso a paso**.
+
+```{r}
+#| label: c225-setup
+#| message: false
+library(tidyverse)
+library(metafor)
+source("R/funciones_extra_a.R")      # num(), pct()
+source("R/funciones_cap22.R")        # sof_binario(), marcas_grade(), certeza_final(), ...
+theme_set(theme_minimal(base_size = 12))
+
+# 20 ensayos FICTICIOS de un iSGLT2 vs placebo en ERC (Cap. 21)
+ensayos <- read_csv("Bases/metaanalisis_isglt2.csv", show_col_types = FALSE) |>
+  mutate(rob_global = factor(rob_global, levels = c("Bajo", "Algunas dudas", "Alto")))
+
+# Efecto relativo y absoluto de un conjunto de ensayos (una fila)
+resumir <- function(d) {
+  r <- rma(yi = log_rr, sei = se_log_rr, data = d, method = "REML")
+  p0 <- sum(d$ev_ctrl) / sum(d$n_ctrl)
+  bind_cols(tibble(k = r$k, n = sum(d$n_trat + d$n_ctrl), p_ctrl = p0, i2 = r$I2), sof_binario(r, p0))
+}
+res_tfg <- rma(yi = md_tfg, sei = se_md_tfg, data = ensayos, method = "REML")   # pendiente de TFGe
+md <- sof_continuo(res_tfg)
+```
+
+## Paso 1: el marco EtD
+
+Una recomendación no sale solo de «el efecto es bueno y la certeza es X». El marco **Evidence-to-Decision** (Alonso-Coello y cols., *BMJ* 2016) ordena **todo lo que el panel debe juzgar**:
+
+-   **El problema**: ¿es una prioridad?
+-   **Los efectos**: deseables, indeseables, **certeza** de la evidencia y **balance** entre ellos.
+-   **Los valores**: cuánto importan a los pacientes los desenlaces (evitar diálisis, evitar efectos adversos).
+-   **Lo práctico**: recursos y costos, **equidad**, **aceptabilidad** y **factibilidad**.
+
+Cada criterio se juzga con la evidencia disponible y se **escribe la razón**. La recomendación es la **síntesis** de esos juicios; no hay una fórmula.
+
+## Paso 2: qué dice la evidencia, también por albuminuria
+
+La pregunta es «ERC con albuminuria». Los ensayos tienen albuminuria media de `r min(ensayos$uacr_media)` a `r max(ensayos$uacr_media)` mg/g y ya vimos (22.2) que el efecto crece con la albuminuria. Calculamos el efecto relativo y absoluto en **todos** los ensayos y en cada mitad (UACR media ≥ 300 mg/g o menor):
+
+```{r}
+#| label: c225-subgrupos
+sub_alta <- filter(ensayos, uacr_media >= 300)
+sub_baja <- filter(ensayos, uacr_media < 300)
+tab_sub <- bind_rows(Todos = resumir(ensayos), `UACR ≥ 300` = resumir(sub_alta), `UACR < 300` = resumir(sub_baja), .id = "grupo")
+dif_sub <- rma(yi = log_rr, sei = se_log_rr, mods = ~ I(uacr_media >= 300), data = ensayos, method = "REML")
+
+tab_sub |>
+  transmute(Grupo = grupo, Ensayos = k, Participantes = format(n, big.mark = " "),
+            `Riesgo con placebo` = pct(p_ctrl, 1), `RR (IC 95 %)` = f_ic(rr, rr_inf, rr_sup),
+            `Eventos evitados por 1000 (IC 95 %)` = f_ic(evitados, evitados_inf, evitados_sup, 0),
+            `IC incluye RR 0.90` = ifelse(rr_sup >= 0.90, "sí", "no")) |>
+  knitr::kable()
+```
+
+**Qué vemos.** Con albuminuria alta el RR es **`r num(tab_sub$rr[2], 2)`** (`r num(tab_sub$evitados[2], 0)` eventos menos por 1 000); con albuminuria menor, **`r num(tab_sub$rr[3], 2)`** (`r num(tab_sub$evitados[3], 0)` menos), y su IC llega a `r num(tab_sub$rr_sup[3], 2)`, es decir, **incluye el umbral de decisión de 0.90**. La diferencia entre subgrupos es estadísticamente significativa (p = `r num(dif_sub$QMp, 3)`), pero es una comparación **entre ensayos** y no dentro de cada uno, lo que le resta credibilidad (hay que juzgarla con criterios específicos de subgrupos, p. ej. ICEMAN, Schandelmaier y cols., *CMAJ* 2020; por verificar). Para la decisión, importa que el **beneficio absoluto** en albuminuria baja es solo el `r pct(tab_sub$evitados[3] / tab_sub$evitados[2], 0)` del de albuminuria alta y está más cerca del umbral.
+
+## Paso 3: la tabla EtD
+
+Armamos la tabla EtD con los juicios de un **panel hipotético** (la columna «Juicio» es ilustrativa; en una guía real la discute y vota un panel con pacientes). Las cifras salen de lo calculado:
+
+```{r}
+#| label: c225-etd
+g <- tab_sub[1, ]
+etd <- tribble(
+  ~Criterio, ~`Evidencia (datos ficticios)`, ~`Juicio del panel (hipotético)`,
+  "Prioridad del problema", "ERC con albuminuria: causa frecuente de diálisis y de riesgo cardiovascular.", "Sí, es prioritario",
+  "Efectos deseables",
+    paste0(num(g$evitados, 0), " eventos renales menos por 1 000 (IC ", num(g$evitados_inf, 0), " a ", num(g$evitados_sup, 0),
+           "); pendiente de TFGe ", num(md$md, 2), " mL/min/1.73 m²/año mejor."), "Moderados",
+  "Efectos indeseables", "Los 20 ensayos ficticios no registraron daños (infecciones genitourinarias, depleción de volumen, cetoacidosis).",
+    "Probablemente pequeños (**falta evidencia**)",
+  "Certeza de la evidencia", "Evento renal: baja; pendiente de TFGe: moderada; daños: sin estimación.",
+    "**Baja** (la del desenlace crítico con menor certeza)",
+  "Valores", "Evitar la diálisis suele pesar mucho; la carga de un comprimido diario es pequeña, pero varía.",
+    "Probablemente poca variabilidad importante",
+  "Balance de efectos", "Beneficio absoluto claro; daños no medidos aquí.", "Probablemente favorece la intervención",
+  "Recursos", "Costo del fármaco frente a la diálisis evitada (hipotético; depende del sistema de salud).", "Incierto",
+  "Equidad", "El acceso puede ser menor justo en quienes tienen más riesgo.", "Puede reducir la equidad si no se financia",
+  "Aceptabilidad", "Oral, una vez al día.", "Probablemente sí",
+  "Factibilidad", "Requiere seguimiento de TFGe y de volumen.", "Probablemente sí"
+)
+knitr::kable(etd)
+```
+
+**Qué vemos.** El balance favorece al fármaco **por lo que se midió**, pero hay dos huecos: los **daños** (sin datos en estos ensayos) y la **certeza baja** del desenlace crítico. En GRADE la certeza global de la evidencia se toma del desenlace **crítico** con la certeza **más baja**: si falta un desenlace crítico (daños), el panel debe buscarlo en otras fuentes o reconocer la ignorancia. Los criterios no medibles (recursos, equidad) **no se calculan en esta tabla**: se discuten.
+
+## Paso 4: fuerte o condicional
+
+GRADE usa dos fuerzas. Qué significan en la práctica:
+
+```{r}
+#| label: c225-fuerza
+tribble(
+  ~Para..., ~`Recomendación fuerte («recomendamos»)`, ~`Recomendación condicional («sugerimos»)`,
+  "El paciente", "La gran mayoría, bien informada, elegiría esta opción.", "La mayoría la elegiría, pero muchos no; la decisión es compartida.",
+  "El clínico", "Ofrecerla a casi todos los pacientes.", "Ayudar a cada paciente a decidir según sus valores.",
+  "Quien decide políticas", "Puede adoptarse como norma o indicador de calidad.", "Requiere debate y participación de los interesados."
+) |> knitr::kable()
+```
+
+**Qué vemos.** Una recomendación **fuerte** necesita que el balance sea claro **y** que la certeza no sea muy baja, y que los valores no varíen mucho. Con certeza **baja** y daños sin datos, lo coherente es una recomendación **condicional a favor**: *«sugerimos ofrecer el iSGLT2 a pacientes con ERC y albuminuria»*. GRADE admite recomendaciones fuertes con certeza baja solo en situaciones excepcionales (por ejemplo, si el daño de no tratar es catastrófico y el de tratar, pequeño; Andrews y cols., 2013; por verificar el detalle). Otro panel con los mismos números podría ser más o menos cauto: la certeza se **evalúa**; la fuerza se **decide**.
+
+## Paso 5: la recomendación depende de los valores
+
+Los ensayos ficticios no midieron daños. Supón (**hipotético**) que el fármaco causa efectos adversos que, **para el paciente, pesan una fracción** de un evento renal. ¿Para qué valores se invierte el balance? Restamos al beneficio (eventos evitados por 1 000) los daños **ponderados** por su peso relativo:
+
+```{r}
+#| label: c225-valores
+beneficio <- g$evitados                                   # eventos renales evitados por 1000
+beneficio_bajo <- g$evitados_inf                          # límite inferior del IC
+rejilla <- expand_grid(dano_por_1000 = c(20, 50, 100), peso = c(0.10, 0.25, 0.50)) |>
+  mutate(balance = beneficio - dano_por_1000 * peso,
+         balance_pesimista = beneficio_bajo - dano_por_1000 * peso)
+
+rejilla |>
+  mutate(peso = paste0("peso ", peso)) |>
+  select(dano_por_1000, peso, balance) |>
+  pivot_wider(names_from = peso, values_from = balance) |>
+  mutate(across(where(is.numeric), \(x) round(x, 1))) |>
+  rename(`Daños por 1000 (hipotético)` = dano_por_1000)
+```
+
+**Qué vemos.** El balance (en «eventos renales equivalentes» por 1 000) es **favorable en `r sum(rejilla$balance > 0)` de las `r nrow(rejilla)` combinaciones** y negativo en `r sum(rejilla$balance <= 0)`: con `r rejilla$dano_por_1000[nrow(rejilla)]` daños por 1 000 que pesan la mitad de un evento renal, el balance es `r num(rejilla$balance[nrow(rejilla)], 1)`. Con el límite inferior del IC del beneficio (`r num(beneficio_bajo, 0)` por 1 000) siguen siendo favorables `r sum(rejilla$balance_pesimista > 0)` combinaciones, pero la de 50 daños con peso 0.5 queda en `r num(rejilla$balance_pesimista[rejilla$dano_por_1000 == 50 & rejilla$peso == 0.5], 1)`: casi sin margen. **No hay un «peso correcto»**: depende del paciente (un paciente joven con TFGe de 25 y albuminuria alta frente a uno anciano y frágil con riesgo de depleción de volumen). Por eso la recomendación honesta es condicional y explícita en sus supuestos.
+
+::: {.callout-warning}
+## ⚠️ Errores clásicos al pasar de la evidencia a la recomendación
+
+-   **Confundir certeza con fuerza.** Certeza alta no obliga a recomendación fuerte (el balance puede ser ajustado), y certeza baja no prohíbe recomendar.
+-   **Olvidar los daños que no se midieron.** «No hay daños en los ensayos» y «los ensayos no midieron daños» son afirmaciones muy distintas.
+-   **Ocultar los valores.** Si la recomendación solo funciona con un peso concreto de los daños, dilo.
+-   **Un único comité, una única verdad.** Distintos paneles pueden diferir por razones legítimas (recursos, valores locales): lo que no vale es ocultar el razonamiento.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   EtD ordena los juicios del panel: prioridad, efectos deseables e indeseables, certeza, valores, balance, recursos, equidad, aceptabilidad y factibilidad.
+-   En el ejemplo ficticio, el beneficio absoluto es de `r num(g$evitados, 0)` eventos menos por 1 000 en todos los ensayos, `r num(tab_sub$evitados[2], 0)` con albuminuria alta y `r num(tab_sub$evitados[3], 0)` con albuminuria menor (IC hasta `r num(tab_sub$rr_sup[3], 2)`).
+-   Con certeza baja y daños sin datos, lo coherente es una recomendación **condicional**; fuerte solo con balance claro, certeza al menos moderada y pocos desacuerdos de valores.
+-   La recomendación **depende de valores**: mostrar para qué valores se invierte el balance es más honesto que ocultarlo.
+:::
+
+## Ejercicio de cierre: califica la certeza paso a paso
+
+Califica la certeza del **evento renal compuesto en pacientes con albuminuria alta** (los `r nrow(sub_alta)` ensayos con UACR media ≥ 300 mg/g). Sigue el orden; compara después con la **solución de referencia**.
+
+1.  **Pregunta y desenlace.** ¿Qué desenlace es crítico? ¿Cuál es el umbral de decisión (usa RR 0.90)?
+2.  **Punto de partida.** ¿Ensayos u observacional?
+3.  **Las marcas de los cinco dominios** (con la función propia):
+
+```{r}
+#| label: c225-ejercicio-marcas
+res_alta <- rma(yi = log_rr, sei = se_log_rr, data = sub_alta, method = "REML")
+ois_alta <- ois_rr(tab_sub$p_ctrl[2], rr = 0.75, i2 = res_alta$I2 / 100)
+marcas_alta <- marcas_grade(res_alta, sub_alta, umbral = 0.90, ois = ois_alta, n_total = tab_sub$n[2])
+marcas_alta |>
+  mutate(senal = senal_txt(senal)) |>
+  select(Dominio = dominio, Marca = marca, Valor = valor, `¿Salta?` = senal) |>
+  knitr::kable()
+```
+
+4.  **Decide, dominio por dominio, cuántos niveles bajas y por qué** (tú, no la función).
+5.  **Suma los niveles** con `certeza_final()`, **escribe las notas al pie** y rellena la fila de la tabla SoF (22.3).
+
+**Solución de referencia** (un juicio razonable, no el único):
+
+```{r}
+#| label: c225-ejercicio-solucion
+bajar_alta <- c(`Riesgo de sesgo` = 0, Inconsistencia = 1, `Evidencia indirecta` = 0, Imprecisión = 0, `Sesgo de publicación` = 0)
+certeza_alta <- certeza_final("Alta", bajar = sum(bajar_alta))
+c(bajar = sum(bajar_alta), certeza = certeza_alta)
+```
+
+**Qué vemos.** Partimos de alta y **bajamos `r sum(bajar_alta)` nivel** (certeza **`r certeza_alta`**), solo por **inconsistencia**: I² de `r num(res_alta$I2, 0)` % y un intervalo de predicción que incluye 1 (`r marcas_alta$valor[marcas_alta$marca == "Intervalo de predicción"]`). **No** bajamos por riesgo de sesgo (`r marcas_alta$valor[1]` del peso en riesgo alto), por indirecta (la población coincide con la pregunta) ni por imprecisión: el RR (`r num(tab_sub$rr[2], 2)`, IC `r num(tab_sub$rr_inf[2], 2)` a `r num(tab_sub$rr_sup[2], 2)`) queda lejos de 0.90, aunque los participantes (`r format(tab_sub$n[2], big.mark = " ")`) quedan algo por debajo del OIS ajustado (`r format(ois_alta$n_total_ajustado, big.mark = " ")`). Tampoco bajamos por sesgo de publicación, aunque Egger da p = `r marcas_alta$valor[marcas_alta$marca == "Prueba de Egger (p)"]`, porque *trim-and-fill* no imputa ningún ensayo (`r marcas_alta$valor[marcas_alta$marca == "Estudios «faltantes» (trim-and-fill)"]`) y con solo `r res_alta$k` ensayos la prueba es frágil. **Alguien podría bajar un nivel más** (Egger, OIS apenas incumplido) y quedar en baja. Y qué cambia para la recomendación: con certeza `r certeza_alta` y `r num(tab_sub$evitados[2], 0)` eventos menos por 1 000, el panel podría considerar una recomendación **más firme** para albuminuria alta que para el conjunto, manteniendo la condicional para albuminuria menor. Esa decisión, con sus razones, es el producto final de GRADE.
+
+## Ejercicio
+
+1.  Repite el cierre para el subgrupo **UACR < 300**: ¿qué dominios saltan ahora? ¿Qué pasa con *trim-and-fill* y con el umbral de 0.90? ¿Qué certeza le darías?
+2.  Cambia en el Paso 5 el peso a 0.75: ¿en cuántas combinaciones sigue favoreciendo al fármaco?
+3.  Redacta, en dos frases, la recomendación condicional para albuminuria baja, con sus supuestos explícitos.
+
+## Referencias
+
+-   Alonso-Coello P, Schünemann HJ, Moberg J, et al. GRADE Evidence to Decision (EtD) frameworks: a systematic and transparent approach to making well informed healthcare choices. 1: Introduction. *BMJ*. 2016;353:i2016.
+-   Andrews JC, Schünemann HJ, Oxman AD, et al. GRADE guidelines: 15. Going from evidence to recommendation: determinants of a recommendation's direction and strength. *J Clin Epidemiol*. 2013;66:726-735 (por verificar).
+-   Schandelmaier S, Briel M, Varadhan R, et al. Development of the Instrument to assess the Credibility of Effect Modification Analyses (ICEMAN) in randomized controlled trials and meta-analyses. *CMAJ*. 2020;192:E901-E906 (por verificar).
+-   Schünemann H, Brożek J, Guyatt G, Oxman A (eds.). *GRADE Handbook*.

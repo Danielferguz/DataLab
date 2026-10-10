@@ -1,0 +1,215 @@
+# La tabla de resumen de hallazgos (Summary of Findings)
+
+::: {.callout-note}
+## 🩺 Escenario
+
+Presentas el metaanálisis ficticio del iSGLT2 al comité de la guía. Nadie lee un gráfico de bosque con 20 filas. Piden **una tabla de una página**: cuántos pacientes se benefician, cuánto confiar en eso y por qué. Es la **tabla de resumen de hallazgos** (*Summary of Findings*, SoF): la parte de la revisión que más se lee y la que más fácil es hacer mal.
+:::
+
+**Lo que vamos a hacer**
+
+-   Calcular el efecto **relativo y absoluto por 1 000 pacientes**, con su IC, para dos desenlaces.
+-   Registrar los **juicios de certeza** con sus razones y armar la tabla con **notas al pie**.
+-   Ver cómo una tabla SoF mal hecha **engaña** aunque cada número sea correcto.
+
+```{r}
+#| label: c223-setup
+#| message: false
+library(tidyverse)
+library(metafor)
+source("R/funciones_extra_a.R")      # num(), pct()
+source("R/funciones_cap22.R")        # sof_binario(), certeza_final(), marcas_grade()
+theme_set(theme_minimal(base_size = 12))
+
+# 20 ensayos FICTICIOS de un iSGLT2 vs placebo en ERC (Cap. 21)
+ensayos <- read_csv("Bases/metaanalisis_isglt2.csv", show_col_types = FALSE) |>
+  mutate(rob_global = factor(rob_global, levels = c("Bajo", "Algunas dudas", "Alto")))
+
+res_evento <- rma(yi = log_rr, sei = se_log_rr, data = ensayos, method = "REML")      # evento renal compuesto
+res_tfg    <- rma(yi = md_tfg, sei = se_md_tfg, data = ensayos, method = "REML")       # pendiente de TFGe
+n_total <- sum(ensayos$n_trat + ensayos$n_ctrl)
+p_ctrl <- sum(ensayos$ev_ctrl) / sum(ensayos$n_ctrl)       # riesgo en los grupos control
+```
+
+## Paso 1: qué lleva una tabla SoF
+
+Una fila por **desenlace** (los críticos primero) y, en cada fila:
+
+-   el **efecto relativo** (RR) con su IC;
+-   el **efecto absoluto**, normalmente **por 1 000 pacientes**: cuántos eventos con placebo, cuántos con el fármaco y la diferencia;
+-   el número de estudios y de participantes;
+-   la **certeza** (⊕⊕◯◯) y, sobre todo, las **notas al pie** que explican *por qué* se bajó o no se bajó.
+
+La parte difícil es el efecto absoluto, que **no sale del metaanálisis**: depende del **riesgo basal** que elijas.
+
+## Paso 2: efecto relativo y absoluto
+
+El metaanálisis estima un RR. Para pasar a «por 1 000 pacientes» se multiplica por un **riesgo basal**: aquí, el riesgo de los **grupos control** de los 20 ensayos (`r pct(p_ctrl, 1)`, con seguimientos de `r min(ensayos$seguimiento_meses)` a `r max(ensayos$seguimiento_meses)` meses; mediana `r median(ensayos$seguimiento_meses)`). El riesgo con el fármaco es riesgo basal × RR, y la **diferencia absoluta** es la resta; sus límites salen de aplicar los límites del IC del RR al mismo riesgo basal.
+
+```{r}
+#| label: c223-absoluto
+sof <- sof_binario(res_evento, p_ctrl)         # función propia: RR, riesgo con placebo y con fármaco, diferencia
+sof |> mutate(across(everything(), \(x) round(x, 2)))
+```
+
+**Qué vemos.** El RR agrupado es **`r num(sof$rr, 2)`** (IC `r num(sof$rr_inf, 2)` a `r num(sof$rr_sup, 2)`). Con un riesgo con placebo de **`r num(sof$riesgo_ctrl, 0)` por 1 000**, el fármaco lo lleva a **`r num(sof$riesgo_trat, 0)`** (`r num(sof$trat_inf, 0)` a `r num(sof$trat_sup, 0)`): **`r num(sof$evitados, 0)` eventos menos por 1 000** (IC `r num(sof$evitados_inf, 0)` a `r num(sof$evitados_sup, 0)`). Es decir, un NNT de unos **`r num(1000 / sof$evitados, 0)`** pacientes tratados durante el seguimiento para evitar un evento. Esta cuenta trata el riesgo basal como **fijo**: su incertidumbre no entra en el IC.
+
+Se suele asumir que el efecto relativo es parecido en todos los pacientes (aquí ya vimos que varía con la albuminuria; lo retomamos en 22.5), pero el **absoluto cambia siempre**: depende de cuánto riesgo tiene el paciente que tienes delante. Por eso las buenas SoF muestran **más de un riesgo basal**:
+
+```{r}
+#| label: c223-riesgos-basales
+tibble(`Riesgo basal` = c(0.05, p_ctrl, 0.25)) |>
+  mutate(fila = map(`Riesgo basal`, \(p) sof_binario(res_evento, p))) |>
+  unnest(fila) |>
+  transmute(`Riesgo basal` = pct(`Riesgo basal`, 1), `Con placebo (por 1000)` = round(riesgo_ctrl),
+            `Con iSGLT2 (por 1000)` = round(riesgo_trat),
+            `Eventos evitados (IC 95 %)` = f_ic(evitados, evitados_inf, evitados_sup, 0)) |>
+  knitr::kable()
+```
+
+**Qué vemos.** Con el mismo RR, un paciente de riesgo bajo (5 %) evita unos **`r num(sof_binario(res_evento, 0.05)$evitados, 0)`** eventos por 1 000 y uno de riesgo alto (25 %), unos **`r num(sof_binario(res_evento, 0.25)$evitados, 0)`**. La conversión a absoluto es lo que da sentido clínico a «RR 0.65».
+
+## Paso 3: los juicios de certeza, por escrito
+
+Para el evento renal compuesto usamos las marcas de 22.2. Para la **pendiente de TFGe** (diferencia de medias, en mL/min/1.73 m²/año) aplicamos las mismas marcas con una **diferencia mínima importante** hipotética de **0.5** (el umbral ya no es un RR sino una diferencia):
+
+```{r}
+#| label: c223-marcas-tfg
+marcas_tfg <- marcas_grade(res_tfg, ensayos, tipo = "diferencia", umbral = 0.5)
+marcas_tfg |>
+  filter(marca %in% c("Peso en estudios de riesgo alto", "I²", "Intervalo de predicción",
+                      "El IC incluye el umbral de decisión (0.50)", "Prueba de Egger (p)",
+                      "Estudios «faltantes» (trim-and-fill)")) |>
+  mutate(senal = senal_txt(senal)) |>
+  select(Dominio = dominio, Marca = marca, Valor = valor, `¿Salta?` = senal) |>
+  knitr::kable()
+```
+
+**Qué vemos.** El efecto en la pendiente es `r f_ic(sof_continuo(res_tfg)$md, sof_continuo(res_tfg)$md_inf, sof_continuo(res_tfg)$md_sup)` mL/min/1.73 m²/año a favor del fármaco, claramente por encima de 0.5. El I² (`r num(res_tfg$I2, 0)` %) salta, pero el intervalo de predicción **no incluye el 0**. El Egger clásico queda en el borde (p = `r fmt_p(regtest(res_tfg, model = "lm")$pval)`) y *trim-and-fill* no imputa ningún ensayo. Es un caso donde las marcas son **ambiguas** y el juicio decide.
+
+Ahora registramos **nuestro juicio** (uno razonable, no el único) con su razón. Cada celda de `evento` y `tfg` es el número de niveles que **bajamos**; `certeza_final()` solo suma:
+
+```{r}
+#| label: c223-juicios
+pp <- peso_por_categoria(res_evento, ensayos$rob_global)          # peso por categoría de riesgo de sesgo
+eg_p <- regtest(res_evento, model = "lm")$pval                     # Egger del evento renal
+k0 <- trimfill(res_evento)$k0                                      # ensayos imputados por trim-and-fill
+pr <- predict(res_evento, transf = exp)
+
+juicios <- tribble(
+  ~dominio,               ~evento, ~tfg, ~razon_evento,                                                                         ~razon_tfg,
+  "Riesgo de sesgo",       0,       0,   paste0(pct(pp$peso[pp$categoria == "Alto"], 0), " del peso en riesgo alto"),            "Igual",
+  "Inconsistencia",        1,       0,   paste0("I² ", num(res_evento$I2, 0), " %; predicción ", num(pr$pi.lb, 2), " a ", num(pr$pi.ub, 2)),
+                                          "Todos en el mismo sentido; el intervalo de predicción no incluye 0",
+  "Evidencia indirecta",   0,       1,   "Población y desenlace directos",                                                       "Marcador sustituto del evento renal",
+  "Imprecisión",           0,       0,   "IC no cruza 0.90; OIS alcanzado (22.2)",                                               "IC por encima de la diferencia mínima",
+  "Sesgo de publicación",  1,       0,   paste0("Egger p = ", fmt_p(eg_p), "; trim-and-fill añade ", k0, " ensayos"),            "Egger en el borde, sin ensayos imputados"
+)
+knitr::kable(juicios, col.names = c("Dominio", "Baja (evento)", "Baja (TFGe)", "Razón: evento renal", "Razón: pendiente de TFGe"))
+
+certezas <- tibble(desenlace = c("Evento renal compuesto", "Pendiente de TFGe"),
+                   bajar = c(sum(juicios$evento), sum(juicios$tfg))) |>
+  mutate(certeza = map_chr(bajar, \(b) certeza_final("Alta", bajar = b)), simbolo = simbolo_certeza(certeza))
+certezas
+```
+
+**Qué vemos.** Partiendo de «alta» (ensayos), el evento renal baja `r certezas$bajar[1]` niveles (inconsistencia y sesgo de publicación) y queda en **`r certezas$certeza[1]`**; la pendiente baja `r certezas$bajar[2]` (indirecta) y queda en **`r certezas$certeza[2]`**. Es lo que anticipamos en 22.1: el mismo metaanálisis, dos certezas. Observa que el sesgo de publicación **no** baja la pendiente aunque su p sea marginal: el juicio lo hacemos nosotros, no un umbral de p.
+
+## Paso 4: armar la tabla
+
+Ponemos juntos efecto, certeza y **notas al pie** (letras entre paréntesis). Las notas son lo más importante: sin ellas, la certeza es una etiqueta sin explicación.
+
+```{r}
+#| label: c223-tabla-sof
+md <- sof_continuo(res_tfg)
+sof_tabla <- tibble(
+  `Desenlace (ensayos; participantes)` = c(
+    paste0("Evento renal compuesto (", nrow(ensayos), "; ", format(n_total, big.mark = " "), ") (a)"),
+    paste0("Pendiente de TFGe, mL/min/1.73 m²/año (", nrow(ensayos), "; ", format(n_total, big.mark = " "), ") (b)")),
+  `Con placebo (por 1000)` = c(num(sof$riesgo_ctrl, 0), "—"),
+  `Con iSGLT2 (por 1000)` = c(paste0(num(sof$riesgo_trat, 0), " (", num(sof$trat_inf, 0), " a ", num(sof$trat_sup, 0), ")"), "—"),
+  `Efecto relativo (IC 95 %)` = c(paste0("RR ", f_ic(sof$rr, sof$rr_inf, sof$rr_sup)),
+                                  paste0("DM ", f_ic(md$md, md$md_inf, md$md_sup))),
+  `Efecto absoluto` = c(paste0(num(sof$evitados, 0), " menos por 1000 (", num(sof$evitados_inf, 0), " a ", num(sof$evitados_sup, 0), ")"),
+                        "Descenso más lento con el fármaco"),
+  Certeza = paste(certezas$simbolo, certezas$certeza))
+knitr::kable(sof_tabla)
+```
+
+**Notas al pie** (datos ficticios; juicios de este ejemplo):
+
+-   **(a)** Se bajó **un nivel por inconsistencia** (I² `r num(res_evento$I2, 0)` %; el intervalo de predicción incluye el 1; la albuminuria explica parte) y **uno por sesgo de publicación** (Egger p = `r fmt_p(regtest(res_evento, model = "lm")$pval)`; con *trim-and-fill* el RR sería `r num(exp(coef(trimfill(res_evento))[[1]]), 2)`). El riesgo con placebo es el de los grupos control (`r pct(p_ctrl, 1)`, mediana de seguimiento `r median(ensayos$seguimiento_meses)` meses).
+-   **(b)** Se bajó **un nivel por evidencia indirecta**: la pendiente de TFGe es un marcador sustituto del evento renal. Diferencia mínima importante hipotética: 0.5.
+
+::: {.callout-tip}
+## 💡 Para Word o presentaciones
+
+La misma tabla con `flextable` se exporta a Word o PowerPoint y admite **notas al pie** reales (el código se ejecuta bien en el entorno de pruebas; aquí no se repite la tabla para no duplicarla). El programa **GRADEpro** (de acceso web, no incluido en el entorno de pruebas) genera tablas SoF con este formato; las cifras de arriba te sirven para **comprobarlo**.
+
+```{r}
+#| label: c223-sof-flextable
+#| eval: false
+flextable::flextable(sof_tabla) |>
+  flextable::add_footer_lines(c("(a) Baja por inconsistencia y sesgo de publicación.",
+                                "(b) Baja por evidencia indirecta (marcador sustituto).")) |>
+  flextable::theme_booktabs() |>
+  flextable::autofit()
+```
+:::
+
+## Paso 5: una tabla SoF mal hecha engaña
+
+Cada número de una tabla puede ser correcto y el conjunto engañar. Comparamos tres versiones **engañosas** con la honesta:
+
+```{r}
+#| label: c223-engano
+fe <- rma(yi = log_rr, sei = se_log_rr, data = ensayos, method = "FE")     # efectos fijos
+tribble(
+  ~`Cómo se engaña`, ~`Versión engañosa`, ~`Versión honesta`,
+  "Solo el efecto relativo",
+    paste0("«Reduce el riesgo un ", num(100 * (1 - sof$rr), 0), " %»"),
+    paste0(num(sof$evitados, 0), " menos por 1000 si el riesgo basal es ", pct(p_ctrl, 1), "; ",
+           num(sof_binario(res_evento, 0.05)$evitados, 0), " si es 5 %"),
+  "Intervalo demasiado estrecho",
+    paste0("IC de efectos fijos: ", num(exp(fe$ci.lb), 2), " a ", num(exp(fe$ci.ub), 2)),
+    paste0("IC de efectos aleatorios: ", num(sof$rr_inf, 2), " a ", num(sof$rr_sup, 2),
+           "; predicción: ", num(pr$pi.lb, 2), " a ", num(pr$pi.ub, 2)),
+  "Certeza sin explicación",
+    "«Alta» (porque son ensayos) o sin columna de certeza",
+    paste0(certezas$certeza[1], ", con notas sobre inconsistencia y sesgo de publicación")
+) |> knitr::kable()
+```
+
+**Qué vemos.** El **efecto fijo** da un RR de `r num(exp(coef(fe)[[1]]), 2)` con un intervalo estrecho (`r num(exp(fe$ci.lb), 2)` a `r num(exp(fe$ci.ub), 2)`) que oculta la heterogeneidad: el modelo de efectos fijos supone que todos los ensayos miden **el mismo** efecto, y aquí no es así (I² = `r num(res_evento$I2, 0)` %). Comunicar solo la reducción relativa del `r num(100 * (1 - sof$rr), 0)` % hace parecer igual de útil el fármaco para un paciente de riesgo bajo que de riesgo alto, y una certeza que solo dice «alta» por el diseño borra todo lo que vimos en 22.2.
+
+## Trampas frecuentes
+
+::: {.callout-warning}
+## ⚠️ Al preparar tu tabla SoF
+
+-   **Riesgo basal inadecuado.** Tomar el riesgo de un solo ensayo o de un registro sin decir de dónde sale. Declara **de dónde** viene y muestra más de uno.
+-   **Mezclar seguimientos.** Un riesgo a 12 meses con un RR de ensayos de 4 años no da un absoluto interpretable: aquí los seguimientos van de `r min(ensayos$seguimiento_meses)` a `r max(ensayos$seguimiento_meses)` meses y lo dijimos.
+-   **Olvidar los desenlaces críticos sin datos.** Una SoF sin mortalidad ni daños se lee como «no hay problema», cuando en realidad **no se midió**. Añade la fila con «sin estudios».
+-   **Certeza sin notas.** Una etiqueta sin razón no se puede discutir.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   La SoF resume **por desenlace**: efecto relativo y absoluto, número de estudios y participantes, **certeza** y **notas al pie** con las razones.
+-   El absoluto sale de **riesgo basal × RR**; aquí, `r num(sof$riesgo_ctrl, 0)` → `r num(sof$riesgo_trat, 0)` por 1 000 (`r num(sof$evitados, 0)` menos, IC `r num(sof$evitados_inf, 0)` a `r num(sof$evitados_sup, 0)`), y cambia con el riesgo basal.
+-   Con los mismos 20 ensayos: evento renal **`r certezas$certeza[1]`**, pendiente de TFGe **`r certezas$certeza[2]`**.
+-   Una tabla mal hecha engaña con números correctos: solo relativo, IC de efectos fijos, certeza sin razones.
+:::
+
+## Ejercicio
+
+1.  Recalcula la fila del evento renal usando el RR de *trim-and-fill* (`r num(exp(coef(trimfill(res_evento))[[1]]), 2)`). ¿Cuántos eventos menos por 1 000? ¿Cambiaría tu juicio sobre la certeza?
+2.  Añade a la tabla una fila de **mortalidad por cualquier causa** sin datos: ¿qué escribes en cada columna?
+3.  Elige un riesgo basal de 40 %. ¿Es razonable aplicar el mismo RR? ¿Qué le preguntarías a los ensayos antes de hacerlo?
+
+## Referencias
+
+-   Guyatt GH, Oxman AD, Santesso N, et al. GRADE guidelines 12. Preparing Summary of Findings tables: binary outcomes. *J Clin Epidemiol*. 2013;66:158-172 (por verificar).
+-   Guyatt GH, Thorlund K, Oxman AD, et al. GRADE guidelines 13. Preparing Summary of Findings tables and evidence profiles: continuous outcomes. *J Clin Epidemiol*. 2013;66:173-183 (por verificar).
+-   Schünemann H, Brożek J, Guyatt G, Oxman A (eds.). *GRADE Handbook*.

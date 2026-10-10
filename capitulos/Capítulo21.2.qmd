@@ -1,0 +1,259 @@
+# Búsqueda y selección de estudios
+
+::: {.callout-note}
+## 🩺 Escenario
+
+El protocolo está registrado y te toca buscar. Tras consultar tres bases de datos, el gestor de referencias muestra **cientos de registros**, y muchos se parecen sospechosamente: el mismo ensayo aparece en PubMed y en Embase con el título escrito distinto. Tú y una compañera vais a leerlos **por separado** para decidir cuáles pasan. Preguntas: ¿cómo se construye una búsqueda que no deje escapar nada?, ¿cómo se quitan los duplicados sin borrar trabajos distintos?, ¿y cómo se mide si vosotras estáis de acuerdo?
+:::
+
+**Lo que vamos a hacer**
+
+-   Construir una **estrategia de búsqueda** con bloques de conceptos (MeSH/Emtree, texto libre y operadores). **No ejecutamos ninguna búsqueda real.**
+-   **Deduplicar** una biblioteca **ficticia** de registros: DOI, título normalizado y título aproximado (`adist`), comprobando contra la verdad.
+-   **Cribar con dos revisores simulados**, calcular el **kappa de Cohen a mano** y resolver los conflictos.
+
+```{r}
+#| label: setup-c212
+#| message: false
+library(tidyverse)
+source("R/funciones_extra_a.R")     # num(), pct()
+source("R/funciones_cap21.R")
+theme_set(theme_minimal(base_size = 12))
+reg <- simular_busqueda()          # 831 registros FICTICIOS de tres bases (verdad conocida)
+```
+
+## Paso 1: la estrategia de búsqueda
+
+La búsqueda se arma por **conceptos**. Dentro de cada concepto se unen los sinónimos con **OR** (basta con que aparezca uno); entre conceptos se usa **AND** (deben estar todos). Para cada concepto se combinan dos tipos de términos:
+
+-   **Vocabulario controlado:** descriptores que un indizador asignó al artículo (**MeSH** en MEDLINE/PubMed, **Emtree** en Embase). Capturan el tema aunque el título use otras palabras.
+-   **Texto libre** en título y resumen, con **truncamiento** (`*`: `sglt2*`) y frases entre comillas. Capturan lo que todavía no está indizado o lo que el vocabulario no cubre.
+
+Ejemplo para nuestra pregunta (iSGLT2 **AND** ERC **AND** ensayo aleatorizado). Armamos los bloques como una lista de R y los unimos con una función, para ver la lógica:
+
+```{r}
+#| label: busqueda-bloques-c212
+conceptos <- list(
+  isglt2 = c('"Sodium-Glucose Transporter 2 Inhibitors"[Mesh]', "sglt2*[tiab]", '"sodium glucose cotransporter 2"[tiab]',
+             "dapagliflozin[tiab]", "empagliflozin[tiab]", "canagliflozin[tiab]", "ertugliflozin[tiab]", "gliflozin*[tiab]"),
+  erc    = c('"Renal Insufficiency, Chronic"[Mesh]', '"chronic kidney disease"[tiab]', '"chronic renal insufficiency"[tiab]',
+             '"chronic kidney failure"[tiab]', "CKD[tiab]", '"diabetic nephropathy"[tiab]'),
+  eca    = c("randomized controlled trial[pt]", "randomized[tiab]", "randomised[tiab]", "placebo[tiab]", "randomly[tiab]")
+)
+construir_busqueda <- function(conceptos) {
+  conceptos |> map_chr(\(x) paste0("(", paste(x, collapse = " OR "), ")")) |> paste(collapse = " AND ")
+}
+cadena <- construir_busqueda(conceptos)
+cat(strwrap(cadena, width = 90), sep = "\n")
+```
+
+La misma lógica en Embase y en el registro de ensayos de Cochrane (CENTRAL) cambia solo la **sintaxis**. A modo de ilustración (sintaxis escrita de memoria, **por verificar** en la interfaz de cada base antes de usarla):
+
+```text
+Embase:   ('sodium glucose cotransporter 2 inhibitor'/exp OR sglt2*:ti,ab OR dapagliflozin:ti,ab OR empagliflozin:ti,ab)
+          AND ('chronic kidney failure'/exp OR 'chronic kidney disease':ti,ab OR ckd:ti,ab)
+          AND ('randomized controlled trial'/exp OR randomi*:ti,ab OR placebo:ti,ab)
+Proximidad en Embase: 'kidney NEAR/3 failure':ti,ab      (palabras separadas hasta por 3 términos)
+```
+
+Tres reglas prácticas: (1) **sensibilidad antes que precisión**: es peor perder un ensayo que leer algunos de más; (2) **no uses `NOT`** salvo que estés seguro: puede excluir justo lo que buscas; (3) para el filtro de ensayos aleatorizados usa uno **validado** (Cochrane tiene filtros de máxima sensibilidad) en lugar de inventarlo. Y **guarda la estrategia exacta**: base, fecha, interfaz y límites (PRISMA-S, la extensión de PRISMA para la búsqueda). Una búsqueda que no se puede repetir no es reproducible.
+
+¿Cuánto cuesta ser sensible? Con la biblioteca ficticia podemos medirlo, porque conocemos qué trabajos eran relevantes. **En la vida real no tienes esa columna.**
+
+```{r}
+#| label: sensibilidad-bases-c212
+unicos_verdad <- reg |> distinct(id_unico, .keep_all = TRUE)
+c(trabajos_distintos = nrow(unicos_verdad), relevantes = sum(unicos_verdad$relevante_ta),
+  precision = round(mean(unicos_verdad$relevante_ta), 3), leer_por_cada_relevante = round(1 / mean(unicos_verdad$relevante_ta), 1))
+
+# ¿Qué parte de los trabajos relevantes encuentra cada base por separado?
+por_base <- reg |>
+  filter(relevante_ta) |>
+  group_by(base) |>
+  summarise(relevantes_encontrados = n_distinct(id_unico), .groups = "drop") |>
+  mutate(porcentaje_del_total = round(100 * relevantes_encontrados / sum(unicos_verdad$relevante_ta), 1))
+por_base
+pubmed_embase <- reg |> filter(relevante_ta, base %in% c("PubMed", "Embase")) |> summarise(n_distinct(id_unico)) |> pull()
+```
+
+**Qué vemos.** Solo **`r pct(mean(unicos_verdad$relevante_ta), 1)`** de los trabajos distintos (**`r sum(unicos_verdad$relevante_ta)`** de **`r nrow(unicos_verdad)`**) son relevantes: hay que leer unos **`r round(1 / mean(unicos_verdad$relevante_ta))`** por cada uno que sirve. Es normal: una búsqueda sensible tiene **baja precisión**. Y **ninguna base lo encuentra todo**: Embase recoge el `r por_base$porcentaje_del_total[por_base$base == "Embase"]` % de los relevantes, PubMed el `r por_base$porcentaje_del_total[por_base$base == "PubMed"]` % y CENTRAL el `r por_base$porcentaje_del_total[por_base$base == "CENTRAL"]` % (en esta simulación CENTRAL indexa menos trabajos). Entre PubMed y Embase suman `r pubmed_embase` de `r sum(unicos_verdad$relevante_ta)`. Por eso se buscan **al menos dos o tres bases** y se completa con registros de ensayos, listas de referencias y literatura gris.
+
+## Paso 2: deduplicar
+
+Cada base devuelve su propia copia del mismo trabajo, con pequeñas diferencias. Así se ve un trabajo ficticio que apareció en las tres bases:
+
+```{r}
+#| label: ver-duplicados-c212
+ejemplo <- reg |> count(id_unico) |> filter(n == 3) |> slice(1) |> pull(id_unico)
+reg |> filter(id_unico == ejemplo) |> select(base, titulo, autor, anio, doi) |> arrange(base)
+```
+
+Los títulos difieren en una letra, en las mayúsculas, en un punto final o en el subtítulo, y no todas las bases traen el DOI. Un `duplicated(titulo)` directo no los atrapa. La deduplicación se hace **en pasos, de lo más seguro a lo más arriesgado**:
+
+1.  **Mismo DOI** (identificador único del artículo): casi sin riesgo, pero muchos registros no lo traen.
+2.  **Mismo título normalizado**: se pasa a minúsculas, se quitan tildes y signos y se unifica la ortografía (*randomised*/*randomized*).
+3.  **Título parecido**: se mide la **distancia de edición** (cuántas letras hay que cambiar para convertir un título en otro) con `adist()`, se divide entre la longitud del título más largo y se acepta como duplicado si es menor que un umbral, **solo entre registros del mismo primer autor y de años contiguos**.
+
+```{r}
+#| label: normalizar-c212
+t1 <- "Dapagliflozin versus placebo and kidney failure in adults with CKD: the ALBA randomised trial."
+t2 <- "Dapagliflozin versus placebo and kidney failure in adults with CKD: the ALBA randomized trial"
+c(normalizado_1 = normalizar_titulo(t1), normalizado_2 = normalizar_titulo(t2))
+normalizar_titulo(t1) == normalizar_titulo(t2)         # paso 2: coinciden
+
+# paso 3: una errata de una letra no coincide exactamente, pero la distancia es pequeña
+t3 <- "Dapagliflozin versus placebo and kidney failure in adults with CKD: the ALBA randomized triel"
+d <- adist(normalizar_titulo(t2), normalizar_titulo(t3))
+c(letras_distintas = d[1, 1], distancia_relativa = round(d[1, 1] / nchar(normalizar_titulo(t2)), 3))
+agrepl(normalizar_titulo(t2), normalizar_titulo(t3), max.distance = 0.05)   # alternativa de base R
+```
+
+La función `deduplicar_registros()` (en `R/funciones_cap21.R`) aplica los tres pasos a toda la biblioteca. Veamos cuántos duplicados detecta cada paso:
+
+```{r}
+#| label: dedup-c212
+dd <- deduplicar_registros(reg, umbral = 0.08)
+dd |> count(paso_dup, name = "registros") |> mutate(paso_dup = replace_na(paso_dup, "Se conserva"))
+```
+
+Como la biblioteca es simulada, comprobamos el resultado **contra la verdad**: ¿quedaron duplicados sin detectar? ¿se fusionaron por error trabajos distintos?
+
+```{r}
+#| label: dedup-verdad-c212
+evaluar_dedup <- function(x) {
+  tibble(conservados = sum(!x$duplicado),
+         trabajos_distintos = n_distinct(x$id_unico),
+         duplicados_sin_detectar = conservados - sum(!duplicated(x$id_unico[!x$duplicado])) ,
+         fusiones_erroneas = x |> group_by(grupo_dup) |> summarise(k = n_distinct(id_unico), .groups = "drop") |> filter(k > 1) |> nrow())
+}
+evaluar_dedup(dd)
+
+# Los que se escaparon: ¿qué tienen en común?
+sin_detectar <- dd |> filter(!duplicado) |> group_by(id_unico) |> filter(n() > 1) |>
+  summarise(recortado = any(!str_detect(titulo, ":")) & any(str_detect(titulo, ":")), .groups = "drop")
+```
+
+**Qué vemos.** Se conservan **`r evaluar_dedup(dd)$conservados`** registros cuando los trabajos distintos son **`r evaluar_dedup(dd)$trabajos_distintos`**: quedaron **`r evaluar_dedup(dd)$duplicados_sin_detectar`** duplicados sin detectar y **`r evaluar_dedup(dd)$fusiones_erroneas`** fusiones erróneas. Los que escapan son copias con el **subtítulo recortado** (`r sum(sin_detectar$recortado)` de `r nrow(sin_detectar)`): el título resulta demasiado distinto y no comparten un DOI que los una. Se eliminan a mano al cribar, que es lo que haría cualquier gestor de referencias. Lo importante es el **orden de prioridades**: un duplicado que se queda cuesta unos segundos de lectura; un trabajo distinto que se fusiona por error **se pierde para siempre**.
+
+¿Y si el umbral es más permisivo? Probemos varios y mirémoslo contra la verdad:
+
+```{r}
+#| label: dedup-umbral-c212
+map_dfr(c(0.02, 0.08, 0.15, 0.30, 0.45), \(u) evaluar_dedup(deduplicar_registros(reg, u)) |> mutate(umbral = u, .before = 1)) |>
+  select(umbral, conservados, duplicados_sin_detectar, fusiones_erroneas)
+```
+
+Con umbrales altos se detectan más duplicados, pero empiezan las **fusiones erróneas**. ¿Qué se está fusionando con un umbral de 0.30?
+
+```{r}
+#| label: dedup-fusiones-c212
+deduplicar_registros(reg, 0.30) |>
+  group_by(grupo_dup) |> filter(n_distinct(id_unico) > 1) |>
+  summarise(tipos = paste(sort(unique(tipo)), collapse = " + "), .groups = "drop") |> count(tipos)
+```
+
+Es la trampa típica: el **informe secundario** de un ensayo (el análisis *post hoc* con el mismo primer autor y un título casi idéntico). Para un algoritmo es «un duplicado»; para tu revisión es **un informe distinto** que hay que asociar al estudio, no borrar.
+
+## Paso 3: cribado por dos revisores
+
+Quedan **`r n_distinct(dd$id_unico)`** trabajos distintos. Dos revisores leen **título y resumen de cada uno por separado** (a ciegas) y deciden *Incluir* (pasa a texto completo) o *Excluir*. Simulamos ese proceso (sensibilidad del 96 % para el revisor A y del 94 % para el B; ambos se «cuelan» más con los ensayos de otros fármacos o de iSGLT2 sin ERC, que se parecen a lo buscado):
+
+```{r}
+#| label: cribado-c212
+unicos <- dd |> filter(!duplicado) |> distinct(id_unico, .keep_all = TRUE)
+crib <- cribar_dos_revisores(unicos)
+table(revisor_A = crib$rev_a, revisor_B = crib$rev_b)
+```
+
+El **acuerdo observado** es la proporción en que coinciden. Pero como casi todo se excluye, dos revisores que dijeran *Excluir* siempre coincidirían muchísimo sin haber leído nada. El **kappa de Cohen** corrige esto restando el acuerdo que se esperaría **por azar** a partir de cómo reparte cada revisor sus «Incluir» y «Excluir»:
+
+$$
+\kappa = \frac{p_o - p_e}{1 - p_e}, \qquad p_e = \sum_{categorias} p_{A}\, p_{B}
+$$
+
+```{r}
+#| label: kappa-c212
+tab <- table(crib$rev_a, crib$rev_b); n <- sum(tab)
+po <- sum(diag(tab)) / n                                  # acuerdo observado
+pe <- sum(rowSums(tab) * colSums(tab)) / n^2              # acuerdo esperado por azar
+kappa <- (po - pe) / (1 - pe)
+c(po = po, pe = pe, kappa = kappa)
+
+kappa_cohen(crib$rev_a, crib$rev_b)                      # la función del capítulo: mismo resultado
+
+# Acuerdo específico en "Incluir": 2a / (2a + b + c)
+a <- tab["Incluir", "Incluir"]; b <- tab["Incluir", "Excluir"]; c_ <- tab["Excluir", "Incluir"]
+acuerdo_incluir <- 2 * a / (2 * a + b + c_)
+```
+
+**Qué vemos.** El acuerdo observado es **`r pct(po, 1)`**, pero el kappa es solo **`r num(kappa, 2)`** (error estándar ≈ `r num(kappa_cohen(crib$rev_a, crib$rev_b)[["ee"]], 2)`), porque el acuerdo esperado por azar ya es de `r pct(pe, 1)`. El acuerdo específico en *Incluir* (lo que de verdad importa) es **`r pct(acuerdo_incluir, 0)`**: cuando un revisor marca *Incluir*, el otro lo hace, en promedio, solo en `r round(100 * acuerdo_incluir)` de cada 100 ocasiones. Hay **`r sum(crib$conflicto)`** desacuerdos que resolver.
+
+### Por qué el kappa depende de la prevalencia
+
+El kappa **no es una propiedad solo de los revisores**: con los mismos aciertos, baja cuando lo que se busca es raro. Lo vemos con dos revisores idénticos (sensibilidad 95 %, especificidad 98 %) y distintos porcentajes de trabajos relevantes:
+
+```{r}
+#| label: kappa-prevalencia-c212
+kappa_esperado <- function(prev, sens = 0.95, esp = 0.98) {
+  p_inc <- prev * sens + (1 - prev) * (1 - esp)                      # probabilidad de que un revisor diga "Incluir"
+  po <- prev * (sens^2 + (1 - sens)^2) + (1 - prev) * (esp^2 + (1 - esp)^2)
+  pe <- p_inc^2 + (1 - p_inc)^2
+  c(prevalencia = prev, acuerdo = po, kappa = (po - pe) / (1 - pe))
+}
+map_dfr(c(0.01, 0.05, 0.20, 0.50), \(p) as_tibble_row(kappa_esperado(p))) |> mutate(across(everything(), \(x) round(x, 3)))
+```
+
+El acuerdo apenas cambia, pero el kappa pasa de **`r num(kappa_esperado(0.01)[["kappa"]], 2)`** (1 % de relevantes) a **`r num(kappa_esperado(0.5)[["kappa"]], 2)`** (50 %). Por eso conviene informar **también** el acuerdo observado y el acuerdo en *Incluir*, y por eso un kappa «bajo» en una búsqueda muy sensible no significa necesariamente que los revisores lean mal.
+
+## Paso 4: resolver los conflictos
+
+Los desacuerdos se resuelven por **consenso** o con un **tercer revisor**. En la simulación el tercero acierta el 97 % de las veces. Y como conocemos la verdad, podemos evaluar **todo el proceso**:
+
+```{r}
+#| label: conflictos-c212
+crib |>
+  mutate(final = decision == "Incluir") |>
+  count(relevante_ta, final) |>
+  mutate(relevante_ta = if_else(relevante_ta, "Relevante (verdad)", "No relevante (verdad)"),
+         final = if_else(final, "Pasa a texto completo", "Se excluye"))
+
+# ¿Cuántos relevantes se habría perdido con UN solo revisor?
+c(solo_A = sum(crib$relevante_ta & crib$rev_a == "Excluir"), solo_B = sum(crib$relevante_ta & crib$rev_b == "Excluir"),
+  dos_revisores_y_tercero = sum(crib$relevante_ta & crib$decision == "Excluir"))
+```
+
+**Qué vemos.** Pasan a texto completo **`r sum(crib$decision == "Incluir")`** trabajos; entre ellos están **`r sum(crib$relevante_ta & crib$decision == "Incluir")` de los `r sum(crib$relevante_ta)` relevantes**. Un solo revisor habría dejado fuera **`r sum(crib$relevante_ta & crib$rev_a == "Excluir")`** (el A) o **`r sum(crib$relevante_ta & crib$rev_b == "Excluir")`** (el B): ese es el valor del doble cribado. Los falsos positivos que pasan (`r sum(!crib$relevante_ta & crib$decision == "Incluir")`) no son un problema: se descartarán al leer el texto completo con su motivo (21.1, diagrama de flujo). **Ante la duda en título y resumen, se incluye**; la decisión final es con el texto completo.
+
+## Trampas frecuentes
+
+::: {.callout-warning}
+## ⚠️ Errores clásicos de la búsqueda y la selección
+
+-   **Una sola base de datos**, o solo PubMed: arriba viste cuántos relevantes escapan.
+-   **Deduplicar con un umbral demasiado agresivo** y borrar informes distintos (principal y secundario).
+-   **Interpretar el kappa sin mirar la prevalencia** ni el acuerdo en *Incluir*.
+-   **Excluir en título y resumen «por si acaso»**: un ensayo mal clasificado ahí ya no vuelve.
+-   **No guardar la estrategia exacta, la fecha y el número de registros por base**: sin eso la búsqueda no es reproducible ni se puede actualizar.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   La búsqueda combina **conceptos** (OR dentro, AND entre ellos) con **vocabulario controlado** y **texto libre**; es **sensible y poco precisa**: aquí, `r pct(mean(unicos_verdad$relevante_ta), 1)` de relevantes.
+-   Se deduplica en pasos (**DOI, título normalizado, título aproximado**); un duplicado que sobra cuesta poco, una fusión errónea **pierde un estudio**.
+-   El **kappa** de los dos revisores fue `r num(kappa, 2)` con un acuerdo del `r pct(po, 0)`: depende de la **prevalencia**, así que acompáñalo del acuerdo en *Incluir*.
+-   Los conflictos los resuelve un tercero o el consenso, y **ante la duda se incluye** hasta leer el texto completo.
+:::
+
+## Ejercicio
+
+1.  Añade a `conceptos$erc` el término `"kidney failure, chronic"[tiab]` y a `conceptos$isglt2` el término `"SGLT-2"[tiab]`. ¿Qué pasa con la cadena? ¿Qué concepto añadirías para restringir a **adultos** y por qué podría ser una mala idea?
+2.  Repite el cribado con `cribar_dos_revisores(unicos, sens_a = 0.85, sens_b = 0.80)`. ¿Cómo cambian el kappa, los conflictos y los relevantes perdidos?
+3.  Con `kappa_esperado()`, ¿qué sensibilidad y especificidad necesitan dos revisores para un kappa de 0.80 cuando solo el 5 % de los registros es relevante?
+
+## Referencias
+
+-   Page MJ y cols. The PRISMA 2020 statement. *BMJ*. 2021;372:n71.
+-   Rethlefsen ML y cols. PRISMA-S: an extension to the PRISMA statement for reporting literature searches in systematic reviews. *Syst Rev*. 2021;10:39. *(por verificar el volumen y la página)*
+-   Cohen J. A coefficient of agreement for nominal scales. *Educ Psychol Meas*. 1960;20:37-46.
+-   Higgins JPT y cols. (eds.). *Cochrane Handbook for Systematic Reviews of Interventions*, capítulos de búsqueda y selección de estudios.

@@ -1,0 +1,295 @@
+# Un proyecto reproducible: carpetas, paquetes, semillas y control de versiones
+
+::: {.callout-note}
+## 🩺 Escenario
+
+Un año después de defender tu tesis, un revisor te pide repetir el análisis excluyendo a los pacientes con ECV previa. Abres la carpeta: `analisis_final.R`, `analisis_final2.R`, un Excel con una columna pintada de verde. Corres el script y el intervalo de confianza **cambia en el segundo decimal**. ¿Cambió un paquete? ¿Otra semilla? ¿Alguien tocó la base? Nadie lo sabe. Un proyecto reproducible es el que permite contestar esas preguntas **con un comando**, no con la memoria.
+:::
+
+**Lo que vamos a hacer**
+
+-   Organizar un proyecto (carpetas, rutas con `here`, datos crudos intocables).
+-   Controlar lo que cambia un resultado: **semillas**, **versiones de paquetes** (`renv`) y **parámetros**.
+-   Escribir un **mini-análisis parametrizado** que se rehace con otros parámetros, y revisar el **control de versiones** (git) y el script maestro.
+
+```{r}
+#| label: setup-c233
+#| message: false
+library(tidyverse)
+source("R/funciones_extra_a.R")      # num(), pct()
+source("R/funciones_cap23.R")        # crear_esqueleto(), registrar_sesion(), analisis_minimo()...
+theme_set(theme_libro())
+```
+
+## Paso 1: la estructura de carpetas
+
+Una estructura sencilla, con una función de cada carpeta, evita el 80 % de los desastres. `crear_esqueleto()` la crea (aquí en una carpeta temporal, para no ensuciar tu proyecto):
+
+```{r}
+#| label: esqueleto-c233
+estructura <- crear_esqueleto()
+estructura
+```
+
+-   **`datos/crudos/`**: los datos tal como llegaron. **Solo lectura**: nunca se editan; ni siquiera para «corregir un typo». Toda corrección es código en `analisis/`, sobre una copia.
+-   **`datos/procesados/`**: lo que generan tus scripts a partir de los crudos; se puede borrar y regenerar.
+-   **`R/`**: funciones propias (`source("R/funciones.R")`), como las de este libro.
+-   **`analisis/`**: scripts o `.qmd` numerados (`01_limpieza`, `02_tabla1`, `03_modelos`).
+-   **`informes/`** y **`resultados/`**: lo que sale (documentos, tablas, figuras). Es regenerable.
+
+Dos archivos acompañan a las carpetas: `README.md` (qué es el proyecto y cómo correrlo) y `.gitignore` (qué no sube a git, Paso 6). Para las rutas usa un proyecto de RStudio y `here`, como en 4.1; así el mismo código funciona en tu computadora y en la de tu tutor:
+
+```{r}
+#| label: here-c233
+#| eval: false
+library(here)
+datos <- read_csv(here("datos", "crudos", "ckd_isglt2.csv"))     # nunca setwd("C:/Users/...")
+```
+
+## Paso 2: la semilla y las versiones
+
+Mucho de lo que hacemos usa **números aleatorios** (*bootstrap*, imputación múltiple, simulación). Una **semilla** (`set.seed()`) hace que la secuencia sea la misma cada vez:
+
+```{r}
+#| label: semilla-c233
+set.seed(2026); x1 <- rnorm(3)
+set.seed(2026); x2 <- rnorm(3)
+set.seed(7);    x3 <- rnorm(3)
+c(misma_semilla = identical(x1, x2), otra_semilla = identical(x1, x3))
+RNGkind()                       # el generador usado; también cambia entre versiones de R
+```
+
+**Qué vemos.** Con la misma semilla los números son idénticos (`r identical(x1, x2)`); con otra, distintos. Reglas prácticas: fija la semilla **una vez**, al inicio del script (o dentro de la función, como veremos), no «hasta que salga bien», y anota qué semilla usaste. Si cambia la versión de R, el generador o `sample()` pueden cambiar, y por eso también se registra la versión.
+
+Para registrar **qué versión** de R y de cada paquete usaste, la función `registrar_sesion()` devuelve una tabla corta. La versión larga es `sessioninfo::session_info()` (o `sessionInfo()` de base), que conviene guardar en un archivo junto a los resultados:
+
+```{r}
+#| label: sesion-c233
+paquetes <- c("tidyverse", "here", "renv", "flextable", "patchwork", "survival")
+registrar_sesion(paquetes)
+```
+
+Estas versiones son las del **entorno del libro**; las tuyas serán distintas, y por eso necesitas `renv`.
+
+## Paso 3: `renv`, una «biblioteca de paquetes» por proyecto
+
+`renv` guarda las versiones exactas de los paquetes de **cada proyecto**, de modo que otra persona (o tú dentro de un año) pueda reinstalarlas. Su ciclo de trabajo tiene tres órdenes principales y una de comprobación. **No se ejecutan en este libro**, porque crean archivos en la carpeta del proyecto:
+
+```{r}
+#| label: renv-c233
+#| eval: false
+renv::init()        # UNA vez al empezar: crea renv/, renv.lock y .Rprofile en este proyecto
+renv::snapshot()    # cada vez que añadas o actualices paquetes: anota las versiones en renv.lock
+renv::restore()     # en otro computador (o dentro de un año): reinstala exactamente esas versiones
+renv::status()      # ¿el proyecto y renv.lock siguen alineados?
+```
+
+`renv.lock` es un archivo de texto (JSON) que **sí** se sube a git. Así se ve; este ejemplo se genera con las versiones realmente instaladas aquí y un esquema simplificado (el real incluye más campos, y renv lo escribe por ti: **no se edita a mano**):
+
+```{r}
+#| label: renv-lock-c233
+#| class-output: json
+cat(renv_lock_ejemplo(c("here", "renv")))
+```
+
+**Qué vemos.** El archivo anota la versión de R y, para cada paquete, su versión, su origen (CRAN) y un *hash* de verificación. Con ese archivo en el repositorio, `renv::restore()` reconstruye el entorno. `renv` no sustituye registrar la versión de R ni el sistema operativo, pero cubre lo que más suele cambiar: los paquetes.
+
+## Paso 4: un mini-análisis parametrizado
+
+La idea central: **todo lo que puede cambiar el resultado debe ser un argumento visible** (archivo, ajuste, semilla), no algo escondido en el script. `analisis_minimo()` (en `R/funciones_cap23.R`) estima la razón de tasas (IRR) de evento renal asociada al iSGLT2 con Poisson y *offset* del tiempo (como en 8.6), cruda y ajustada, con IC por *bootstrap*, y devuelve también qué archivo, semilla y ajuste usó:
+
+```{r}
+#| label: analisis-1-c233
+ruta <- "Bases/ckd_isglt2.csv"          # en un proyecto: here("datos", "crudos", "ckd_isglt2.csv")
+a1 <- analisis_minimo(ruta, semilla = 2026)
+a1$resultado |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+unlist(a1$meta[c("archivo", "filas", "semilla", "n_boot")])
+```
+
+Lo repetimos con los mismos parámetros, con otra semilla y con otro conjunto de ajuste (sin la albuminuria):
+
+```{r}
+#| label: analisis-2-c233
+a2 <- analisis_minimo(ruta, semilla = 2026)                      # mismos parámetros
+a3 <- analisis_minimo(ruta, semilla = 7)                         # otra semilla
+ajuste_sin_uacr <- setdiff(a1$meta$ajuste, "luacr")
+a4 <- analisis_minimo(ruta, semilla = 2026, ajuste = ajuste_sin_uacr)   # otro ajuste
+
+comparacion <- bind_rows(
+  `Original`        = a1$resultado, `Mismos parámetros` = a2$resultado,
+  `Otra semilla`    = a3$resultado, `Sin UACR en el ajuste` = a4$resultado, .id = "corrida") |>
+  filter(modelo == "Ajustado")
+comparacion |> mutate(across(where(is.numeric), \(x) round(x, 3)))
+identical(a1, a2)
+```
+
+**Qué vemos.** Tres lecciones, cada una con su cifra:
+
+-   **Mismos parámetros, mismo resultado**: la IRR ajustada `r num(a1$resultado$irr[2], 3)` (IC `r num(a1$resultado$ic_inf[2], 3)` a `r num(a1$resultado$ic_sup[2], 3)`) se repite exactamente (`identical()` da `r identical(a1, a2)`).
+-   **La semilla mueve solo el IC del *bootstrap***: con la semilla 7, el IC pasa a `r num(a3$resultado$ic_inf[2], 3)` a `r num(a3$resultado$ic_sup[2], 3)`; la estimación puntual no cambia (`r num(a3$resultado$irr[2], 3)`). Por eso la semilla se anota.
+-   **El ajuste es una decisión, no un detalle**: sin la UACR la IRR sube a `r num(a4$resultado$irr[2], 3)`, un cambio de `r pct(a4$resultado$irr[2] / a1$resultado$irr[2] - 1, 0)`. Quien tiene el script entiende qué se ajustó; quien solo tiene la tabla, no.
+
+Guardar `a1$meta` junto con los resultados responde a las preguntas del escenario. Incluye una **suma de verificación** (`md5`) del archivo de datos, `r a1$meta$md5`, que cambia si alguien toca la base.
+
+### Un informe Quarto parametrizado
+
+Un informe con el mismo patrón declara sus parámetros en el encabezado YAML y los usa como `params$...` (4.4). Al renderizarlo se pueden cambiar desde la terminal, sin editar el archivo:
+
+```yaml
+---
+title: "Informe de resultados"
+format: html
+params:
+  archivo: "datos/crudos/ckd_isglt2.csv"
+  semilla: 2026
+  n_boot: 200
+---
+```
+
+````markdown
+```{{r}}
+res <- analisis_minimo(here::here(params$archivo), semilla = params$semilla, n_boot = params$n_boot)
+```
+````
+
+```bash
+quarto render informes/informe.qmd -P semilla:7 -P n_boot:500
+```
+
+## Paso 5: el script maestro
+
+Un archivo, `00_ejecutar_todo.R`, que reproduce todo desde los datos crudos. Es la **tabla de contenidos ejecutable** del proyecto: cualquiera sabe en qué orden correr cada cosa. No se ejecuta aquí.
+
+```{r}
+#| label: maestro-c233
+#| eval: false
+# 00_ejecutar_todo.R  --  reproduce TODO el análisis desde datos/crudos
+library(here)
+semilla <- 2026                                          # la semilla, una sola vez; se pasa a cada función que use azar
+
+source(here("R", "funciones_cap23.R"))                   # funciones propias
+source(here("analisis", "01_limpieza.R"))                # datos/crudos -> datos/procesados
+source(here("analisis", "02_tabla1.R"))                  # resultados/tablas/tabla1.docx
+source(here("analisis", "03_modelos.R"))                 # resultados/tablas y figuras
+quarto::quarto_render(here("informes", "informe.qmd"),   # el informe con las cifras en el texto
+                      execute_params = list(semilla = semilla))
+
+# Registro de la sesión, junto a los resultados
+writeLines(capture.output(sessioninfo::session_info()), here("resultados", "sesion.txt"))
+```
+
+### Con `targets` (para proyectos grandes)
+
+El paquete `targets` convierte ese guion en un **flujo de trabajo con memoria**: sabe qué pasos dependen de cuáles y, al volver a correr, solo rehace lo que cambió. Con el paquete `targets` (código no verificado en el entorno de pruebas del libro), un flujo mínimo de tres pasos sobre los datos del libro, escrito en una carpeta temporal:
+
+```{r}
+#| label: targets-c233
+#| eval: !expr requireNamespace("targets", quietly = TRUE)
+#| error: true
+library(targets)
+script <- file.path(tempdir(), "_targets.R")
+almacen <- file.path(tempdir(), "_targets")
+writeLines(c(
+  "library(targets)",
+  "tar_option_set(packages = c('readr'))",
+  "list(",
+  sprintf("  tar_target(archivo, '%s', format = 'file'),", normalizePath("Bases/ckd_isglt2.csv")),
+  "  tar_target(datos, read_csv(archivo, show_col_types = FALSE)),",
+  "  tar_target(modelo, glm(evento ~ isglt2 + offset(log(tiempo_meses)), data = datos, family = poisson)),",
+  "  tar_target(irr, exp(coef(modelo)[['isglt2']]))",
+  ")"), script)
+tar_make(script = script, store = almacen)      # la segunda vez: «skipping» (todo está al día)
+tar_read(irr, store = almacen)
+```
+
+Mientras no instales `targets`, el script maestro hace el mismo trabajo, con menos memoria. Úsalo cuando tu proyecto tenga pasos lentos (imputaciones, simulaciones largas) que no quieras repetir sin necesidad.
+
+## Paso 6: control de versiones con git (lo mínimo útil)
+
+**Git** guarda la **historia** de tus archivos de texto (scripts, `.qmd`, `renv.lock`): qué cambió, cuándo y por qué. **GitHub** es un sitio donde alojar ese repositorio para compartirlo y respaldarlo. Con seis órdenes basta para empezar (se escriben en la terminal; no se ejecutan aquí):
+
+```{bash}
+#| label: git-c233
+#| eval: false
+git init                                     # una vez: convierte la carpeta en repositorio
+git status                                   # ¿qué cambió?
+git add R/ analisis/ informes/ renv.lock .gitignore   # elige qué entra en la «foto»
+git commit -m "Tabla 1 y modelo principal"   # guarda la foto, con un mensaje claro
+git switch -c ajuste-por-uacr                # una RAMA: una copia de trabajo para probar una idea
+git push -u origin ajuste-por-uacr           # sube la rama a GitHub
+```
+
+Una **rama** deja probar una idea (otro ajuste, otra definición del desenlace) sin romper la versión que funciona; si sale bien, se une a la principal; si no, se descarta. Y el archivo `.gitignore` dice qué **no** subir:
+
+```
+# --- DATOS de pacientes y resultados con celdas pequeñas: nunca al repositorio ---
+datos/
+resultados/
+*.sav
+*.dta
+# --- CLAVES y credenciales ---
+.Renviron
+.env
+*.pem
+# --- archivos temporales ---
+.Rhistory
+.RData
+.Rproj.user/
+renv/library/
+```
+
+::: {.callout-warning}
+## ⚠️ Lo que NO se sube a git, ni a un repositorio público
+
+-   **Datos de pacientes**, incluso «anonimizados» por ti: sin aprobación del comité y sin revisar los cuasi-identificadores (23.6), no los subas. Comparte código y, si hace falta, **datos sintéticos** (como los de este libro).
+-   **Claves, contraseñas y tokens** (de bases de datos, de APIs). Si una clave llegó a subirse, **borrar el archivo después no basta**: queda en la historia. Revócala y crea otra.
+-   **Resultados con celdas pequeñas** (n < 5, 23.6).
+-   Y recuerda: git es para texto. Los archivos binarios grandes (Excel, imágenes) ensucian la historia.
+:::
+
+## Paso 7: la lista de comprobación
+
+Antes de dar un proyecto por «reproducible», comprueba, mejor en **otra computadora o con otra persona**:
+
+-   [ ] Los **datos crudos** están en una carpeta aparte, sin editar, y se sabe de dónde vienen (y su suma de verificación).
+-   [ ] Todo cambio de datos es **código**, no edición manual.
+-   [ ] Las rutas son **relativas** (`here`); no hay `setwd()`.
+-   [ ] Las funciones propias están en `R/`; hay un **script maestro** que corre todo en orden.
+-   [ ] Las **semillas** están fijadas y anotadas.
+-   [ ] `renv.lock` está al día (`renv::status()`) y se registra la versión de R y el sistema.
+-   [ ] Las cifras del texto salen del código (código en línea, 4.4); no se copian a mano.
+-   [ ] Los parámetros que cambian el resultado son **argumentos** visibles.
+-   [ ] El repositorio **no contiene** datos de pacientes ni claves; tiene `README` con instrucciones.
+-   [ ] **Prueba final:** una persona distinta clona el repositorio, ejecuta el script maestro y obtiene **los mismos números**.
+
+Estas ideas siguen la línea de las «diez reglas simples» de Sandve y cols. (2013): registrar cómo se produjo cada resultado, evitar la manipulación manual de datos, guardar las versiones exactas de los programas, usar control de versiones, anotar las semillas y dar acceso público al código.
+
+## Trampas frecuentes
+
+::: {.callout-warning}
+## ⚠️ «Reproducible» no es «correcto»
+
+Un proyecto reproducible da **el mismo resultado**; no garantiza que el análisis sea válido. Si el estimando es confuso o falta un confusor, lo reproducirás con precisión. La reproducibilidad es la condición para que otros **encuentren** tus errores, no para que no existan.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   **Carpetas**: datos crudos de solo lectura, `R/` para funciones, `analisis/`, `informes/` y `resultados/` regenerables; rutas con `here`.
+-   **Semilla**: una sola vez y anotada; la semilla 7 movió el IC a `r num(a3$resultado$ic_inf[2], 3)`-`r num(a3$resultado$ic_sup[2], 3)` sin tocar la estimación (`r num(a3$resultado$irr[2], 3)`).
+-   **Versiones**: `renv` (`init`, `snapshot`, `restore`) y `renv.lock` en git, más la versión de R.
+-   **Parámetros** visibles: quitar la UACR del ajuste cambió la IRR de `r num(a1$resultado$irr[2], 3)` a `r num(a4$resultado$irr[2], 3)`; una decisión así debe quedar escrita.
+-   **Git**: commits pequeños, ramas para ideas, y **nunca** datos de pacientes ni claves. El script maestro (o `targets`) lo ata todo.
+:::
+
+## Ejercicio
+
+1.  Crea con `crear_esqueleto("practica")` un proyecto en una carpeta tuya y mueve allí una copia de `ckd_isglt2.csv` a `datos/crudos/`. Escribe `analisis/01_irr.R` que llame a `analisis_minimo()` con `here()`.
+2.  Ejecuta `analisis_minimo()` con `n_boot = 50` y `n_boot = 400` y la misma semilla. ¿Cuánto cambia el ancho del IC? ¿Cuánto tarda cada una?
+3.  Escribe un `.gitignore` para tu proyecto real y comprueba con `git status` que no aparece ningún archivo de datos.
+
+## Referencias
+
+-   Sandve GK, Nekrutenko A, Taylor J, Hovig E. Ten simple rules for reproducible computational research. *PLoS Comput Biol*. 2013;9:e1003285.
+-   Wilkinson MD, Dumontier M, Aalbersberg IJJ, et al. The FAIR Guiding Principles for scientific data management and stewardship. *Sci Data*. 2016;3:160018.
+-   Documentación de `renv` (rstudio.github.io/renv) y de Quarto sobre parámetros (quarto.org).

@@ -1,0 +1,199 @@
+# ¿Qué guía de reporte usar? Listas de verificación y diagramas de flujo
+
+::: {.callout-note}
+## 🩺 Escenario
+
+Terminaste el análisis del ensayo de bicarbonato y lo envías a una revista. La respuesta llega en dos días: *«adjunte la lista de verificación CONSORT completada»*. Tu compañero de residencia te ofrece la suya, ya «rellenada» en cinco minutos con una marca en cada casilla. Antes de copiarla, conviene saber **cuál guía corresponde a cada estudio**, **qué significa marcar una casilla de forma honesta** y cómo dibujar el **diagrama de flujo** que casi todas las guías piden.
+:::
+
+**Lo que vamos a hacer**
+
+-   Elegir la guía de reporte según el diseño del estudio (tabla de decisión).
+-   Usar una **lista de verificación** como herramienta de trabajo: una función propia que genera la lista en blanco y la cruza con un manuscrito ficticio.
+-   Dibujar el **diagrama de flujo CONSORT** del ensayo simulado y un diagrama de participantes para un estudio observacional.
+
+```{r}
+#| label: setup-c231
+#| message: false
+library(tidyverse)
+source("R/funciones_extra_a.R")      # num(), pct()
+source("R/funciones_cap23.R")        # lista_verificacion(), cruzar_manuscrito(), flujo_consort()...
+theme_set(theme_libro())
+
+eca <- read_csv("Bases/eca_bicarbonato.csv", show_col_types = FALSE)   # ensayo SIMULADO (Cap. 11)
+ckd <- read_csv("Bases/ckd_isglt2.csv", show_col_types = FALSE)        # cohorte SIMULADA
+```
+
+## Paso 1: mi estudio, mi guía
+
+Una **guía de reporte** (*reporting guideline*) es una lista consensuada de lo que un artículo debe contar para que el lector pueda juzgarlo y repetirlo. No dice **cómo** hacer bien el estudio: dice **qué contar** de lo que hiciste. Casi todas se encuentran en la red EQUATOR (equator-network.org), que también indica la versión vigente.
+
+```{r}
+#| label: tabla-guias-c231
+tribble(
+  ~`Mi estudio es...`,                       ~`Guía principal`,   ~`Suele acompañarse de...`,
+  "Un ensayo aleatorizado (grupos paralelos)", "CONSORT 2010",     "SPIRIT 2013 para el *protocolo*",
+  "Un estudio observacional (cohorte, casos y controles, transversal)", "STROBE", "---",
+  "Un estudio observacional con datos de rutina (historia clínica, registros administrativos)", "STROBE", "RECORD (extensión para datos de rutina)",
+  "La emulación de un ensayo con datos observacionales", "TARGET",  "STROBE y RECORD, según el origen de los datos",
+  "Un modelo de predicción (regresión o aprendizaje automático)", "TRIPOD+AI", "PROBAST para evaluarlo (17.7)",
+  "Un estudio de precisión diagnóstica", "STARD",              "TRIPOD+AI si además propones un modelo",
+  "Una revisión sistemática o metaanálisis", "PRISMA 2020",    "Protocolo de la revisión (Cap. 21)",
+  "Un análisis de mediación", "AGReMA",                       "La guía del diseño base (CONSORT o STROBE)",
+  "Una evaluación económica", "CHEERS",                       "La guía del diseño base"
+) |> knitr::kable()
+```
+
+**Cómo se lee.** La guía depende del **diseño**, no del tema: un estudio de iSGLT2 puede ser un ensayo (CONSORT), una cohorte (STROBE) o un modelo (TRIPOD+AI). Cuando tu estudio combina varios diseños, usa la guía del diseño base y añade la extensión. Dos advertencias de versión: CONSORT y SPIRIT tienen actualizaciones recientes (según mi conocimiento, 2025) y TARGET es una guía nueva; **confirma en EQUATOR cuál es la versión vigente** antes de enviar. Este subcapítulo trabaja con CONSORT 2010 y STROBE porque son las más usadas.
+
+## Paso 2: una lista de verificación en blanco (y propia)
+
+Las listas oficiales se actualizan y tienen sus propias condiciones de uso, así que aquí **no las reproducimos**. La función `lista_verificacion()` genera una lista corta con **ítems resumidos con palabras propias** y numeración propia (C01, C02..., S01...), que **no** coincide con la numeración oficial. Es un resumen no oficial: usa la guía original para redactar y para adjuntar a la revista. Las listas oficiales de CONSORT 2010 y STROBE tienen 25 y 22 ítems respectivamente (verifícalo en la guía); la nuestra es más corta a propósito.
+
+```{r}
+#| label: lista-blanca-c231
+consort <- lista_verificacion("CONSORT")
+strobe  <- lista_verificacion("STROBE")
+c(items_consort_resumidos = nrow(consort), items_strobe_resumidos = nrow(strobe))
+consort |> select(id, seccion, item) |> head(5) |> knitr::kable()
+```
+
+**Qué vemos.** La lista en blanco tiene `r nrow(consort)` ítems de CONSORT y `r nrow(strobe)` de STROBE, con tres columnas por llenar (`estado`, `donde`, `nota`). Esas columnas son el punto: **una casilla marcada sin decir dónde está lo reportado no prueba nada**.
+
+## Paso 3: cruzarla con un manuscrito, de forma honesta
+
+Imagina el manuscrito (ficticio) del ensayo de bicarbonato. Una persona que **no lo escribió** lo revisa y rellena, para cada ítem, uno de tres estados: *reportado* (y **dónde**), *no reportado* o *no aplica* (y **por qué**). Los ítems que nadie evaluó quedan visibles como «sin evaluar».
+
+```{r}
+#| label: manuscrito-c231
+# Revisión FICTICIA del manuscrito del ensayo de bicarbonato (los hallazgos son inventados para el ejemplo)
+revision <- tribble(
+  ~id,   ~estado,        ~donde,                    ~nota,
+  "C01", "reportado",    "Título y resumen",         NA,
+  "C02", "reportado",    "Introducción",             NA,
+  "C03", "reportado",    "Métodos, Diseño",          NA,
+  "C04", "reportado",    "Métodos, Participantes",   NA,
+  "C05", "reportado",    "Métodos, Intervención",    NA,
+  "C06", "reportado",    "Métodos, Desenlaces",      NA,
+  "C07", "reportado",    "Métodos, Tamaño",          NA,
+  "C08", "reportado",    "Métodos, Aleatorización",  NA,
+  "C09", "no reportado", NA,                         NA,
+  "C10", "reportado",    "Métodos, Enmascaramiento", NA,
+  "C11", "reportado",    "Métodos, Estadística",     NA,
+  "C12", "reportado",    "Figura 1",                 NA,
+  "C13", "no reportado", NA,                         NA,
+  "C14", "reportado",    "Tabla 1",                  NA,
+  "C15", "reportado",    NA,                         NA,         # marcado, pero sin decir dónde
+  "C16", "reportado",    "Tabla 2",                  NA,
+  "C17", "no reportado", NA,                         NA,
+  "C18", "reportado",    "Discusión",                NA,
+  "C19", "no aplica",    NA,                         "Ensayo simulado del libro: no tiene registro real."
+  # C20 (financiamiento) no se evaluó
+)
+lista_cruzada <- cruzar_manuscrito(consort, revision)
+resumen <- resumen_lista(lista_cruzada)
+lista_cruzada |> filter(alerta != "") |> select(id, seccion, estado, alerta) |> knitr::kable()
+```
+
+La función revisa tres cosas antes de dejar pasar una casilla: que el estado sea uno de los tres válidos (si escribes «sí», da error), que lo «reportado» diga **dónde**, y que lo «no aplica» tenga una **justificación**. Y resume:
+
+```{r}
+#| label: resumen-lista-c231
+resumen |> mutate(pct_de_los_aplicables = pct(pct_de_los_aplicables, 0))
+```
+
+**Qué vemos.** De `r resumen$items` ítems, `r resumen$reportado` están reportados, `r resumen$no_reportado` no lo están, `r resumen$no_aplica` no aplica y `r resumen$sin_evaluar` quedó sin evaluar. El porcentaje se calcula sobre los **aplicables** (`r resumen$items - resumen$no_aplica`): `r pct(resumen$pct_de_los_aplicables, 0)`. La tabla de alertas lista `r resumen$alertas` ítems que requieren trabajo: tres huecos reales (ocultamiento de la asignación, fechas de reclutamiento y daños), uno marcado sin ubicación (C15) y uno sin evaluar (C20). **El porcentaje no mide calidad**: un estudio puede cumplir el 100 % de la lista y tener un diseño malo.
+
+## Paso 4: el diagrama de flujo CONSORT
+
+El ítem que más lectores agradecen es el diagrama: cuántos se evaluaron, cuántos se aleatorizaron, cuántos recibieron la intervención, cuántos se perdieron y cuántos se analizaron, **por grupo**. `flujo_consort()` lo dibuja con `ggplot2` a partir de los conteos. La base simulada solo contiene a los **aleatorizados**; las cifras de cribado (evaluados y excluidos) son **hipotéticas** y se rotulan como tales.
+
+```{r}
+#| label: conteos-c231
+# Cifras de cribado HIPOTÉTICAS (la base solo tiene a los aleatorizados)
+excluidos <- c(`No cumplían criterios` = 148, `Rechazaron participar` = 87, `Otras razones` = 37)
+evaluados <- nrow(eca) + sum(excluidos)
+
+# Conteos REALES de la base simulada
+por_brazo <- eca |>
+  group_by(brazo) |>
+  summarise(aleatorizados = n(),
+            tomaron_farmaco = sum(adhiere == 1),
+            sin_tfg12 = sum(is.na(tfg_12)),
+            analizados = sum(!is.na(tfg_12)))
+por_brazo
+```
+
+```{r}
+#| label: fig-consort-c231
+#| fig-cap: "Diagrama de flujo CONSORT del ensayo simulado de bicarbonato frente a placebo. Las cifras de evaluados y excluidos son hipotéticas; el resto sale de la base simulada. En esta base la adherencia solo se registra en el brazo activo."
+#| fig-width: 7.2
+#| fig-height: 6.4
+flujo_consort(
+  evaluados = evaluados, excluidos = excluidos,
+  brazos = set_names(por_brazo$aleatorizados, por_brazo$brazo),
+  recibieron = c(Bicarbonato = por_brazo$tomaron_farmaco[por_brazo$brazo == "Bicarbonato"], Placebo = NA),
+  sin_seguimiento = set_names(por_brazo$sin_tfg12, por_brazo$brazo),
+  analizados = set_names(por_brazo$analizados, por_brazo$brazo))
+```
+
+**Qué vemos.** Se aleatorizaron `r sum(por_brazo$aleatorizados)` pacientes (`r por_brazo$aleatorizados[1]` a bicarbonato y `r por_brazo$aleatorizados[2]` a placebo). En el brazo activo, `r por_brazo$tomaron_farmaco[1]` tomaron el fármaco y `r por_brazo$aleatorizados[1] - por_brazo$tomaron_farmaco[1]` no (`r pct(1 - por_brazo$tomaron_farmaco[1] / por_brazo$aleatorizados[1], 0)`): en un análisis por intención de tratar (11.2) siguen contando en su brazo asignado. Faltó la TFGe a 12 meses en `r por_brazo$sin_tfg12[1]` pacientes del brazo activo (`r pct(por_brazo$sin_tfg12[1] / por_brazo$aleatorizados[1], 1)`) y en `r por_brazo$sin_tfg12[2]` del placebo (`r pct(por_brazo$sin_tfg12[2] / por_brazo$aleatorizados[2], 1)`). Esa **diferencia entre brazos** es justo lo que el diagrama deja ver y que el texto debe discutir (¿por qué se pierden más con el fármaco?; datos faltantes, Cap. 13). En un ensayo real, el diagrama también diría el **motivo** de cada pérdida.
+
+## Paso 5: el diagrama de participantes de un estudio observacional
+
+STROBE y RECORD piden lo mismo con otro formato: de cuántos registros se partió, a cuántos se excluyó y por qué, y con cuántos se analizó. `flujo_observacional()` usa el mismo motor. De nuevo, las exclusiones iniciales son **hipotéticas** (la cohorte simulada ya viene depurada).
+
+```{r}
+#| label: fig-participantes-c231
+#| fig-cap: "Diagrama de participantes de la cohorte simulada de iSGLT2. Los registros revisados y las exclusiones son hipotéticos; los grupos y los eventos salen de la base simulada."
+#| fig-width: 7
+#| fig-height: 4.6
+excl_obs <- c(`Sin TFGe basal` = 210, `Seguimiento < 1 mes` = 95)      # HIPOTÉTICO
+grupos <- ckd |> group_by(isglt2) |> summarise(n = n(), eventos = sum(evento))
+
+flujo_observacional(
+  revisados = nrow(ckd) + sum(excl_obs), excluidos = excl_obs,
+  grupos = set_names(grupos$n, c("Sin iSGLT2", "Con iSGLT2")),
+  eventos = set_names(grupos$eventos, c("Sin iSGLT2", "Con iSGLT2")))
+```
+
+**Qué vemos.** Quedan `r .n(nrow(ckd))` pacientes: `r .n(grupos$n[2])` con iSGLT2 y `r .n(grupos$n[1])` sin él, con `r grupos$eventos[2]` y `r grupos$eventos[1]` eventos renales. La regla es contar **todo paso que cambie el denominador**, y que los números de la figura sumen: `r .n(nrow(ckd))` + `r sum(excl_obs)` = `r .n(nrow(ckd) + sum(excl_obs))` revisados.
+
+## Trampas frecuentes
+
+::: {.callout-warning}
+## ⚠️ La lista no es un trámite
+
+-   **Marcar todo «sí» sin ubicar el dato.** Cada marca lleva su sección o página; si no puedes señalarla, no está reportada.
+-   **Escribir «se siguió CONSORT» y creer que basta.** Declarar la guía no equivale a cumplirla; lo que cuenta es lo que el lector puede encontrar.
+-   **Rellenar la lista quien escribió el manuscrito, a las prisas.** Es mejor que la cruce otra persona, con el texto en la mano.
+-   **Citar números de ítem de memoria.** Las guías se actualizan y la numeración cambia: copia la numeración de la versión oficial vigente, no de tu recuerdo ni de este libro.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   La guía depende del **diseño**: CONSORT (ECA), STROBE (observacional), RECORD (datos de rutina), TARGET (emulación), TRIPOD+AI (predicción), STARD (diagnóstico), PRISMA 2020 (revisiones), AGReMA (mediación), CHEERS (evaluación económica) y SPIRIT (protocolos).
+-   Una lista es una **herramienta de trabajo**: cada ítem se marca como reportado (**dónde**), no reportado o no aplica (**por qué**).
+-   `cruzar_manuscrito()` detectó `r resumen$alertas` ítems que requerían acción, incluso con `r pct(resumen$pct_de_los_aplicables, 0)` de lo aplicable «reportado».
+-   El diagrama de flujo muestra pérdidas **por grupo**: aquí `r pct(por_brazo$sin_tfg12[1] / por_brazo$aleatorizados[1], 0)` frente a `r pct(por_brazo$sin_tfg12[2] / por_brazo$aleatorizados[2], 0)` sin TFGe a 12 meses.
+-   Esto es un resumen no oficial: para el manuscrito, **usa la guía original**.
+:::
+
+## Ejercicio
+
+1.  Cambia en `revision` el estado del ítem C09 a `"sí"` y ejecuta `cruzar_manuscrito()`. ¿Qué error da y por qué es útil?
+2.  Genera `lista_verificacion("STROBE")` y cruza la lista con una revisión ficticia de la cohorte de iSGLT2 del Cap. 8. ¿Qué ítems de confusión y de datos faltantes quedan sin cubrir?
+3.  Dibuja con `flujo_consort()` el diagrama del mismo ensayo para el desenlace «TFGe a 24 meses». ¿Cambia la diferencia de pérdidas entre brazos?
+
+## Referencias
+
+-   Schulz KF, Altman DG, Moher D. CONSORT 2010 Statement. *BMJ*. 2010;340:c332.
+-   von Elm E, Altman DG, Egger M, et al. The Strengthening the Reporting of Observational Studies in Epidemiology (STROBE) statement. *BMJ*. 2007;335:806-808.
+-   Benchimol EI, Smeeth L, Guttmann A, et al. The REporting of studies Conducted using Observational Routinely-collected health Data (RECORD) statement. *PLoS Med*. 2015;12:e1001885.
+-   Cashin AG, et al. Guía TARGET para el reporte de estudios que emulan un ensayo (2025).
+-   Collins GS, et al. TRIPOD+AI statement. *BMJ*. 2024;385:e078378.
+-   Page MJ, McKenzie JE, Bossuyt PM, et al. The PRISMA 2020 statement. *BMJ*. 2021;372:n71.
+-   Chan AW, Tetzlaff JM, Altman DG, et al. SPIRIT 2013 statement. *Ann Intern Med*. 2013;158:200-207.
+-   Lee H, Cashin AG, Lamb SE, et al. A guideline for reporting mediation analyses of randomized trials and observational studies (AGReMA). *JAMA*. 2021;326:1045-1056.
+-   Red EQUATOR (equator-network.org): STARD, CHEERS y las demás guías, con su versión vigente.

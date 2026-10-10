@@ -1,0 +1,265 @@
+# El plan de análisis estadístico (SAP): decidir antes de mirar
+
+::: {.callout-note}
+## 🩺 Escenario
+
+El comité de ética te devuelve el protocolo del ensayo de bicarbonato con una pregunta: *«¿Está definido el análisis estadístico antes de abrir la base?»*. Tu primera respuesta es «sí, haremos un modelo lineal». Tu tutora sonríe: «¿Con qué covariables? ¿Qué haces con quienes dejan el fármaco? ¿Y con los que no tienen la medición a 12 meses? ¿Y si sale un valor p de 0.06?». Esas preguntas son el contenido de un **plan de análisis estadístico** (SAP, *statistical analysis plan*): un documento que fija, **antes de ver los resultados**, cómo se analizarán los datos.
+:::
+
+**Lo que vamos a hacer**
+
+-   Ver con el ensayo simulado cuánto puede cambiar el resultado según decisiones de análisis «razonables».
+-   Repasar qué debe contener un SAP y recorrer un **esqueleto** para un ECA y otro para un estudio observacional con emulación de ensayo.
+-   Listar las **decisiones que se toman antes de ver los datos** y probar el plan con datos «ciegos».
+
+```{r}
+#| label: setup-c234
+#| message: false
+library(tidyverse)
+source("R/funciones_extra_a.R")      # num(), pct()
+source("R/funciones_cap23.R")
+theme_set(theme_libro())
+
+# Ensayo SIMULADO (Cap. 11) con su "oráculo": la verdad conocida
+eca <- read_csv("Bases/eca_bicarbonato.csv", show_col_types = FALSE) |>
+  left_join(read_csv("Bases/eca_bicarbonato_oraculo.csv", show_col_types = FALSE), by = "id") |>
+  mutate(brazo = factor(brazo, levels = c("Placebo", "Bicarbonato")), centro = factor(centro),
+         cambio12 = tfg_12 - tfg0)
+```
+
+## Paso 1: cinco análisis «razonables», cinco respuestas
+
+Un solo ensayo, un solo desenlace (cambio de la TFGe a 12 meses) y cinco formas de analizarlo que cualquiera defendería en una reunión. Ninguna es absurda; todas cambian la respuesta.
+
+```{r}
+#| label: cinco-analisis-c234
+efecto <- function(m, term = "brazoBicarbonato") {            # estimación, IC 95 % y valor p del término del brazo
+  ic <- confint(m)[term, ]
+  tibble(estimacion = coef(m)[[term]], ic_inf = ic[[1]], ic_sup = ic[[2]],
+         p = summary(m)$coefficients[term, 4], n = nobs(m))
+}
+analisis <- bind_rows(
+  `A. ITT crudo, casos completos`       = efecto(lm(cambio12 ~ brazo, eca)),
+  `B. ITT ANCOVA (TFGe basal + centro)` = efecto(lm(cambio12 ~ brazo + tfg0 + centro, eca)),
+  `C. Por protocolo (solo quien tomó el fármaco)` = efecto(lm(cambio12 ~ brazo + tfg0 + centro, filter(eca, brazo == "Placebo" | adhiere == 1))),
+  `D. LOCF (arrastrar la última medición)` = efecto(lm(cambio_locf ~ brazo + tfg0 + centro, mutate(eca, cambio_locf = coalesce(tfg_12, tfg_6, tfg0) - tfg0))),
+  `E. Solo mayores de 65 años`          = efecto(lm(cambio12 ~ brazo + tfg0 + centro, filter(eca, edad >= 65))),
+  .id = "analisis")
+
+verdad_itt <- mean(eca$cumplidor * eca$efecto_ind)           # verdad del ensayo simulado: efecto ITT a 12 meses
+analisis |> mutate(across(c(estimacion, ic_inf, ic_sup), \(x) round(x, 2)), p = format.pval(p, digits = 2, eps = 0.001))
+```
+
+```{r}
+#| label: fig-cinco-c234
+#| fig-cap: "Efecto del bicarbonato sobre el cambio de la TFGe a 12 meses (mL/min/1.73 m²) según cinco análisis del mismo ensayo simulado. Puntos e IC 95 %; línea punteada: efecto verdadero por intención de tratar en la simulación."
+#| fig-width: 7.5
+#| fig-height: 3.2
+analisis |>
+  mutate(analisis = fct_rev(fct_inorder(analisis))) |>
+  ggplot(aes(estimacion, analisis, xmin = ic_inf, xmax = ic_sup)) +
+  geom_vline(xintercept = 0, color = "grey60") +
+  geom_vline(xintercept = verdad_itt, linetype = "dashed", color = paleta_libro[["naranja"]]) +
+  geom_pointrange(color = paleta_libro[["azul"]]) +
+  labs(x = "Diferencia de cambio de TFGe (bicarbonato - placebo)", y = NULL)
+```
+
+**Qué vemos.** El efecto verdadero por intención de tratar en esta simulación es **`r num(verdad_itt, 2)`** mL/min/1.73 m². Las estimaciones van de **`r num(min(analisis$estimacion), 2)`** a **`r num(max(analisis$estimacion), 2)`**, y los valores p, de `r format.pval(min(analisis$p), digits = 2, eps = 0.001)` a `r format.pval(max(analisis$p), digits = 2, eps = 0.001)`. Tres detalles:
+
+-   El análisis **por protocolo** (C) sobrestima el efecto (`r num(analisis$estimacion[3], 2)`): en el brazo activo, quienes no tomaron el fármaco empeoraron más (`r num(mean(eca$cambio12[eca$brazo == "Bicarbonato" & eca$adhiere == 0], na.rm = TRUE), 2)` mL/min/1.73 m²) que el placebo (`r num(mean(eca$cambio12[eca$brazo == "Placebo"], na.rm = TRUE), 2)`), de modo que quien toma el fármaco es, además, un paciente que evoluciona mejor por otras razones; comparar solo a esos con todo el placebo rompe la aleatorización (11.2).
+-   El **análisis en un subgrupo** (E) tiene menos pacientes (`r analisis$n[5]` frente a `r analisis$n[2]`), una estimación menor y su IC incluye el 0 (p = `r format.pval(analisis$p[5], digits = 2)`); sin plan, alguien podría presentar solo el análisis que «sale».
+-   Entre A (`r num(analisis$estimacion[1], 2)`) y B (`r num(analisis$estimacion[2], 2)`) la diferencia es pequeña, pero **no es cero**: si eliges después de ver cuál da el valor p más bajo, la tasa de error del 5 % en que se basa la inferencia ya no se cumple (23.5).
+
+La moraleja: sin un plan previo, la libertad del analista es una fuente de resultados. Un SAP no la elimina; **la fija antes de que haya un resultado que favorecer**.
+
+## Paso 2: qué debe contener un SAP
+
+Un SAP se escribe con el protocolo y se **fecha y archiva antes de cerrar la base** (idealmente se deposita junto al registro del estudio, 23.5). Sus componentes:
+
+-   **Estimando** (*estimand*): la pregunta con precisión. Incluye población, tratamiento, desenlace, **qué se hace con los eventos que ocurren después de la asignación** (suspender el fármaco, tratamiento de rescate, muerte) y la medida resumen. Es el marco de la guía ICH E9(R1) y de 11.1.
+-   **Poblaciones de análisis**: quién entra en el análisis principal (por intención de tratar, 11.2) y en los secundarios (seguridad, por protocolo), con reglas **objetivas**.
+-   **Desenlaces**: uno principal; los secundarios, ordenados; cada uno con su definición, momento y forma de medirlo.
+-   **Modelo y ajustes**: el modelo exacto, las covariables (preespecificadas y justificadas, 8.6) y la escala del efecto.
+-   **Datos faltantes**: cuántos se esperan, el supuesto del análisis principal y los análisis de sensibilidad (Cap. 13).
+-   **Análisis de sensibilidad**: qué se repetirá con otros supuestos para ver si la conclusión resiste.
+-   **Subgrupos preespecificados**: pocos, con su dirección esperada y una prueba de interacción.
+-   **Multiplicidad**: cómo se controla el error cuando hay varios desenlaces, subgrupos o comparaciones (23.5).
+-   **Análisis interinos**: cuándo, quién los ve y qué regla detiene el ensayo (20.7).
+-   **Software y versiones**, y un **registro de cambios** del propio plan.
+
+## Paso 3: esqueleto de SAP para un ensayo aleatorizado
+
+Cada sección tiene una frase guía de lo que debe responder. Cópialo y adáptalo (es un esqueleto propio, no una plantilla oficial).
+
+````markdown
+# Plan de análisis estadístico: [título del ensayo]
+Versión 1.0 · fecha · autoras/es · firmado ANTES del cierre de la base de datos
+
+## 1. Objetivos y estimando
+Escribe la pregunta como estimando: población, tratamiento, desenlace, qué se hace con
+los eventos intercurrentes (suspensión del fármaco, rescate, muerte) y la medida resumen.
+
+## 2. Diseño y aleatorización
+Resume brazos, razón de asignación, estratificación y enmascaramiento: lo que el análisis debe respetar.
+
+## 3. Poblaciones de análisis
+Define con reglas objetivas la población por intención de tratar, la de seguridad y, si la hay,
+la «por protocolo», y di cómo se trata a quien no recibió el tratamiento asignado.
+
+## 4. Desenlaces
+Un desenlace principal; secundarios en orden de importancia; de seguridad. Para cada uno:
+definición, instrumento y momento de medición.
+
+## 5. Análisis principal
+Modelo exacto (p. ej., ANCOVA con TFGe basal y centro), covariables fijas, escala del efecto,
+IC, supuestos a revisar y qué se hará si fallan.
+
+## 6. Datos faltantes
+Cuántos se esperan y por qué; supuesto del análisis principal (p. ej., MAR) y método (p. ej.,
+imputación múltiple); análisis de sensibilidad bajo otros supuestos (MNAR).
+
+## 7. Análisis de sensibilidad y suplementarios
+Lista cerrada de análisis alternativos (p. ej., por protocolo, CACE) y para qué sirve cada uno.
+
+## 8. Subgrupos
+Máximo N subgrupos, definidos antes, con dirección esperada y prueba de interacción;
+todo lo demás se rotula como exploratorio.
+
+## 9. Multiplicidad
+Jerarquía de desenlaces o corrección elegida (Bonferroni, Holm, otra) y el α de cada contraste.
+
+## 10. Análisis interinos y reglas de parada
+Cuándo, con qué información, quién decide (comité independiente) y qué límites (p. ej., O'Brien-Fleming).
+
+## 11. Seguridad
+Eventos adversos: definición, tabulación por brazo, sin pruebas de hipótesis si no son un objetivo.
+
+## 12. Tablas y figuras maqueta
+Esboza las tablas y figuras que saldrán, vacías, para que nada se invente después.
+
+## 13. Software, versiones y reproducibilidad
+Versión de R y paquetes (renv), semilla, repositorio del código.
+
+## 14. Cambios al plan
+Fecha, motivo y autor de cada modificación; quién la aprobó y si se hizo antes o después de ver datos.
+````
+
+## Paso 4: esqueleto para un estudio observacional con emulación de ensayo
+
+En un estudio observacional no hay aleatorización, así que el SAP debe fijar, además, cómo se **imita** un ensayo (Cap. 12) y cómo se enfrentará la confusión. Su columna vertebral son los componentes del **protocolo del ensayo objetivo** (Hernán y Robins, 2016): elegibilidad, estrategias de tratamiento, asignación, tiempo cero, desenlace, contraste causal y plan de análisis.
+
+````markdown
+# Plan de análisis: emulación de un ensayo de [tratamiento] vs. [comparador] en [población]
+Versión 1.0 · fecha · fuente de datos · firmado ANTES de acceder a los datos de desenlace
+
+## 1. Protocolo del ensayo objetivo
+Describe el ensayo ideal que querrías hacer, con sus siete componentes (12.1), y cómo se emula cada uno.
+
+## 2. Fuente de datos y elegibilidad
+Origen de los datos (registro, historia clínica), periodo, criterios de inclusión y exclusión aplicados
+con la información disponible en el tiempo cero. Incluye el diagrama de participantes (23.1).
+
+## 3. Tiempo cero y seguimiento
+Define el momento en que se cumple la elegibilidad, se asigna la estrategia y empieza el seguimiento,
+para evitar el sesgo de tiempo inmortal (12.1). Fin del seguimiento y eventos competitivos.
+
+## 4. Estrategias de tratamiento y periodo de gracia
+Cómo se asigna cada persona a una estrategia y cuánto tiempo se le da para iniciar el tratamiento.
+
+## 5. Estimando
+Efecto por intención de tratar o por protocolo (observacional), población, medida resumen.
+
+## 6. Confusión y modelo
+Diagrama causal (DAG) y conjunto de ajuste, justificados; método (ponderación, estandarización,
+puntaje de propensión, 12.x); balance esperado (DEM) y qué se hará si falta solapamiento (positividad).
+
+## 7. Datos faltantes y errores de medición
+Patrón esperado, supuesto, método de imputación y sensibilidad.
+
+## 8. Análisis de sensibilidad
+Valor E para confusión no medida, controles negativos, otras definiciones del desenlace o del tiempo cero.
+
+## 9. Subgrupos y multiplicidad
+Lista cerrada de subgrupos con justificación; lo no listado es exploratorio.
+
+## 10. Reporte y reproducibilidad
+Guías (STROBE, RECORD, TARGET), código y registro (OSF o similar), versión de software y semillas.
+
+## 11. Cambios al plan
+Fecha, motivo, y si el cambio se hizo antes o después de ver los resultados.
+````
+
+## Paso 5: decisiones que se toman antes de ver los datos
+
+La regla de oro: toda decisión que **pueda depender del resultado** debe tomarse antes de conocer el resultado. Estas son las que más se quedan para después:
+
+```{r}
+#| label: tabla-decisiones-c234
+tribble(
+  ~Decisión, ~`Qué se fija antes`, ~`Qué pasa si se decide después`, ~`Dónde en el libro`,
+  "Estimando", "Población, tratamiento, manejo de eventos intercurrentes, medida", "Se cambia la pregunta para que salga una respuesta cómoda", "11.1",
+  "Población de análisis", "Reglas de inclusión y exclusión", "Excluir pacientes «raros» rompe la aleatorización", "11.2",
+  "Desenlace principal", "Definición, instrumento, momento", "Se elige el desenlace con el mejor valor p", "23.5",
+  "Covariables y modelo", "Conjunto de ajuste y forma funcional, desde un DAG", "Se ajusta por lo que mueve el *p* (stepwise)", "8.6",
+  "Datos faltantes", "Supuesto, método y sensibilidad", "Se elige el método que da el resultado deseado", "Cap. 13",
+  "Subgrupos", "Lista corta con dirección esperada", "Se «descubre» un subgrupo con efecto", "23.5",
+  "Multiplicidad", "Jerarquía o corrección", "Se reporta el menor *p* de varios", "23.5",
+  "Análisis interinos", "Número, reglas de parada", "Se mira «un poco» y se infla el error tipo I", "20.7",
+  "Si falla un supuesto", "Qué alternativa se usa (p. ej., otra escala o modelo)", "Se prueba hasta que algo funcione", "8.6",
+  "Sensibilidad", "Lista cerrada de análisis alternativos", "Solo se reportan los que confirman", "Cap. 13, 23.5"
+) |> knitr::kable()
+```
+
+Fíjate en el patrón de la tercera columna: **ninguna de esas decisiones tardías es una trampa deliberada**. Casi siempre es un analista de buena fe eligiendo «lo más razonable» después de ver los datos, con el sesgo inevitable de haber visto los datos.
+
+## Paso 6: probar el plan con datos «ciegos»
+
+Un SAP también se puede **ensayar sin mirar el resultado**. Escribes el análisis principal como una función, y la corres con la etiqueta del brazo **barajada al azar**. La estimación no significa nada (el tratamiento ya no está relacionado con nada), pero el código se prueba completo: que corra, que dé el formato esperado, que las tablas se llenen.
+
+```{r}
+#| label: ensayo-ciego-c234
+# Análisis principal ESCRITO EN EL SAP: ANCOVA por intención de tratar
+analisis_primario <- function(d) efecto(lm(cambio12 ~ brazo + tfg0 + centro, data = d))
+
+set.seed(2026)                                                   # la semilla del barajado, anotada
+ciego <- eca |> mutate(brazo = sample(brazo))                    # se rompe el vínculo brazo-resultado
+bind_rows(`Datos con brazo barajado (ensayo en seco)` = analisis_primario(ciego),
+          `Datos reales (análisis principal)`         = analisis_primario(eca), .id = "datos") |>
+  mutate(across(c(estimacion, ic_inf, ic_sup), \(x) round(x, 2)), p = format.pval(p, digits = 2, eps = 0.001))
+```
+
+**Qué vemos.** Con el brazo barajado la estimación es `r num(analisis_primario(ciego)$estimacion, 2)` (p = `r format.pval(analisis_primario(ciego)$p, digits = 2)`): cercana a cero, como debe ser, y la función corre de principio a fin. Con los datos reales, la misma función da `r num(analisis_primario(eca)$estimacion, 2)` (IC `r num(analisis_primario(eca)$ic_inf, 2)` a `r num(analisis_primario(eca)$ic_sup, 2)`). El código del análisis principal quedó fijado **antes** de ver el resultado; lo único nuevo es qué sale. En un ensayo real, la revisión ciega la hace quien programa, con los datos enmascarados, y la base se «congela» antes de abrir la asignación.
+
+## Trampas frecuentes
+
+::: {.callout-warning}
+## ⚠️ Un SAP no sirve si nadie puede ver cuándo se escribió
+
+-   **Escribirlo después de ver los datos y fecharlo antes.** Archívalo con fecha comprobable (en el registro del estudio o en un repositorio con control de versiones, 23.3).
+-   **Planes vagos** («se usarán modelos apropiados»): no limitan nada. Cada sección debe poder comprobarse.
+-   **No registrar los cambios.** Los cambios son legítimos (los datos reales a veces obligan), pero deben figurar con fecha, motivo y si ocurrieron **antes o después** de ver los resultados; si no, parecen *p-hacking* (23.5).
+-   **Usar el SAP para «blindar» el análisis equivocado.** Un plan preespecificado de un modelo mal planteado sigue siendo un modelo mal planteado.
+:::
+
+::: {.callout-important}
+## 🎯 En resumen
+
+-   Un SAP fija **antes de ver los resultados** el estimando, las poblaciones, el modelo, los datos faltantes, la sensibilidad, los subgrupos, la multiplicidad y las reglas interinas.
+-   Con el mismo ensayo, cinco análisis defendibles dieron estimaciones entre `r num(min(analisis$estimacion), 2)` y `r num(max(analisis$estimacion), 2)` (verdad: `r num(verdad_itt, 2)`) y valores p de `r format.pval(min(analisis$p), digits = 2, eps = 0.001)` a `r format.pval(max(analisis$p), digits = 2, eps = 0.001)`.
+-   Los esqueletos de este subcapítulo (ECA y emulación de ensayo) dan una frase guía por sección; el observacional añade el tiempo cero y la confusión.
+-   El análisis principal se **ensaya con datos ciegos**: así el código queda fijado antes del resultado.
+-   Todo cambio al plan se **registra** con fecha, motivo y momento (antes o después de ver los datos).
+:::
+
+## Ejercicio
+
+1.  Escribe en media página el SAP de la cohorte de iSGLT2 (Cap. 8) siguiendo el esqueleto observacional: ¿cuál es tu tiempo cero? ¿Qué conjunto de ajuste justificas con un DAG?
+2.  Añade al paso 1 un sexto análisis, «ANCOVA solo con TFGe basal (sin centro)». ¿Cambia algo? ¿Por qué el SAP debe decir qué factores de estratificación se incluyen?
+3.  Repite el ensayo en seco con otra semilla del barajado (por ejemplo `set.seed(7)`). ¿Qué estimación sale? ¿Qué probabilidad hay de que un barajado produzca un *p* < 0.05?
+
+## Referencias
+
+-   Hernán MA, Robins JM. Using big data to emulate a target trial when a randomized trial is not available. *Am J Epidemiol*. 2016;183:758-764.
+-   ICH E9(R1). *Addendum on estimands and sensitivity analysis in clinical trials to the guideline on statistical principles for clinical trials* (2019).
+-   Chan AW, Tetzlaff JM, Altman DG, et al. SPIRIT 2013 statement. *Ann Intern Med*. 2013;158:200-207 (el protocolo debe describir el plan de análisis).
+-   Schulz KF, Altman DG, Moher D. CONSORT 2010 Statement. *BMJ*. 2010;340:c332.
